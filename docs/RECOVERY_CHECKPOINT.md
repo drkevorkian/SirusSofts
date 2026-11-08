@@ -1,5 +1,36 @@
 # SirusSofts development recovery checkpoint
 
+## Live rollout update — .com is PRIMARY (2026-11-08)
+
+Operator asked to use **sirussofts.com** now; defer `.org` completely.
+The Hestia account `sirusweb` exists (WEB DOMAINS: 1), but prior attempts
+to inspect `sirussofts.org` failed. We still MUST VERIFY with
+`/usr/local/hestia/bin/v-list-web-domain sirusweb sirussofts.com`
+before using the CMS installer. If missing, list the actual hosted domains
+(`v-list-web-domains sirusweb`) and create .com without deleting unknown files.
+
+The .com-first update is on `feature/cms-vhost-distributed-nodes`.
+`06-deploy-cms-hestia.sh` now accepts either domain as the ONE primary
+Hestia site; `07-audit-cms-routing.sh` tests the selected primary only,
+with `--also-domain sirussofts.org` opt-in for a future configured
+alias; the `CMS/app/core.php` default domain is .com. Documentation was
+updated. GitHub Actions verification must pass on the LATEST commit
+before the operator updates their pinned VPS checkout.
+
+The actual VPS is still checked out in detached HEAD state at
+`8b8bb1bb52ae76d415989b6e40b58437acc03a4d`. To get the fix AFTER
+CI passes: `cd /root/SirusSofts; git status --short; git fetch origin feature/cms-vhost-distributed-nodes; git checkout NEW_PINNED_COMMIT`.
+Then run the **read-only** CMS plan with `--domain sirussofts.com`.
+Do not rerun the Hestia install, extension install, or firewall lockdown.
+Do not deploy the CMS until plan is clean and .com TLS is ready or staged.
+
+Live firewall: Hestia rule 2 is restricted to 127.0.0.1/32 TCP 8083;
+rule 9 allows 80/443, rule 10 SSH 22. The `04-audit.sh --live` PASSED.
+The redundant `05-lockdown-panel.sh --apply --rule 2` outputs
+`REFUSED` correctly because the rule is no longer public. Avoid repeating.
+
+---
+
 ## 2026-11-08 follow-up: executable PuTTY SSH installation candidate
 
 The operator wants this to be runnable on the next session, including EXACT
