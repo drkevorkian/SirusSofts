@@ -4,10 +4,10 @@ if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 /**
  * Administrator-only project virtual-host editor.
  * This file does not call a shell or accept configuration snippets or file paths.
- * A separate root-owned, restricted AF_UNIX agent handles Plesk provisioning.
+ * A separate restricted root-owned AF_UNIX agent handles Nginx page-only vhosts.
  */
 function cms_vhost_request(string $action,string $slug,string $kind): array {
-    $socket='/run/sirus-vhost/agent.sock';
+    $socket='/run/sirus-nginx/agent.sock';
     $connection=@stream_socket_client('unix://'.$socket,$errno,$error,5,STREAM_CLIENT_CONNECT);
     if(!is_resource($connection))
         throw new InvalidArgumentException('The Ubuntu virtual-host agent is unavailable or the website user lacks socket permission.');
@@ -47,13 +47,22 @@ function cms_vhost_post(PDO $db,string $action): never {
         if(!hash_equals('APPLY '.$slug,$confirmation))
             throw new InvalidArgumentException('Enter APPLY '.$slug.' to confirm this server change.');
     }
-    $result=cms_vhost_request($action==='vhost_apply'?'apply':'preview',
-                              $slug,(string)$project['kind']);
+    if($action==='vhost_rollback'){
+        $confirmation=(string)($_POST['confirmation']??'');
+        if(!hash_equals('ROLLBACK '.$slug,$confirmation))
+            throw new InvalidArgumentException('Enter ROLLBACK '.$slug.' to confirm removing only the managed vhost.');
+    }
+    $operation=match($action){
+        'vhost_apply'=>'apply',
+        'vhost_rollback'=>'rollback',
+        default=>'preview'
+    };
+    $result=cms_vhost_request($operation,$slug,(string)$project['kind']);
     $_SESSION['cms_vhost_result']=$result;
-    if($action==='vhost_apply'){
+    if($action==='vhost_apply'||$action==='vhost_rollback'){
         cms_audit($db,'vhost-'.$result['status'],$slug);
-        cms_flash('Plesk operation: '.$result['status'].' for '.$result['hostname'].'. Check DNS and HTTPS certificates.');
-    }else cms_flash('Virtual-host preview generated. No server changes made.');
+        cms_flash('Restricted Nginx vhost operation: '.$result['status'].' for '.$result['hostname'].'.');
+    }else cms_flash('Nginx vhost preview generated. No server changes made.');
     cms_go('/admin/hosting');
 }
 function cms_vhost_page(PDO $db,?string $error): void {
@@ -66,20 +75,26 @@ function cms_vhost_page(PDO $db,?string $error): void {
     if(is_array($preview)){
         echo '<div class="admin-panel"><h2>Latest routing result</h2><p><strong>'.cms_esc($preview['status']??'').'</strong> — '.cms_esc($preview['hostname']??'').'</p>';
         echo '<p>Subdomain: <code>'.cms_esc($preview['subdomain_url']??'').'</code><br>';
+        echo 'Alternate subdomain: <code>'.cms_esc($preview['secondary_subdomain_url']??'').'</code><br>';
         echo 'Directory URL: <code>'.cms_esc($preview['directory_url']??'').'</code><br>';
-        echo 'Plesk document root: <code>'.cms_esc($preview['www_root']??'').'</code></p>';
+        echo 'Alternate directory: <code>'.cms_esc($preview['secondary_directory_url']??'').'</code><br>';
+        echo 'Nginx document root: <code>'.cms_esc($preview['www_root']??'').'</code></p>';
         if(isset($preview['note']))echo '<p>'.cms_esc($preview['note']).'</p>';
         echo '</div>';
     }
     ?><div class="admin-panel"><h2>Project routing</h2>
-      <p>Every published project can use both <code>https://slug.sirussofts.com</code> and
-      <code>https://sirussofts.com/slug</code>. A content project uses the shared CMS;
-      an application uses its own existing <code>httpdocs/slug/</code> directory.</p>
-      <p>Preview checks target paths. Apply uses a limited Ubuntu service and Plesk's
-      native subdomain commands. No raw nginx rules, arbitrary document-root paths,
-      server restart, or GitHub source publication is allowed here.</p>
-      <p>DNS records and HTTPS certificates still require validation. This editor
-      never overwrites an unmanaged existing subdomain.</p></div>
+      <p>CMS pages can use both <code>project.sirussofts.org</code> and
+      <code>project.sirussofts.com</code>, plus <code>/project</code> on either root.
+      Applying a content-page vhost requires an already published project and
+      a valid TLS certificate covering both project hostnames.</p>
+      <p>The restricted Nginx service accepts only project slug, kind and
+      preview/apply/rollback. It validates ownership, refuses unmanaged files,
+      tests Nginx configuration and supports rollback. No arbitrary shell
+      commands or paths are accepted from PHP.</p>
+      <p><strong>Application vhosts are not yet supported by the new service.</strong>
+      cPoint, WorldCom and Sentinel Trader remain protected. DNS and TLS
+      provisioning are external administrator tasks; this screen never publishes
+      source code, databases or credentials.</p></div>
       <div class="admin-panel table-scroll"><table><thead><tr>
       <th>Project</th><th>Directory route</th><th>Subdomain</th><th>Provisioning</th>
       </tr></thead><tbody>
@@ -87,16 +102,19 @@ function cms_vhost_page(PDO $db,?string $error): void {
         $slug=(string)$project['slug']; ?>
       <tr><td><strong><?=cms_esc($project['title'])?></strong><br><small><?=cms_esc($project['kind'])?> / <?=cms_esc($project['state'])?></small></td>
       <td><code>/<?=cms_esc($slug)?></code></td>
-      <td><code><?=cms_esc($slug)?>.sirussofts.com</code></td>
+      <td><code><?=cms_esc($slug)?>.sirussofts.org</code><br><code><?=cms_esc($slug)?>.sirussofts.com</code></td>
       <td><form method="post" action="/admin/hosting">
           <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
           <input type="hidden" name="slug" value="<?=cms_esc($slug)?>">
           <button class="btn small" name="action" value="vhost_preview" type="submit">Preview</button>
           <?php if($project['state']==='published'):?>
-          <label>Type <code>APPLY <?=cms_esc($slug)?></code> to provision
+          <label>Type <code>APPLY <?=cms_esc($slug)?></code> or <code>ROLLBACK <?=cms_esc($slug)?></code>
           <input name="confirmation" maxlength="50" autocomplete="off" placeholder="APPLY <?=cms_esc($slug)?>"></label>
-          <button class="btn small primary" name="action" value="vhost_apply" type="submit">Apply</button>
-          <?php else:?><small>Publish first to enable Apply</small><?php endif;?>
+          <button class="btn small primary" name="action" value="vhost_apply" type="submit">Apply page vhost</button>
+          <button class="btn small" name="action" value="vhost_rollback" type="submit">Rollback managed vhost</button>
+          <?php else:?><label>Type <code>ROLLBACK <?=cms_esc($slug)?></code> if previously provisioned
+          <input name="confirmation" maxlength="50" autocomplete="off" placeholder="ROLLBACK <?=cms_esc($slug)?>"></label>
+          <button class="btn small" name="action" value="vhost_rollback" type="submit">Rollback managed vhost</button><small>Publish first to enable Apply</small><?php endif;?>
         </form></td></tr>
     <?php endforeach;?></tbody></table></div>
     <?php cms_admin_shell_end($db);
