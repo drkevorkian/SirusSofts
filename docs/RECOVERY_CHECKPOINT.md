@@ -1,5 +1,102 @@
 # SirusSofts development recovery checkpoint
 
+## NEWER DEPLOYMENT STATE — 2026-11-08 CLEAN UBUNTU 24.04 (SUPERSEDES OLD NGiNX/PLesK PLAN)
+
+The operator confirmed **the IONOS vServer has been WIPED and is now fresh
+Ubuntu 24.04 LTS with NO Plesk**. This invalidates the previous assumption
+that an existing cPoint/Plesk installation needs preserving on this VPS.
+All changes since this clarification are in the GitHub staging branch.
+**No VPS, DNS, SSL, firewall, Gentoo or project files were changed remotely.**
+
+**Canonical clean-server deployment path:**
+[deploy/ubuntu24/README.md](../deploy/ubuntu24/README.md)
+
+Hosting panel selection: free, supported **HestiaCP** rather than paid cPanel.
+Nginx is the public port 80/443 reverse proxy; Apache is managed backend
+8080/8443; per-site PHP-FPM/FastCGI handles PHP 8.3/8.4; MariaDB and
+private PDO_SQLITE coexist. Hestia owns Nginx virtual hosts, TLS and
+iptables/Fail2Ban; the old independent Nginx vhost agent and Plesk installers
+MUST NOT RUN alongside Hestia. UFW MUST NOT be enabled concurrently.
+Do not enable "all" PHP/Apache modules; deploy the curated, tested set only.
+
+Staged fresh-server scripts (all support read-only --check):
+1. deploy/ubuntu24/01-preflight.sh: Ubuntu 24.04, arch, free/total disk
+   headroom, RAM, no existing panel/servers, no UFW, free ports, SSH port22.
+   Strict mode intended for real root console; CI only read-only --check.
+2. deploy/ubuntu24/02-install-hestia.sh: two-phase REVIEWED official Hestia
+   release installer download + printed SHA256, explicit --install with hash,
+   interactive confirmation. Nginx+Apache+PHP-FPM 8.3,8.4+MariaDB+iptables+
+   Fail2Ban, disables mail/DNS/FTP/webterminal/API.
+   CRITICAL: installation is deliberately NOT run in CI or on VPS.
+3. deploy/ubuntu24/03-install-extensions.sh: selected PHP and Apache modules,
+   tests PHP extension existence and Nginx/Apache syntax after installing.
+4. deploy/ubuntu24/04-audit.sh: nonmutating Hestia services and firewall
+   readiness, additional rejection of ANY public ACCEPT TCP/8083 rule;
+   see deploy/ubuntu24/firewall_rules.py and Python tests.
+5. deploy/ubuntu24/05-lockdown-panel.sh: Hestia-native interactive firewall
+   restriction of a verified public TCP/8083 ACCEPT rule to 127.0.0.1/32
+   (SSH tunnel) or an explicitly narrow trusted CIDR; fails closed.
+   Out-of-band IONOS console and a working SSH connection are required.
+6. deploy/ubuntu24/06-deploy-cms-hestia.sh: guarded, opt-in CMS code deploy
+   into the Hestia owned /home/sirusweb/web/sirussofts.org/public_html, with
+   root-owned **BOTH** HTTP nginx.conf_siruscms AND HTTPS
+   nginx.ssl.conf_siruscms security include fragments, preventing exposure of
+   app/, bin/, tests/ and hidden storage. Blocks existing CMS/other homepage
+   overwrites; initializes private SQLite/admin credentials as NON-root user.
+   Hestia TLS is not issued by script; after SSL activation HTTPS guard
+   inclusion must be independently verified.
+7. deploy/ubuntu24/07-audit-cms-routing.sh: nonmutating REQUIRED launch gate:
+   verify both custom includes actually loaded by Hestia Nginx, and make
+   verified real HTTPS requests to BOTH sirussofts.org and sirussofts.com.
+   Expected homepage/admin = HTTP200; private source = HTTP403/404.
+   Cannot pass until public DNS, Hestia aliases and certificates are ready.
+8. deploy/ubuntu24/sirus-cms-protect.nginx.conf: exact matches and ^~
+   prefix locations that outrank Hestia's Nginx nested static file regexes;
+   the prior single regex protection was weaker.
+9. Root README.md/CMS/index.php comments updated to prefer this clean
+   Ubuntu 24.04/Hestia track, not Plesk.
+
+Verification:
+- GitHub Actions full PHP/Python/Bash suite, including new script bash -n +
+  read-only --check, pure firewall parsing/audit tests, and **disposable
+  Nginx HTTP AND verified HTTPS requests** against independently loaded
+  Nginx guards; tests cover nested CSS/JS static regex attempts to bypass
+  server-level private-prefix protection.
+- Latest VERIFIED IMPLEMENTATION commit before this doc update is
+  3103218399a928499cea51cf5f708cbe00cc20ca; verify current CI run
+  and branch HEAD because this checkpoint edit itself creates another commit.
+- Historic Nginx private-path test initially failed due to a Python string
+  literal typo and was fixed; do not rely on the earlier red test runs.
+- **No actual live Hestia install/upgrade, in-place domain binding, public
+  SSL ACME test or VPS firewall change has been performed.**
+
+**Important deployment blockers**:
+- Hestia must FIRST be installed and reviewed by operator (destructive
+  service control, SSH/firewall risks). Initial guided CMS launch is
+  materially closer to ready, but full Hestia integration is not proven
+  until staging/real clean-server smoke and --live security gates pass.
+- The previous **direct-Nginx** subdomain/path app routing is NOT a
+  compatible Hestia-native app provisioning system. Build separate Hestia
+  proxy templates and isolated HTTP app runtimes before announcing complete
+  project subdomain/path hosting. No cPoint, WorldCom or Sentinel Trader
+  installation or auto-publication.
+- User must provide real host FQDN, admin email, SSH access, provider firewall
+  settings and DNS from their own VPS environment. Do not store secrets
+  or passwords in repo or installer CLI arguments.
+- Encrypted backup and cross-database migration limitations from below
+  remain. Main branch/PR #5 staging rule remains in force.
+
+**Next step** after verifying CI and the current repository SHA:
+(1) follow deploy/ubuntu24/README.md on fresh VPS through strict preflight,
+reviewed Hestia installation and external firewall tests; (2) create
+Hestia-managed sirussofts.org web domain and .com alias with valid TLS;
+(3) run guarded CMS --plan and --deploy; (4) run
+07-audit-cms-routing.sh --live and 04-audit.sh --live;
+(5) keep unapproved independent apps disabled and begin Hestia-native
+per-app routing integration design.
+
+---
+
 Updated: 2026-11-08 UTC.
 Repository: https://github.com/drkevorkian/SirusSofts
 Working branch: feature/cms-vhost-distributed-nodes
