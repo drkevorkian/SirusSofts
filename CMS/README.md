@@ -110,3 +110,92 @@ previous CMS code inside the Hestia domain's private directory. It replaces
 only managed CMS code/assets, never overwrites SQLite or resets admin credentials.
 Any custom edits inside these managed code directories will be replaced; review
 and back them up first. No cPoint project is deployed by the updater.
+
+## Automated GitHub repository import (0.3.0-alpha)
+
+The administrator page `/admin/github` includes **Import all repositories**,
+a paginated list of imported repos (including private ones), repository visibility,
+and a link to review each CMS project. Pressing the button **queues** work.
+It cannot run shell commands, access token files or fetch GitHub data in PHP.
+
+The separate scheduled importer uses GitHub's authenticated `/user/repos`
+API, paginates through up to 10,000 repositories, and imports ALL repos visible
+to the configured token (owned, collaborator and permitted organizations).
+Private repos stay private on GitHub. New CMS entries are **drafts**, and
+each repository only becomes a listing when an administrator explicitly
+publishes its CMS project. No source is cloned to the webserver, no
+applications are deployed, and nothing changes GitHub repository permissions.
+Name collision handling generates unique stable slugs; repeat scans preserve
+existing CMS titles, descriptions, publication state and manual deletion.
+A repository renaming on GitHub updates the private metadata but does not
+silently rename existing public routes.
+
+### One-time configuration on the VPS (root PuTTY)
+
+1. Create a GitHub credential whose repository visibility covers everything
+   intended for import. A fine-grained PAT may cover all repos owned by ONE
+   resource owner; private organization/collaborator access may require
+   additional permissions, organization approval/SSO, a classic `repo` scope
+   token, or separately configured GitHub App installations. The importer
+   can only enumerate repositories visible to the chosen credential.
+   Avoid granting write permissions unless genuinely needed. Never
+   paste the token into the CMS, ChatGPT, a command argument or GitHub repo.
+
+2. Securely enter the credential in PuTTY without shell-history exposure:
+
+```bash
+install -d -o root -g root -m 0700 /etc/sirussofts
+read -r -s -p 'Paste GitHub access token (input hidden): ' GH_TOKEN
+echo
+if [ "${#GH_TOKEN}" -lt 20 ]; then
+  unset GH_TOKEN
+  echo 'Token too short; no credential saved'
+else
+  (umask 077; printf '%s\n' "$GH_TOKEN" > /etc/sirussofts/github.token)
+  unset GH_TOKEN
+  chown root:root /etc/sirussofts/github.token
+  chmod 0600 /etc/sirussofts/github.token
+fi
+```
+
+3. From the reviewed, pinned SirusSofts Git checkout after installing
+   CMS 0.3.0-alpha with the standard `08-upgrade-cms-hestia.sh` workflow:
+
+```bash
+cd /root/SirusSofts
+bash deploy/ubuntu24/09-install-github-import.sh --plan
+bash deploy/ubuntu24/09-install-github-import.sh --install
+systemctl start sirus-github-import.service
+journalctl -u sirus-github-import.service -n 30 --no-pager
+systemctl list-timers --all | grep sirus-github-import
+```
+
+Type `ENABLE GITHUB IMPORT` when prompted. The installer copies
+root-owned code to `/usr/local/libexec` and enables a systemd timer.
+The worker runs as `sirusweb` with a short-lived systemd
+`LoadCredential` mount for the root-owned token. The CMS website itself
+does not receive the token. The timer polls every ~2 minutes and actually
+calls GitHub only when an import is queued or the 6-hour refresh is due.
+The initial `systemctl start` performs the first sync immediately.
+
+4. Sign in to `https://sirussofts.com/admin/github`, inspect the
+   discovered count and draft entries, and optionally click **Import all
+   repositories** to request an on-demand re-scan.
+
+### Limits and recovery
+
+- "All" means **all API-visible repositories** for the configured credential,
+  not every local Git directory or repositories from unconnected Git hosts.
+- Import only registers repository metadata and private draft landing pages.
+  It does not copy Git source, deploy services or automatically provision
+  subdomains. Those will be separate reviewed workflows.
+- API failures are recorded under the private sync status without resetting
+  the CMS project directory. A failed page stops the import, rather than
+  silently pretending discovery was complete.
+- Revoking the token in GitHub stops future synchronization; existing
+  draft records remain until you explicitly delete them.
+- Backup the live SQLite database before CMS or importer upgrades. The
+  importer must never run as root because SQLite WAL/shm files belong to
+  the unprivileged website account.
+- Stop automatic syncing with `systemctl disable --now
+  sirus-github-import.timer`; this does not delete imported projects.
