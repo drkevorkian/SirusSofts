@@ -83,6 +83,9 @@ if [[ ! -f "$PRIVATE/data/cms.sqlite3" ]]; then
       php "$RELEASE/CMS/bin/setup.php"
   [[ -f "$PRIVATE/data/cms.sqlite3" ]] || fail "CMS initialization incomplete"
 fi
+# Upgrade the existing private SQLite schema before making a new CMS release active.
+runuser -u sirusweb -- env SIRUS_CMS_PRIVATE_ROOT="$PRIVATE" \
+    php "$RELEASE/CMS/bin/migrate-schema.php"
 [[ ! -e "$ROOT/.current.new" && ! -L "$ROOT/.current.new" ]] || fail "Stale release staging link"
 ln -s "$RELEASE" "$ROOT/.current.new"
 mv -Tf "$ROOT/.current.new" "$CURRENT"

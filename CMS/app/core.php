@@ -96,6 +96,17 @@ SQL);
         id INTEGER PRIMARY KEY AUTOINCREMENT,at TEXT NOT NULL,username TEXT NOT NULL,
         action TEXT NOT NULL,reference TEXT NOT NULL
     )');
+    $db->exec("CREATE TABLE IF NOT EXISTS cms_hosting_preferences (
+        slug TEXT PRIMARY KEY REFERENCES cms_projects(slug) ON DELETE CASCADE,
+        assigned_node TEXT NOT NULL DEFAULT 'vps-primary',
+        database_backend TEXT NOT NULL DEFAULT 'sqlite'
+            CHECK(database_backend IN ('sqlite','mariadb','mysql')),
+        source_repository TEXT NOT NULL DEFAULT '',
+        source_ref TEXT NOT NULL DEFAULT '',
+        release_policy TEXT NOT NULL DEFAULT 'hold'
+            CHECK(release_policy IN ('hold','manual-review')),
+        updated_at TEXT NOT NULL
+    )");
     $db->exec('CREATE INDEX IF NOT EXISTS cms_projects_status ON cms_projects(state,sort_order)');
 }
 function cms_defaults(): array {

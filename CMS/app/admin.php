@@ -15,7 +15,7 @@ function cms_admin_post(PDO $db,string $path): void {
         cms_flash('Welcome to your SirusSofts dashboard.');cms_go('/admin');
     }
     cms_need_admin();
-    if(in_array($action,['vhost_preview','vhost_apply','vhost_rollback'],true)&&$path==='/admin/hosting'){
+    if(in_array($action,['vhost_preview','vhost_apply','vhost_rollback','vhost_settings'],true)&&$path==='/admin/hosting'){
         cms_vhost_post($db,$action);
     }
     if($action==='logout'){

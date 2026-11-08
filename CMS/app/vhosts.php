@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
+require_once __DIR__.'/hosting_config.php';
 /**
  * Administrator-only project virtual-host editor.
  * This file does not call a shell or accept configuration snippets or file paths.
@@ -40,6 +41,19 @@ function cms_vhost_post(PDO $db,string $action): never {
     $st->execute([$slug]);
     $project=$st->fetch(PDO::FETCH_ASSOC);
     if(!$project)throw new InvalidArgumentException('The selected project is not in the CMS.');
+    if($action==='vhost_settings'){
+        $saved=cms_hosting_save($db,$slug,[
+            'assigned_node'=>$_POST['assigned_node']??null,
+            'database_backend'=>$_POST['database_backend']??null,
+            'source_repository'=>$_POST['source_repository']??null,
+            'source_ref'=>$_POST['source_ref']??null,
+            'release_policy'=>$_POST['release_policy']??null,
+        ]);
+        cms_audit($db,'hosting-config',$slug);
+        cms_flash('Planned hosting preferences saved; no deployment or database migration performed.');
+        cms_go('/admin/hosting');
+    }
+
     if($action==='vhost_apply'){
         if($project['state']!=='published')
             throw new InvalidArgumentException('Publish the project listing before provisioning its virtual host.');
@@ -91,18 +105,59 @@ function cms_vhost_page(PDO $db,?string $error): void {
       preview/apply/rollback. It validates ownership, refuses unmanaged files,
       tests Nginx configuration and supports rollback. No arbitrary shell
       commands or paths are accepted from PHP.</p>
-      <p><strong>Application vhosts are not yet supported by the new service.</strong>
-      cPoint, WorldCom and Sentinel Trader remain protected. DNS and TLS
+      <p><strong>Application vhosts require an explicitly approved, healthy loopback HTTP runtime.</strong>
+      cPoint, WorldCom and Sentinel Trader remain protected. Planned hosting settings only record intent and do not deploy apps, change node assignments, switch databases or publish projects. DNS and TLS
       provisioning are external administrator tasks; this screen never publishes
       source code, databases or credentials.</p></div>
       <div class="admin-panel table-scroll"><table><thead><tr>
-      <th>Project</th><th>Directory route</th><th>Subdomain</th><th>Provisioning</th>
+      <th>Project</th><th>Directory route</th><th>Subdomain</th><th>Deployment settings</th><th>Provisioning</th>
       </tr></thead><tbody>
     <?php foreach(cms_projects($db,false) as $project):
-        $slug=(string)$project['slug']; ?>
+        $slug=(string)$project['slug'];
+        $configuration=cms_hosting_config($db,$slug); ?>
       <tr><td><strong><?=cms_esc($project['title'])?></strong><br><small><?=cms_esc($project['kind'])?> / <?=cms_esc($project['state'])?></small></td>
       <td><code>/<?=cms_esc($slug)?></code></td>
       <td><code><?=cms_esc($slug)?>.sirussofts.org</code><br><code><?=cms_esc($slug)?>.sirussofts.com</code></td>
+      <td>
+        <?php if(in_array($slug,['cpoint','worldcom','sentinel-trader','sentinal-trader'],true)):?>
+          <small>Protected — managed independently</small>
+        <?php else:?>
+        <details><summary>Configuration (planned)</summary>
+          <form method="post" action="/admin/hosting">
+            <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+            <input type="hidden" name="slug" value="<?=cms_esc($slug)?>">
+            <input type="hidden" name="action" value="vhost_settings">
+            <label>Assigned node
+              <input name="assigned_node" maxlength="64" required
+                value="<?=cms_esc($configuration['assigned_node'])?>">
+            </label>
+            <label>Database engine (intent only)
+              <select name="database_backend">
+                <?php foreach(['sqlite'=>'SQLite','mariadb'=>'MariaDB','mysql'=>'MySQL'] as $driver=>$label):?>
+                  <option value="<?=$driver?>" <?=$configuration['database_backend']===$driver?'selected':''?>><?=$label?></option>
+                <?php endforeach;?>
+              </select>
+            </label>
+            <label>GitHub owner/repository
+              <input name="source_repository" maxlength="130"
+                value="<?=cms_esc($configuration['source_repository'])?>" placeholder="owner/repository">
+            </label>
+            <label>Git ref/branch
+              <input name="source_ref" maxlength="120"
+                value="<?=cms_esc($configuration['source_ref'])?>" placeholder="main">
+            </label>
+            <label>Release policy
+              <select name="release_policy">
+                <?php foreach(['hold'=>'On hold','manual-review'=>'Manual approval required'] as $mode=>$label):?>
+                  <option value="<?=$mode?>" <?=$configuration['release_policy']===$mode?'selected':''?>><?=$label?></option>
+                <?php endforeach;?>
+              </select>
+            </label>
+            <button class="btn small" type="submit">Save preferences</button>
+          </form>
+        </details>
+        <?php endif;?>
+      </td>
       <td><form method="post" action="/admin/hosting">
           <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
           <input type="hidden" name="slug" value="<?=cms_esc($slug)?>">
