@@ -5,6 +5,37 @@ require_once __DIR__.'/vhosts.php';
 require_once __DIR__.'/operations.php';
 require_once __DIR__.'/github_projects.php';
 
+/** Keep draft and published projects in one explicit, validated order. */
+function cms_reorder_project_ids(PDO $db,string $ids): void {
+    if(strlen($ids)>10000 || $ids==='')throw new InvalidArgumentException('Invalid project order.');
+    $tokens=explode(',',$ids);
+    if(count($tokens)>1000)throw new InvalidArgumentException('Too many projects.');
+    $numbers=[];
+    foreach($tokens as $token){
+        if(!preg_match('/^[1-9][0-9]{0,9}$/D',$token))
+            throw new InvalidArgumentException('Invalid project ID in order.');
+        $numbers[]=(int)$token;
+    }
+    if(count($numbers)!==count(array_unique($numbers)))
+        throw new InvalidArgumentException('Duplicate project ID in order.');
+    $current=array_map('intval',$db->query('SELECT id FROM cms_projects')->fetchAll(PDO::FETCH_COLUMN));
+    $requested=$numbers;
+    sort($current,SORT_NUMERIC);
+    sort($requested,SORT_NUMERIC);
+    if($current!==$requested)
+        throw new InvalidArgumentException('Projects changed. Refresh and try again.');
+    $db->beginTransaction();
+    try {
+        $st=$db->prepare('UPDATE cms_projects SET sort_order=?,updated_at=? WHERE id=?');
+        $now=cms_now();
+        foreach($numbers as $position=>$id)$st->execute([($position+1)*10,$now,$id]);
+        $db->commit();
+    } catch(Throwable $error) {
+        if($db->inTransaction())$db->rollBack();
+        throw $error;
+    }
+}
+
 /** Private CMS administration. No arbitrary PHP upload or shell command console. */
 function cms_admin_post(PDO $db,string $path): void {
     cms_check_csrf();
@@ -23,6 +54,21 @@ function cms_admin_post(PDO $db,string $path): void {
         $_SESSION=[];
         session_regenerate_id(true);
         cms_go('/admin/login');
+    }
+    if($action==='github_import_request' && $path==='/admin/github'){
+        $db->exec('INSERT OR IGNORE INTO cms_github_sync_state(id) VALUES (1)');
+        $db->prepare('UPDATE cms_github_sync_state
+                      SET requested_at=MAX(requested_at + 1, attempted_at + 1, ?) WHERE id=1')
+           ->execute([time()]);
+        cms_audit($db,'github-import-request','all-accessible-repositories');
+        cms_flash('Repository import requested. The scheduled importer will process it on its next run; no repositories have been published.');
+        cms_go('/admin/github');
+    }
+    if($action==='reorder_projects' && $path==='/admin/projects'){
+        cms_reorder_project_ids($db,(string)($_POST['order_ids']??''));
+        cms_audit($db,'reorder-projects','project-list');
+        cms_flash('Project order saved. Published cards follow this order.');
+        cms_go('/admin/projects');
     }
     if($action==='save_project'){
         $id=(string)($_POST['id']??'');
@@ -195,7 +241,7 @@ function cms_admin_project_editor(PDO $db,?array $project): void {
                 'category'=>'Software','icon'=>'◈','kind'=>'page','state'=>'draft','sort_order'=>100];
     cms_admin_shell_start($db,$new?'New project':'Edit project');
     ?><div class="admin-panel">
-      <p class="muted">Create a landing page immediately. For an executable PHP/Linux application, deploy its code separately; the CMS never runs shell commands supplied through this form. For an already-deployed application, Draft hides only its CMS listing: its direct URL and API remain active until separately disabled in Plesk.</p>
+      <p class="muted">Create a landing page immediately. For an executable PHP/Linux application, deploy its code separately; the CMS never runs shell commands supplied through this form. For an already-deployed application, Draft hides only its CMS listing: its direct URL and API remain active until separately disabled in Hestia and its separate application runtime.</p>
       <form method="post" action="<?=$new?'/admin/projects/new':'/admin/projects/'.(int)$project['id']?>">
         <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
         <input type="hidden" name="action" value="save_project">
@@ -226,7 +272,7 @@ function cms_admin_project_editor(PDO $db,?array $project): void {
       <?php if(!$new):?><div class="address-panel"><h3>Routes for this project</h3>
         <code>https://sirussofts.com/<?=cms_esc($project['slug'])?></code>
         <code>https://<?=cms_esc($project['slug'])?>.sirussofts.com/</code>
-        <p class="muted small">The directory route is handled by the CMS for content projects or the application's own directory. The subdomain also requires a Plesk host and DNS/TLS provisioning; saving does not configure DNS.</p>
+        <p class="muted small">The directory route is handled by the CMS for content projects or the application's own directory. The subdomain requires a separate Hestia-managed site or proxy, DNS, and TLS; saving a project does not provision it.</p>
       </div><?php endif;?>
     </div><?php cms_admin_shell_end($db);
 }
@@ -312,10 +358,22 @@ function cms_admin_run(PDO $db,string $path): never {
           </div><?php
     }elseif($path==='/admin/projects'){
         $rows=cms_projects($db,false);
-        ?><div class="toolbar"><p>Manage project landing pages and publication state.</p>
+        ?><div class="toolbar"><div><p>Manage project landing pages and publication state.</p>
+          <p class="muted small">Drag rows or use the arrow buttons to arrange projects, then Save order. Without JavaScript, use each project's numeric homepage order field.</p></div>
           <a class="btn primary" href="/admin/projects/new">+ New project</a></div>
-          <div class="admin-panel table-scroll"><table><thead><tr><th>Project</th><th>Kind</th><th>Visibility</th><th>Routes</th><th>Actions</th></tr></thead><tbody>
-          <?php foreach($rows as $project):?><tr><td><strong><?=cms_esc($project['title'])?></strong><br>
+          <form id="cms-project-order" method="post" action="/admin/projects" data-project-order-form>
+            <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+            <input type="hidden" name="action" value="reorder_projects">
+            <input type="hidden" name="order_ids" value="<?=cms_esc(implode(',',array_map(static fn($p)=>(int)$p['id'],$rows)))?>" data-project-order-ids>
+          </form>
+          <div class="order-toolbar"><button class="btn small" type="submit" form="cms-project-order">Save project order</button>
+            <span role="status" aria-live="polite" data-order-status>Order is unchanged.</span></div>
+          <div class="admin-panel table-scroll"><table><thead><tr><th>Order</th><th>Project</th><th>Kind</th><th>Visibility</th><th>Routes</th><th>Actions</th></tr></thead><tbody data-project-list>
+          <?php foreach($rows as $project):?><tr data-project-row="<?=(int)$project['id']?>" draggable="true">
+            <td class="order-control"><button type="button" data-project-up aria-label="Move <?=cms_esc($project['title'])?> up">↑</button>
+            <button type="button" data-project-down aria-label="Move <?=cms_esc($project['title'])?> down">↓</button>
+            <small aria-hidden="true" title="Drag to reorder">↕</small></td>
+            <td><strong><?=cms_esc($project['title'])?></strong><br>
              <code><?=cms_esc($project['slug'])?></code></td>
              <td><?=cms_esc($project['kind'])?></td>
              <td><span class="state-pill <?=cms_esc($project['state'])?>"><?=cms_esc($project['state'])?></span></td>

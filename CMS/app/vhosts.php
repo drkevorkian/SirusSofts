@@ -54,6 +54,12 @@ function cms_vhost_post(PDO $db,string $action): never {
         cms_go('/admin/hosting');
     }
 
+    // Hestia owns Nginx/Apache vhosts. The legacy standalone Nginx agent is
+    // incompatible even if an old socket is accidentally present.
+    if(is_file('/etc/hestiacp/hestia.conf')){
+        throw new InvalidArgumentException(
+            'On Hestia, use the hosting panel for DNS, TLS and vhost deployment. This CMS only stores planning metadata.');
+    }
     if($action==='vhost_apply'){
         if($project['state']!=='published')
             throw new InvalidArgumentException('Publish the project listing before provisioning its virtual host.');
@@ -80,6 +86,7 @@ function cms_vhost_post(PDO $db,string $action): never {
     cms_go('/admin/hosting');
 }
 function cms_vhost_page(PDO $db,?string $error): void {
+    $hestia=is_file('/etc/hestiacp/hestia.conf');
     cms_admin_shell_start($db,'Virtual hosts');
     $flash=cms_take_flash();
     if($flash)echo '<div class="flash-message">'.cms_esc($flash['message']??'').'</div>';
@@ -96,15 +103,23 @@ function cms_vhost_page(PDO $db,?string $error): void {
         if(isset($preview['note']))echo '<p>'.cms_esc($preview['note']).'</p>';
         echo '</div>';
     }
-    ?><div class="admin-panel"><h2>Project routing</h2>
+    ?><?php if($hestia): ?>
+      <div class="admin-panel"><h2>HestiaCP controls live hosting</h2>
+      <p>This page stores project hosting plans, not live virtual hosts.
+      The old standalone Nginx agent is disabled on Hestia; enabling it would
+      conflict with Hestia-owned Nginx and Apache configurations.</p>
+      <p>For a future project domain, create a separate Hestia-managed website
+      or reviewed reverse-proxy template, configure DNS and TLS, and verify
+      application health before declaring it live.</p></div>
+    <?php endif; ?>
+    <div class="admin-panel"><h2>Project routing</h2>
       <p>CMS pages can use both <code>project.sirussofts.org</code> and
       <code>project.sirussofts.com</code>, plus <code>/project</code> on either root.
       Applying a content-page vhost requires an already published project and
       a valid TLS certificate covering both project hostnames.</p>
-      <p>The restricted Nginx service accepts only project slug, kind and
-      preview/apply/rollback. It validates ownership, refuses unmanaged files,
-      tests Nginx configuration and supports rollback. No arbitrary shell
-      commands or paths are accepted from PHP.</p>
+      <p>The legacy restricted Nginx service is for non-Hestia hosts only.
+      Hestia-native application routing must be reviewed and deployed separately.
+      The CMS cannot execute shell commands or install server configuration.</p>
       <p><strong>Application vhosts require an explicitly approved, healthy loopback HTTP runtime.</strong>
       cPoint, WorldCom and Sentinel Trader remain protected. Planned hosting settings only record intent and do not deploy apps, change node assignments, switch databases or publish projects. DNS and TLS
       provisioning are external administrator tasks; this screen never publishes
@@ -158,7 +173,10 @@ function cms_vhost_page(PDO $db,?string $error): void {
         </details>
         <?php endif;?>
       </td>
-      <td><form method="post" action="/admin/hosting">
+      <td><?php if($hestia): ?>
+          <small>Manual Hestia setup required. No live vhost changes available here.</small>
+        <?php else: ?>
+          <form method="post" action="/admin/hosting">
           <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
           <input type="hidden" name="slug" value="<?=cms_esc($slug)?>">
           <button class="btn small" name="action" value="vhost_preview" type="submit">Preview</button>
@@ -170,7 +188,7 @@ function cms_vhost_page(PDO $db,?string $error): void {
           <?php else:?><label>Type <code>ROLLBACK <?=cms_esc($slug)?></code> if previously provisioned
           <input name="confirmation" maxlength="50" autocomplete="off" placeholder="ROLLBACK <?=cms_esc($slug)?>"></label>
           <button class="btn small" name="action" value="vhost_rollback" type="submit">Rollback managed vhost</button><small>Publish first to enable Apply</small><?php endif;?>
-        </form></td></tr>
+        </form><?php endif;?></td></tr>
     <?php endforeach;?></tbody></table></div>
     <?php cms_admin_shell_end($db);
 }

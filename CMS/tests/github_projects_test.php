@@ -76,12 +76,33 @@ try {
     catalogCheck(count($catalog['groups']) === 1, 'Catalog family grouping');
     $db = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     cms_schema($db);
+    $db->exec("INSERT INTO cms_projects
+        (slug,title,summary,body,category,icon,kind,state,sort_order,created_at,updated_at)
+        VALUES ('github-test','GitHub Test','Imported draft','','GitHub','⌘','page',
+                'draft',1000,'2026-11-08','2026-11-08')");
+    $projectId=(int)$db->lastInsertId();
+    $link=$db->prepare('INSERT INTO cms_github_repositories
+        (github_id,full_name,project_id,github_private,description,default_branch,
+         archived,fork,html_url,pushed_at,seen_at,last_seen_run)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+    $link->execute([123,'owner/Secret-App',$projectId,1,'private description',
+        'main',0,0,'https://github.com/owner/Secret-App','','2026-11-08',1]);
+    $_GET['page']='1';
+    $overview=cms_github_import_overview($db);
+    catalogCheck($overview['count']===1 && $overview['private']===1,
+        'Import overview private repo tally');
+    catalogCheck($overview['rows'][0]['state']==='draft',
+        'Imported repository must remain draft');
     ob_start();
     cms_github_projects_page($db);
     $html = ob_get_clean();
     catalogCheck(str_contains($html, 'Ai Bridge') && str_contains($html, 'v2'),
         'Family and versions not rendered in CMS');
     catalogCheck(str_contains($html, 'private'), 'Private visibility not preserved');
+    catalogCheck(str_contains($html, 'Import all repositories') &&
+        str_contains($html, 'owner/Secret-App'), 'Importer UI and repository not rendered');
+    catalogCheck(!str_contains($html, 'private description'),
+        'Private description leaked in admin inventory page');
     catalogCheck(!str_contains($html, 'secret project') && !str_contains($html, 'secret v2'),
         'Private description must not be exposed in admin view');
     echo "PASS: PHP catalog family grouping parity, private cached metadata and admin view\n";

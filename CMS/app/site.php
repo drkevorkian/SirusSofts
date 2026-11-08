@@ -118,13 +118,13 @@ function cms_public_project(PDO $db,array $project): void {
       <h1><?=cms_esc($project['title'])?></h1><p class="detail-lede"><?=cms_esc($project['summary'])?></p>
       <div class="project-addresses">
         <span class="url-tag">sirussofts.com/<?=cms_esc($slug)?></span>
-        <span class="url-tag"><?=cms_esc($slug)?>.sirussofts.com</span>
+        <span class="url-tag">Planned subdomain: <?=cms_esc($slug)?>.sirussofts.com</span>
       </div>
     </section>
     <section class="content-panel">
       <?=cms_body((string)$project['body'])?>
       <?php if($project['kind']==='app'):?>
-        <div class="notice">This application's runtime is deployed separately. Its directory and subdomain must be configured in Plesk; a project record alone does not deploy executable code.</div>
+        <div class="notice">This application's runtime is deployed separately. Its runtime, domain or proxy, DNS, and TLS must be provisioned separately through Hestia; a CMS project record does not deploy executable code.</div>
       <?php endif;?>
     </section>
     <a class="inline-link back-link" href="/projects">← All projects</a>

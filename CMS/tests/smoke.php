@@ -55,6 +55,19 @@ $db->prepare('INSERT INTO cms_projects
 check(count(cms_projects($db,true))===1,'Only published projects visible');
 check(cms_project($db,'draft-only',true)===null,'Unpublished project not public');
 check(cms_project($db,'hello',true)!==null,'Published project route');
+$ids=$db->query('SELECT id FROM cms_projects ORDER BY sort_order ASC')->fetchAll(PDO::FETCH_COLUMN);
+cms_reorder_project_ids($db,$ids[1].','.$ids[0]);
+check(cms_projects($db,false)[0]['slug']==='draft-only','Reordering changes admin project order');
+try {
+    cms_reorder_project_ids($db,$ids[0].','.$ids[0]);
+    check(false,'Duplicate project IDs must fail');
+} catch(InvalidArgumentException $expected){}
+try {
+    cms_reorder_project_ids($db,(string)$ids[0]);
+    check(false,'Missing project IDs must fail');
+} catch(InvalidArgumentException $expected){}
+check(cms_projects($db,true)[0]['slug']==='hello','Published project still visible after reorder');
+
 ob_start();cms_public_home($db);$home=ob_get_clean();
 check(str_contains((string)$home,'A public project'),'Public homepage renders a project');
 check(!str_contains((string)$home,'Hidden sample'),'Unpublished project not leaked on homepage');

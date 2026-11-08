@@ -189,3 +189,13 @@ code{color:#98d2ff;overflow-wrap:anywhere;font-size:12px}
   .footer-row{flex-direction:column;align-items:flex-start}
   .admin-stats{grid-template-columns:1fr}
 }
+
+/* Project arrangement: drag is optional; arrow buttons support keyboard navigation. */
+.order-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:14px;margin:6px 0 14px}
+.order-toolbar [data-order-status]{font-size:12px;color:var(--muted)}
+.order-control{white-space:nowrap;min-width:114px}
+.order-control button{border:1px solid var(--stroke);border-radius:6px;background:var(--panel);color:var(--text);cursor:pointer;padding:5px 9px;margin-right:3px}
+.order-control button:hover,.order-control button:focus-visible{border-color:var(--accent);color:var(--accent)}
+[data-project-row]{cursor:grab}
+[data-project-row].is-dragging{opacity:.48}
+[data-project-row]:active{cursor:grabbing}

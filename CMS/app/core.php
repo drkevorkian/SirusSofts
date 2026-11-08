@@ -3,7 +3,7 @@ declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 
 /** SirusSofts CMS 0.1 — private application code. Never serve this file directly. */
-const SIRUS_CMS_VERSION = '0.1.0-alpha';
+const SIRUS_CMS_VERSION = '0.3.0-alpha';
 const SIRUS_CMS_DOMAIN = 'sirussofts.com';
 
 /**
@@ -107,6 +107,35 @@ SQL);
             CHECK(release_policy IN ('hold','manual-review')),
         updated_at TEXT NOT NULL
     )");
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS cms_github_repositories (
+    github_id INTEGER PRIMARY KEY,
+    full_name TEXT NOT NULL UNIQUE,
+    project_id INTEGER REFERENCES cms_projects(id) ON DELETE SET NULL,
+    github_private INTEGER NOT NULL CHECK(github_private IN (0,1)),
+    description TEXT NOT NULL DEFAULT '',
+    default_branch TEXT NOT NULL DEFAULT '',
+    archived INTEGER NOT NULL DEFAULT 0,
+    fork INTEGER NOT NULL DEFAULT 0,
+    html_url TEXT NOT NULL,
+    pushed_at TEXT NOT NULL DEFAULT '',
+    seen_at TEXT NOT NULL,
+    last_seen_run INTEGER NOT NULL DEFAULT 0
+)
+SQL);
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS cms_github_sync_state (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    requested_at INTEGER NOT NULL DEFAULT 0,
+    attempted_at INTEGER NOT NULL DEFAULT 0,
+    success_at INTEGER NOT NULL DEFAULT 0,
+    discovered INTEGER NOT NULL DEFAULT 0,
+    imported INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT ''
+)
+SQL);
+    $db->exec('INSERT OR IGNORE INTO cms_github_sync_state(id) VALUES (1)');
+    $db->exec('CREATE INDEX IF NOT EXISTS cms_github_project_link ON cms_github_repositories(project_id)');
     $db->exec('CREATE INDEX IF NOT EXISTS cms_projects_status ON cms_projects(state,sort_order)');
 }
 function cms_defaults(): array {

@@ -204,6 +204,25 @@ Do not run these if the aliases were already created in the UI.
 The `www.sirussofts.com` alias is typically added automatically. Defer
 optional .org aliases until .org DNS and TLS are ready.
 
+## After first deployment — upgrading code safely
+
+Once the first install is working, do not rerun `06 --deploy`. Review and pin
+a newer GitHub commit, run `php8.3 CMS/tests/smoke.php` and
+`node --check CMS/assets/cms.js`, then run:
+
+```bash
+cd /root/SirusSofts
+bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com
+bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --apply --user sirusweb --domain sirussofts.com
+bash deploy/ubuntu24/07-audit-cms-routing.sh --live --user sirusweb --domain sirussofts.com
+```
+
+The upgrade preserves the current CMS database and saves a consistent SQLite
+snapshot with the old code under the domain's protected `private/sirus-cms/releases`
+directory. The apply mode requires an explicit typed confirmation. Do not
+proceed if the `--plan` command fails. Review the contents of managed code
+and asset directories before applying, since these are replaced.
+
 ## 5 — Copy and initialize the SirusSofts PHP CMS
 
 Back in PuTTY:

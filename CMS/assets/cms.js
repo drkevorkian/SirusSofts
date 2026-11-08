@@ -2,6 +2,30 @@
 (() => {
   "use strict";
   let pending = null;
+  let draggedProject = null;
+
+  function refreshProjectOrder() {
+    const form = document.querySelector("[data-project-order-form]");
+    if (!form) return;
+    const ids = Array.from(document.querySelectorAll("[data-project-list] [data-project-row]"),
+      row => row.dataset.projectRow);
+    const field = form.querySelector("[data-project-order-ids]");
+    if (!field) return;
+    field.value = ids.join(",");
+    const status = document.querySelector("[data-order-status]");
+    if (status) status.textContent = "Order changed. Select Save project order to apply.";
+  }
+
+  function shiftProject(row, direction) {
+    const parent = row && row.closest("[data-project-list]");
+    if (!parent) return;
+    const neighbor = direction === "up" ? row.previousElementSibling : row.nextElementSibling;
+    if (!neighbor || !neighbor.matches("[data-project-row]")) return;
+    parent.insertBefore(row, direction === "up" ? neighbor : neighbor.nextElementSibling);
+    refreshProjectOrder();
+  }
+
+
 
   function internalLink(link) {
     if (!link || link.target || link.hasAttribute("download") ||
@@ -63,6 +87,13 @@
   }
 
   document.addEventListener("click", event => {
+    const up = event.target.closest("[data-project-up]");
+    const down = event.target.closest("[data-project-down]");
+    if (up || down) {
+      event.preventDefault();
+      shiftProject((up || down).closest("[data-project-row]"), up ? "up" : "down");
+      return;
+    }
     const toggle = event.target.closest("[data-nav-toggle]");
     if (toggle) {
       const nav = document.querySelector("#primaryNav");
@@ -79,6 +110,36 @@
     if (!url) return;
     event.preventDefault();
     navigate(url, true);
+  });
+  document.addEventListener("dragstart", event => {
+    const row = event.target.closest("[data-project-row]");
+    if (!row) return;
+    draggedProject = row;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", row.dataset.projectRow || "");
+    }
+    row.classList.add("is-dragging");
+  });
+  document.addEventListener("dragover", event => {
+    if (draggedProject && event.target.closest("[data-project-row]")) {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    }
+  });
+  document.addEventListener("drop", event => {
+    const target = event.target.closest("[data-project-row]");
+    if (!draggedProject || !target || target === draggedProject ||
+        target.parentElement !== draggedProject.parentElement) return;
+    event.preventDefault();
+    const after = event.clientY > target.getBoundingClientRect().top +
+      target.getBoundingClientRect().height / 2;
+    target.parentElement.insertBefore(draggedProject, after ? target.nextSibling : target);
+    refreshProjectOrder();
+  });
+  document.addEventListener("dragend", () => {
+    if (draggedProject) draggedProject.classList.remove("is-dragging");
+    draggedProject = null;
   });
   document.addEventListener("submit", event => {
     const form = event.target.closest("form[data-confirm]");

@@ -19,7 +19,7 @@ class UbuntuHestiaBootstrapTests(unittest.TestCase):
         for command in ("01-preflight.sh --strict", "02-install-hestia.sh --download",
                         "02-install-hestia.sh --install", "03-install-extensions.sh --install",
                         "05-lockdown-panel.sh --apply", "06-deploy-cms-hestia.sh --deploy",
-                        "07-audit-cms-routing.sh --live"):
+                        "07-audit-cms-routing.sh --live", "08-upgrade-cms-hestia.sh --plan"):
             self.assertIn(command, document)
         self.assertIn("SSH", document)
         self.assertIn("PuTTY", document)
@@ -50,6 +50,22 @@ class UbuntuHestiaBootstrapTests(unittest.TestCase):
         self.assertIn('--also-domain', audit)
         self.assertIn("const SIRUS_CMS_DOMAIN = 'sirussofts.com';", core)
         self.assertNotIn("for hostname in sirussofts.org sirussofts.com; do", audit)
+
+    def test_upgrader_preserves_live_sqlite_and_checks_hestia_guards(self):
+        upgrade = (UBUNTU / "08-upgrade-cms-hestia.sh").read_text()
+        self.assertIn('if [[ "$mode" == --check ]]', upgrade)
+        self.assertIn('runuser -u "$user" -- sqlite3 "$DB" ".backup', upgrade)
+        self.assertNotIn('sqlite3 "$DB" ".backup', upgrade.replace('runuser -u "$user" -- sqlite3 "$DB" ".backup', ''))
+        self.assertIn('Live CMS homepage returned HTTPS', upgrade)
+        self.assertIn('Existing CMS homepage does not return HTTPS 200', upgrade)
+        self.assertIn('systemctl reload php8.3-fpm', upgrade)
+        self.assertIn('trap rollback_on_exit EXIT', upgrade)
+        self.assertIn('runuser -u "$user" -- php8.3', upgrade)
+        self.assertIn('cmp -s "$file" "$GUARD"', upgrade)
+        self.assertIn("UPGRADE CMS", upgrade)
+        self.assertNotIn('rm -rf -- "$PRIVATE"', upgrade)
+        guide = (UBUNTU / "PUTTY-SSH-QUICKSTART.md").read_text()
+        self.assertIn("08-upgrade-cms-hestia.sh --apply", guide)
 
     def test_installer_requires_interactive_hash_and_hestia_ownership(self):
         install = (UBUNTU / "02-install-hestia.sh").read_text()
