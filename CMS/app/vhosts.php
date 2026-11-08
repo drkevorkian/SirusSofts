@@ -103,7 +103,7 @@ function cms_vhost_page(PDO $db,?string $error): void {
         if(isset($preview['note']))echo '<p>'.cms_esc($preview['note']).'</p>';
         echo '</div>';
     }
-    <?php if($hestia): ?>
+    ?><?php if($hestia): ?>
       <div class="admin-panel"><h2>HestiaCP controls live hosting</h2>
       <p>This page stores project hosting plans, not live virtual hosts.
       The old standalone Nginx agent is disabled on Hestia; enabling it would
