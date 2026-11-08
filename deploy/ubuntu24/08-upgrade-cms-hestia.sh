@@ -12,8 +12,12 @@ while [[ $# -gt 0 ]]; do
     *) fail "Unexpected argument: $1";;
   esac
 done
-[[ "$mode" == --plan || "$mode" == --apply ]] ||
-  fail 'Usage: 08-upgrade-cms-hestia.sh --plan|--apply --user sirusweb --domain sirussofts.com'
+[[ "$mode" == --check || "$mode" == --plan || "$mode" == --apply ]] ||
+  fail 'Usage: 08-upgrade-cms-hestia.sh --check|--plan|--apply --user sirusweb --domain sirussofts.com'
+if [[ "$mode" == --check ]]; then
+  echo 'PASS Hestia CMS upgrade helper is available; --check performs no changes.'
+  exit 0
+fi
 [[ "$(id -u)" -eq 0 ]] || fail 'Root required for reviewed CMS code deployment'
 [[ "$user" == sirusweb && "$domain" == sirussofts.com ]] ||
   fail 'Live upgrade is restricted to the reviewed sirusweb/sirussofts.com installation'
