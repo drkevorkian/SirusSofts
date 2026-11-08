@@ -22,8 +22,5 @@ service unit as /etc/systemd/system/sirus-nginx-vhost.service after inspecting
 the systemd sandbox and socket directory ownership. The service is NOT
 integrated into the Ubuntu CMS installer yet and is not activated anywhere.
 
-The root-managed sites directory is /etc/nginx/sirussofts-managed. IMPORTANT:
-On a real nginx installation, its generated site-*.conf files need a
-root-owned, tested include under nginx's http context (e.g. sites-enabled).
-Do not activate the unit until this inclusion is staged and validated. A page
+Generated server blocks are written only to /etc/nginx/sites-enabled/sirussofts-project-*.conf, which the stock Ubuntu Nginx http context includes. Private ownership metadata is stored in /etc/nginx/sirussofts-managed/managed.json. Never enable the service until the default nginx includes, sandbox paths, socket permissions, certificate chain and rollback behavior are reviewed on staging. A page
 subdomain does not create or publish a CMS project; CMS publication is separate.

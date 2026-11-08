@@ -18,7 +18,7 @@ class VhostTests(unittest.TestCase):
         (self.root / "app/core.php").write_text("CORE", encoding="utf-8")
         self.commands = []
         self.agent = vhost.NginxVhosts(
-            root=self.root, managed=p / "managed",
+            root=self.root, managed=p / "managed", sites=p / "sites",
             cert=p / "fullchain.pem", key=p / "privkey.pem",
             runner=lambda cmd: self.commands.append(cmd), tls_checker=lambda slug: True)
 

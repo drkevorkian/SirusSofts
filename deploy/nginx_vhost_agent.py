@@ -23,6 +23,7 @@ MANAGED = Path("/etc/nginx/sirussofts-managed")
 CERT = Path("/etc/sirussofts/tls/fullchain.pem")
 KEY = Path("/etc/sirussofts/tls/privkey.pem")
 SOCKET = Path("/run/sirus-nginx/agent.sock")
+SITES = Path("/etc/nginx/sites-enabled")
 RESERVED = {"admin", "api", "app", "assets", "bin", "cms", "deploy", "health",
             "internal", "lib", "login", "pages", "private", "root", "settings",
             "static", "system", "tests", "www", "worldcom", "sentinel-trader",
@@ -49,10 +50,11 @@ def validate(slug, kind):
 
 
 class NginxVhosts:
-    def __init__(self, root=ROOT, managed=MANAGED, cert=CERT, key=KEY,
+    def __init__(self, root=ROOT, managed=MANAGED, cert=CERT, key=KEY, sites=SITES,
                  runner=run_command, tls_checker=None):
         self.root = Path(root)
         self.managed = Path(managed)
+        self.sites = Path(sites)
         self.cert = Path(cert)
         self.key = Path(key)
         self.runner = runner
@@ -80,7 +82,7 @@ class NginxVhosts:
             return False
 
     def _file(self, slug):
-        return self.managed / ("site-" + slug + ".conf")
+        return self.sites / ("sirussofts-project-" + slug + ".conf")
 
     def _config(self, slug):
         hosts = slug + ".sirussofts.org " + slug + ".sirussofts.com"
@@ -125,10 +127,10 @@ server {{
         return value
 
     def _atomic(self, path, content):
-        self.managed.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if self.managed.is_symlink():
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if path.parent.is_symlink():
             raise VhostError("Unsafe managed directory")
-        fd, tmp = tempfile.mkstemp(prefix=".sirus-", dir=self.managed)
+        fd, tmp = tempfile.mkstemp(prefix=".sirus-", dir=path.parent)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as stream:
                 stream.write(content)
