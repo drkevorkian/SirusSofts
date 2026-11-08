@@ -80,7 +80,15 @@ final class SirusEncryptedSqliteBackup
             ]);
             $pdo->exec('PRAGMA busy_timeout=10000');
             // VACUUM INTO creates a transactionally consistent snapshot, including WAL data.
-            $pdo->exec('VACUUM main INTO ' . $pdo->quote($snapshot));
+            // SQLite creates this plaintext staging file. Restrict its mode
+            // at creation rather than relying on a later chmod (which would
+            // leave a brief exposure under a permissive process umask).
+            $priorMask = umask(0077);
+            try {
+                $pdo->exec('VACUUM main INTO ' . $pdo->quote($snapshot));
+            } finally {
+                umask($priorMask);
+            }
             $pdo = null;
             if (!is_file($snapshot)) { throw new RuntimeException('SQLite snapshot missing'); }
             $input = fopen($snapshot, 'rb');
