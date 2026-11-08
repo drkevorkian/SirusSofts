@@ -55,6 +55,15 @@ function cms_admin_post(PDO $db,string $path): void {
         session_regenerate_id(true);
         cms_go('/admin/login');
     }
+    if($action==='github_import_request' && $path==='/admin/github'){
+        $db->exec('INSERT OR IGNORE INTO cms_github_sync_state(id) VALUES (1)');
+        $db->prepare('UPDATE cms_github_sync_state
+                      SET requested_at=MAX(requested_at + 1,?) WHERE id=1')
+           ->execute([time()]);
+        cms_audit($db,'github-import-request','all-accessible-repositories');
+        cms_flash('Repository import requested. The scheduled importer will process it on its next run; no repositories have been published.');
+        cms_go('/admin/github');
+    }
     if($action==='reorder_projects' && $path==='/admin/projects'){
         cms_reorder_project_ids($db,(string)($_POST['order_ids']??''));
         cms_audit($db,'reorder-projects','project-list');
