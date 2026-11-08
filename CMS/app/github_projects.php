@@ -115,15 +115,99 @@ function cms_github_catalog_records(): array
     }
 }
 
+/** Administrator-only inventory imported from GitHub on the VPS scheduler. */
+function cms_github_import_overview(PDO $db): array
+{
+    cms_need_admin();
+    $status = $db->query('SELECT * FROM cms_github_sync_state WHERE id=1')
+                 ->fetch(PDO::FETCH_ASSOC) ?: [];
+    $count = (int)$db->query('SELECT COUNT(*) FROM cms_github_repositories')->fetchColumn();
+    $private = (int)$db->query('SELECT COUNT(*) FROM cms_github_repositories
+        WHERE github_private=1')->fetchColumn();
+    $page = filter_var($_GET['page']??'1',FILTER_VALIDATE_INT,
+        ['options'=>['min_range'=>1,'max_range'=>100000]]);
+    $page = $page===false ? 1 : $page;
+    $offset = ($page-1)*100;
+    $st=$db->prepare('SELECT r.github_id,r.full_name,r.github_private,r.default_branch,
+               r.archived,r.fork,r.pushed_at,r.seen_at,r.last_seen_run,
+               p.id AS cms_id,p.slug,p.title,p.state
+             FROM cms_github_repositories r
+             LEFT JOIN cms_projects p ON p.id=r.project_id
+             ORDER BY r.full_name COLLATE NOCASE ASC LIMIT 100 OFFSET ?');
+    $st->bindValue(1,$offset,PDO::PARAM_INT);
+    $st->execute();
+    return [
+        'status'=>$status, 'count'=>$count, 'private'=>$private,
+        'page'=>$page, 'pages'=>max(1,(int)ceil($count/100)),
+        'rows'=>$st->fetchAll(PDO::FETCH_ASSOC),
+    ];
+}
+
 function cms_github_projects_page(PDO $db): void
 {
     cms_need_admin();
     $catalog = cms_github_catalog_records();
+    $import = cms_github_import_overview($db);
     cms_admin_shell_start($db, 'GitHub repositories');
-    ?>
+    $flash=cms_take_flash();
+    if($flash):?><div class="flash-message"><?=cms_esc($flash['message']??'')?></div><?php endif;?>
     <div class="admin-panel">
-      <h2>Discovered project families</h2>
-      <p>Repository metadata is read from the separate private catalog service.
+      <h2>Import all accessible GitHub repositories</h2>
+      <p>This importer discovers repositories visible to the configured GitHub token, including
+      private repositories, organizations and collaborators when authorized. New entries become
+      <strong>private CMS drafts</strong>. No source code is cloned, made public, or executed.
+      Existing hand-edited titles, descriptions, projects and publication choices are preserved.</p>
+      <div class="admin-stats">
+        <div class="admin-panel"><span>Discovered repositories</span><strong><?=(int)$import['count']?></strong></div>
+        <div class="admin-panel"><span>Private on GitHub</span><strong><?=(int)$import['private']?></strong></div>
+        <div class="admin-panel"><span>Last run imported</span><strong><?=(int)($import['status']['imported']??0)?></strong></div>
+      </div>
+      <p class="muted small">Last successful sync (UTC):
+        <?=($import['status']['success_at']??0)>0?cms_esc(gmdate('Y-m-d H:i:s',(int)$import['status']['success_at'])):'Not yet connected'?>
+        · Last error: <?=cms_esc($import['status']['last_error']??'None')?>
+      </p>
+      <form action="/admin/github" method="post">
+        <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+        <input type="hidden" name="action" value="github_import_request">
+        <button class="btn primary" type="submit">Import all repositories</button>
+      </form>
+      <p class="muted small">The button queues a sync. A root-installed, scheduled background
+      service must be configured once on the VPS with a restricted GitHub credential.
+      The worker checks the queue about every two minutes and also refreshes every six hours.</p>
+    </div>
+    <div class="admin-panel">
+      <h2>Imported CMS projects</h2>
+      <p>Drafts appear in this private list only. Use Edit to review and publish a page;
+      publication does not change GitHub visibility or deploy an application.</p>
+      <div class="table-scroll"><table><thead>
+        <tr><th>Repository</th><th>GitHub visibility</th><th>Default branch</th>
+            <th>CMS page</th><th>Publication</th><th>Action</th></tr>
+      </thead><tbody>
+        <?php foreach($import['rows'] as $repo):?>
+        <tr><td><a href="<?=cms_esc('https://github.com/'.$repo['full_name'])?>"
+           rel="noopener noreferrer" target="_blank"><?=cms_esc($repo['full_name'])?></a></td>
+          <td><?=$repo['github_private']?'Private':'Public'?></td>
+          <td><code><?=cms_esc($repo['default_branch'])?></code></td>
+          <td><code><?=cms_esc($repo['slug']??'Unlinked')?></code></td>
+          <td><?=cms_esc($repo['state']??'Manual review')?></td>
+          <td><?php if($repo['cms_id']!==null):?>
+            <a class="btn small" href="/admin/projects/<?=(int)$repo['cms_id']?>">Edit</a>
+          <?php else:?>Not linked<?php endif;?></td></tr>
+        <?php endforeach;?>
+      </tbody></table></div>
+      <?php if(!$import['rows']):?><p>No repositories imported yet. Configure the
+      GitHub token and start the import service to populate this list.</p><?php endif;?>
+      <?php if($import['pages']>1):?>
+        <div class="form-actions">
+          <?php if($import['page']>1):?><a class="btn small" href="/admin/github?page=<?=$import['page']-1?>">Previous</a><?php endif;?>
+          <span>Page <?=(int)$import['page']?> of <?=(int)$import['pages']?></span>
+          <?php if($import['page']<$import['pages']):?><a class="btn small" href="/admin/github?page=<?=$import['page']+1?>">Next</a><?php endif;?>
+        </div>
+      <?php endif;?>
+    </div>
+    <div class="admin-panel">
+      <h2>Legacy read-only repository catalog</h2>
+      <p>This optional view reads a separate legacy catalog service, if configured.
       Versions are grouped by normalized repository names. This page is
       informational only: discovery never publishes projects, reveals
       private source code, changes visibility, or deploys software.</p>
