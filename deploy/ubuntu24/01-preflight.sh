@@ -34,6 +34,9 @@ fi
 mem_kb="$(awk '/^MemTotal:/{print $2}' /proc/meminfo)"
 [[ "$mem_kb" =~ ^[0-9]+$ && "$mem_kb" -ge 1048576 ]] ||
   fail 'At least 1 GiB RAM is required; 4 GiB recommended'
+capacity_kb="$(df -Pk / | awk 'NR==2 {print $2}')"
+[[ "$capacity_kb" =~ ^[0-9]+$ && "$capacity_kb" -ge 10485760 ]] ||
+  fail 'Hestia needs at least 10 GiB total filesystem capacity; 40 GiB SSD recommended'
 space_kb="$(df -Pk / | awk 'NR==2 {print $4}')"
 [[ "$space_kb" =~ ^[0-9]+$ && "$space_kb" -ge 6291456 ]] ||
   fail 'Need at least 6 GiB free disk before installation; 40 GiB SSD recommended'
