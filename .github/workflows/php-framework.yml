@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'CMS/**'
+      - 'node/**'
       - '.github/workflows/php-framework.yml'
   workflow_dispatch:
 jobs:
@@ -28,3 +29,7 @@ jobs:
           php CMS/tests/backup_test.php
           php CMS/tests/storage_migration_test.php
           php CMS/tests/node_registry_test.php
+      - name: Gentoo agent unit tests
+        run: python3 -m unittest discover -s node/tests -p 'test_*.py' -v
+      - name: OpenRC installer syntax
+        run: bash -n node/install-openrc.sh
