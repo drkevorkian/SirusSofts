@@ -20,7 +20,7 @@ GUARD="$HERE/sirus-cms-protect.nginx.conf"
    -f "$SOURCE/app/core.php" && -f "$SOURCE/bin/setup.php" && -f "$GUARD" ]] ||
   fail 'CMS checkout or hosting guard is incomplete'
 [[ "$mode" == --check || "$mode" == --plan || "$mode" == --deploy ]] ||
-  fail 'Usage: 06-deploy-cms-hestia.sh --check|--plan|--deploy --user HESTIA_USER --domain sirussofts.org'
+  fail 'Usage: 06-deploy-cms-hestia.sh --check|--plan|--deploy --user HESTIA_USER --domain sirussofts.com|sirussofts.org'
 if [[ "$mode" == --check ]]; then
   echo 'PASS CMS/Hestia deployment source check; no changes made.'
   exit 0
@@ -28,8 +28,8 @@ fi
 [[ "$user" =~ ^[a-z][a-z0-9_-]{2,30}$ && "$user" != root &&
    "$user" != admin && "$user" != www-data ]] ||
   fail 'Use a dedicated Hestia website owner (for example sirusweb), not root/admin'
-[[ "$domain" == 'sirussofts.org' ]] ||
-  fail 'Deploy the single shared CMS to sirussofts.org only; attach .com as a Hestia alias'
+[[ "$domain" == 'sirussofts.com' || "$domain" == 'sirussofts.org' ]] ||
+  fail 'Use sirussofts.com or sirussofts.org as the single CMS primary domain; make the other an alias'
 [[ "$(id -u)" == 0 ]] || fail 'Root required to inspect Hestia config ownership'
 H=/usr/local/hestia/bin
 [[ -x "$H/v-list-web-domain" ]] || fail 'Hestia is not installed'
@@ -74,7 +74,7 @@ if [[ "$mode" == --plan ]]; then
   echo "Hestia HTTPS Nginx include: $HTTPS_GUARD"
   echo 'Only the CMS homepage, assets, code and command-line setup are staged.'
   echo 'Private SQLite goes into the Hestia domain private/ directory, outside public_html.'
-  echo 'Attach sirussofts.com and www aliases in Hestia separately; provision TLS after DNS.'
+  echo 'Later attach the other SirusSofts root domain and www aliases in Hestia, if desired; provision TLS after DNS.'
   echo 'No existing files, live server configuration or databases were changed.'
   exit 0
 fi

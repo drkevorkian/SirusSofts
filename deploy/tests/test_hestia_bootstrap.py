@@ -35,10 +35,21 @@ class UbuntuHestiaBootstrapTests(unittest.TestCase):
             deployed.write_text("<h1>We're working on it!</h1>\nDomain: sirussofts.org\n")
             cmd = ["bash", "-c",
                    'cmp -s "$1" <(sed "s/%domain%/$3/g" "$2")',
-                   "bash", str(deployed), str(skel), "sirussofts.org"]
+                   "bash", str(deployed), str(skel), "sirussofts.com"]
             self.assertEqual(subprocess.run(cmd).returncode, 0)
             deployed.write_text("<h1>We're working on it!</h1>\nHACKED\n")
             self.assertNotEqual(subprocess.run(cmd).returncode, 0)
+
+    def test_com_primary_and_optional_org_alias_are_supported(self):
+        deploy = (UBUNTU / "06-deploy-cms-hestia.sh").read_text()
+        audit = (UBUNTU / "07-audit-cms-routing.sh").read_text()
+        core = (ROOT / "CMS" / "app" / "core.php").read_text()
+        self.assertIn("sirussofts.com", deploy)
+        self.assertIn("sirussofts.org", deploy)
+        self.assertIn('hostnames=("$domain")', audit)
+        self.assertIn('--also-domain', audit)
+        self.assertIn("const SIRUS_CMS_DOMAIN = 'sirussofts.com';", core)
+        self.assertNotIn("for hostname in sirussofts.org sirussofts.com; do", audit)
 
     def test_installer_requires_interactive_hash_and_hestia_ownership(self):
         install = (UBUNTU / "02-install-hestia.sh").read_text()
