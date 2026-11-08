@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
+require_once __DIR__.'/vhosts.php';
 
 /** Private CMS administration. No arbitrary PHP upload or shell command console. */
 function cms_admin_post(PDO $db,string $path): void {
@@ -12,6 +13,9 @@ function cms_admin_post(PDO $db,string $path): void {
         cms_flash('Welcome to your SirusSofts dashboard.');cms_go('/admin');
     }
     cms_need_admin();
+    if(($action==='vhost_preview'||$action==='vhost_apply')&&$path==='/admin/hosting'){
+        cms_vhost_post($db,$action);
+    }
     if($action==='logout'){
         cms_audit($db,'sign-out','admin');
         $_SESSION=[];
@@ -150,7 +154,7 @@ function cms_admin_shell_start(PDO $db,string $title): void {
       <div class="admin-layout"><aside class="admin-sidebar">
         <?php foreach([
            '/admin'=>'Overview','/admin/projects'=>'Projects','/admin/pages'=>'Content pages',
-           '/admin/settings'=>'Site settings','/admin/security'=>'Security',
+           '/admin/hosting'=>'Virtual hosts','/admin/settings'=>'Site settings','/admin/security'=>'Security',
            '/admin/activity'=>'Activity log'
         ] as $url=>$label):?><a href="<?=$url?>"><?=cms_esc($label)?></a><?php endforeach;?>
         <form method="post" action="/admin/logout">
@@ -263,6 +267,7 @@ function cms_admin_run(PDO $db,string $path): never {
     }
     if($path==='/admin/login')cms_go('/admin');
     if($path==='/admin/logout'){cms_go('/admin');}
+    if($path==='/admin/hosting'){cms_vhost_page($db,$error);exit;}
     if($path==='/admin/projects/new'){cms_admin_project_editor($db,null);exit;}
     if(preg_match('#^/admin/projects/([1-9][0-9]*)$#D',$path,$mt)){
         $st=$db->prepare('SELECT * FROM cms_projects WHERE id=?');$st->execute([(int)$mt[1]]);
