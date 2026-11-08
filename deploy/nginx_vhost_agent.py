@@ -170,7 +170,7 @@ server {{
                 f"        proxy_set_header X-Real-IP $remote_addr;\n"
                 f"        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
                 f"        proxy_set_header X-Forwarded-Proto $scheme;\n"
-                f"        proxy_set_header X-Forwarded-Prefix {prefix};\n"
+                f'        proxy_set_header X-Forwarded-Prefix "{prefix}";\n'
                 f"        proxy_connect_timeout 3s;\n"
                 f"        proxy_read_timeout 60s;\n"
                 f"        proxy_redirect off;\n")

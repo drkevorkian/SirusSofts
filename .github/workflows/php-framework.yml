@@ -49,3 +49,10 @@ jobs:
         run: |
           bash -n deploy/install-nginx-vhost-agent.sh
           bash deploy/install-nginx-vhost-agent.sh --check
+      - name: Parse generated app and CMS configs with real Nginx
+        run: |
+          if ! command -v nginx >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends nginx
+          fi
+          python3 -m unittest discover -s deploy/tests -p 'test_nginx_config.py' -v
