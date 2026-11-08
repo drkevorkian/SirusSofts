@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Install the agent only. Does NOT touch nginx/Plesk/CMS.
 set -euo pipefail
-if [[ \${EUID} -ne 0 ]]; then echo 'Run as root' >&2; exit 1; fi
-DIR=$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)
+if [[ ${EUID} -ne 0 ]]; then echo 'Run as root' >&2; exit 1; fi
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 command -v python3 >/dev/null || { echo 'python3 required' >&2; exit 1; }
 command -v git >/dev/null || { echo 'git required' >&2; exit 1; }
 if ! id sirusdeploy >/dev/null 2>&1; then
