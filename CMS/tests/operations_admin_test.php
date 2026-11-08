@@ -53,7 +53,7 @@ try {
     $html = ob_get_clean();
     operationsCheck(str_contains($html, 'gentoo-home'), 'Node telemetry not rendered');
     operationsCheck(str_contains($html, 'example'), 'Project storage not rendered');
-    operationsCheck(str_contains($html, 'sirussofts.org'), 'CMS layout missing');
+    operationsCheck(str_contains($html, 'site-frame') && str_contains($html, 'admin-layout'), 'CMS layout missing');
     operationsCheck(!str_contains($html, 'private_secret_ref'), 'Connection refs should not appear');
     operationsCheck(!str_contains($html, bin2hex($key)), 'Secret key must not be rendered');
     operationsCheck(str_contains($html, 'Infrastructure'), 'Infrastructure heading missing');
