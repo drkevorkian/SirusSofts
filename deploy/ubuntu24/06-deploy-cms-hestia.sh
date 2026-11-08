@@ -75,7 +75,8 @@ if ! nginx -t || ! apache2ctl configtest; then
   rm -f -- "$SAFEFILE"
   fail 'Web server config rejected; removed the custom guard'
 fi
-if ! nginx -T 2>&1 | grep -q 'SIRUSSOFTS_PRIVATE_GUARD'; then
+nginx_dump="$(nginx -T 2>&1)" || fail 'Cannot inspect active Nginx configuration'
+if ! grep -q 'SIRUSSOFTS_PRIVATE_GUARD' <<< "$nginx_dump"; then
   rm -f -- "$SAFEFILE"
   fail 'Hestia does not include nginx.conf_*; no CMS files were exposed'
 fi
