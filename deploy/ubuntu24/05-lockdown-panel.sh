@@ -45,10 +45,10 @@ except ValueError:
 PY
 json="$("$HESTIA/v-list-firewall-rule" "$rule" json)" || fail 'Could not read Hestia firewall rule'
 # Reject unknown fields/shapes and the wrong rule rather than risking SSH or web access.
-printf '%s' "$json" | python3 - "$rule" <<'PY'
-import json,sys
+RULE_JSON="$json" python3 - "$rule" <<'PY'
+import json,os,sys
 # Hestia CLI may return an ID-keyed object or an unwrapped rule.
-raw = sys.stdin.read()
+raw = os.environ.get('RULE_JSON', '')
 try:
     data = json.loads(raw)
 except ValueError:
