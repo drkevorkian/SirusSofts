@@ -1,5 +1,13 @@
 name: PHP framework checks
 on:
+  push:
+    branches:
+      - feature/cms-vhost-distributed-nodes
+    paths:
+      - 'CMS/**'
+      - 'node/**'
+      - 'deploy/**'
+      - '.github/workflows/php-framework.yml'
   pull_request:
     paths:
       - 'CMS/**'
