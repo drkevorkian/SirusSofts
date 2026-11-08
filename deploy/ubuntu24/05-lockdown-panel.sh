@@ -34,34 +34,11 @@ if [[ "$mode" == --plan ]]; then
 fi
 [[ "$rule" =~ ^[1-9][0-9]{0,4}$ ]] || fail 'Rule number must be a positive integer'
 command -v python3 >/dev/null || fail 'python3 required to inspect Hestia JSON'
-python3 - "$cidr" <<'PY'
-import ipaddress, sys
-try:
-    ip = ipaddress.ip_network(sys.argv[1], strict=False)
-    if ip.version != 4 or ip.prefixlen < 24 or ip.is_multicast or ip.is_unspecified:
-        raise ValueError
-except ValueError:
-    sys.exit("Invalid admin IPv4 CIDR; use loopback /32 or a small trusted /24-/32 subnet")
-PY
-json="$("$HESTIA/v-list-firewall-rule" "$rule" json)" || fail 'Could not read Hestia firewall rule'
-# Reject unknown fields/shapes and the wrong rule rather than risking SSH or web access.
-RULE_JSON="$json" python3 - "$rule" <<'PY'
-import json,os,sys
-# Hestia CLI may return an ID-keyed object or an unwrapped rule.
-raw = os.environ.get('RULE_JSON', '')
-try:
-    data = json.loads(raw)
-except ValueError:
-    sys.exit("Firewall rule JSON is invalid")
-num = sys.argv[1]
-if not isinstance(data,dict):
-    sys.exit("Unexpected Hestia firewall JSON response")
-if num in data and isinstance(data[num],dict):
-    data = data[num]
-fields = {str(k).upper():str(v).upper() for k,v in data.items()}
-if fields.get('ACTION') != 'ACCEPT' or fields.get('IP') not in ('0.0.0.0/0','0.0.0.0') or fields.get('PORT') != '8083' or fields.get('PROTOCOL') != 'TCP':
-    sys.exit("Rule is not a public ACCEPT TCP 8083 entry; refusing firewall change")
-PY
+HERE="$(cd "$(dirname "$0")" && pwd)"
+json="$("$HESTIA/v-list-firewall-rule" "$rule" json)" ||
+  fail 'Cannot inspect requested Hestia rule'
+printf '%s' "$json" | python3 "$HERE/firewall_rules.py" --rule "$rule" --cidr "$cidr" ||
+  fail 'Refusing to change unexpected firewall rule'
 echo "Proposed narrowing: Hestia rule $rule ACCEPT from $cidr to TCP 8083 only."
 echo 'Keep existing SSH connection and IONOS provider console available.'
 [[ -t 0 && -t 1 ]] || fail 'Interactive confirmation required'
