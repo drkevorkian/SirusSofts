@@ -1,0 +1,10 @@
+[Unit]
+Description=Optional periodic SirusSofts internal security audit
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=sirus-audit.service
+
+[Install]
+WantedBy=timers.target
