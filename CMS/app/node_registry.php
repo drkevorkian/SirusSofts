@@ -141,6 +141,23 @@ final class SirusNodeRegistry
         return $node;
     }
 
+    /** Public telemetry fields only; excludes heartbeat nonce and authentication key. */
+    public function allNodes(?int $now = null): array
+    {
+        $now ??= time();
+        $rows = $this->db->query('SELECT node_id,os,init_system,agent_version,
+            cpu_threads,ram_bytes,gpu_vendors_json,capabilities_json,last_seen
+            FROM node_status ORDER BY node_id')->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$row) {
+            $row['health'] = (int)$row['last_seen'] >= $now - 180 ? 'online' : 'offline';
+            $row['gpu_vendors'] = json_decode($row['gpu_vendors_json'], true);
+            $row['capabilities'] = json_decode($row['capabilities_json'], true);
+            unset($row['gpu_vendors_json'], $row['capabilities_json']);
+        }
+        unset($row);
+        return $rows;
+    }
+
     /** Queues metadata only. There is deliberately no remote command executor. */
     public function assignWorkload(string $id, string $nodeId, string $projectId, string $kind): void
     {
