@@ -182,12 +182,12 @@ Inside **HestiaCP** via your PuTTY tunnel:
 
 1. Create a separate regular website user named **sirusweb** (not the
    control-panel admin account). Use a new strong password stored off-server.
-2. Under that user, create the web domain **sirussofts.org**. Use the
+2. Under that user, create the web domain **sirussofts.com**. Use the
    normal Nginx proxy + Apache + PHP-FPM web template; choose PHP **8.3**.
    No separate app source or alternative document root.
-3. Add web **aliases** `sirussofts.com`, `www.sirussofts.org` and
-   `www.sirussofts.com`. These must point to the same web domain, not
-   three separate CMS/database installations.
+3. For now, keep only the default `www.sirussofts.com` alias.
+   Later add `sirussofts.org` and `www.sirussofts.org` as aliases of
+   this same Hestia website. Never create a second CMS database.
 4. At your DNS provider, set the appropriate A records to the **new VPS IP**
    and remove obsolete AAAA records if the VPS has no working IPv6.
    Then enable **SSL + Let's Encrypt** for the main domain and aliases
@@ -196,14 +196,13 @@ Inside **HestiaCP** via your PuTTY tunnel:
 If you prefer the Hestia CLI to add an alias after domain creation:
 
 ```bash
-/usr/local/hestia/bin/v-add-web-domain-alias sirusweb sirussofts.org sirussofts.com
-/usr/local/hestia/bin/v-add-web-domain-alias sirusweb sirussofts.org www.sirussofts.com
+/usr/local/hestia/bin/v-add-web-domain-alias sirusweb sirussofts.com sirussofts.org
+/usr/local/hestia/bin/v-add-web-domain-alias sirusweb sirussofts.com www.sirussofts.org
 ```
 
 Do not run these if the aliases were already created in the UI.
-The `www.sirussofts.org` alias is typically added automatically when
-you create the root web domain. Verify all aliases in Hestia before
-requesting the TLS certificate.
+The `www.sirussofts.com` alias is typically added automatically. Defer
+optional .org aliases until .org DNS and TLS are ready.
 
 ## 5 — Copy and initialize the SirusSofts PHP CMS
 
@@ -212,7 +211,7 @@ Back in PuTTY:
 ```bash
 cd /root/SirusSofts
 bash deploy/ubuntu24/06-deploy-cms-hestia.sh --plan \
-  --user sirusweb --domain sirussofts.org
+  --user sirusweb --domain sirussofts.com
 ```
 
 The plan checks that the existing homepage is exactly the unmodified Hestia
@@ -221,17 +220,17 @@ dedicated Hestia site:
 
 ```bash
 bash deploy/ubuntu24/06-deploy-cms-hestia.sh --deploy \
-  --user sirusweb --domain sirussofts.org
+  --user sirusweb --domain sirussofts.com
 ```
 
 Type `DEPLOY CMS`. You'll be prompted for the SirusSofts CMS admin
 username and password interactively. This is separate from Hestia admin.
 
 The script copies website files from the Git checkout into:
-`/home/sirusweb/web/sirussofts.org/public_html`
+`/home/sirusweb/web/sirussofts.com/public_html`
 
 Its private SQLite database is created in:
-`/home/sirusweb/web/sirussofts.org/private/sirus-cms/data/cms.sqlite3`
+`/home/sirusweb/web/sirussofts.com/private/sirus-cms/data/cms.sqlite3`
 
 It installs matching HTTP and HTTPS web-server security guards first and
 never overwrites an existing database. No cPoint/WorldCom/Sentinel Trader
@@ -239,20 +238,20 @@ source code or GitHub webhook agent is installed by this step.
 
 ## 6 — Verify HTTPS, privacy and firewall before calling it live
 
-After DNS, domain aliases and Hestia-issued TLS are working:
+After .com DNS and Hestia-issued TLS are working (.org is optional):
 
 ```bash
 cd /root/SirusSofts
 bash deploy/ubuntu24/07-audit-cms-routing.sh --check
 bash deploy/ubuntu24/07-audit-cms-routing.sh --live \
-  --user sirusweb --domain sirussofts.org
+  --user sirusweb --domain sirussofts.com
 bash deploy/ubuntu24/04-audit.sh --live
 ```
 
-Also visit `https://sirussofts.org/` and `https://sirussofts.com/`
-from Chrome or Firefox and sign in at `/admin/login`. Both root domains
-should show the same CMS, but pages under `/app/`, `/bin/`, `/tests/`,
-`/private/` must return 403 or 404 via **HTTPS**.
+Visit `https://sirussofts.com/` in Chrome or Firefox and sign in at
+`/admin/login`. Private files under `/app/`, `/bin/`, `/tests/`,
+`/private/` must return 403 or 404 via **HTTPS**. Test .org later with
+`--also-domain sirussofts.org` once that alias and TLS certificate exist.
 
 **Do not publish other applications yet.** This first installation deploys
 the base CMS and hosting stack. Independently runnable apps require a
