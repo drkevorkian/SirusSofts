@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+name="SirusSofts node heartbeat"
+description="Outbound-only authenticated compute node"
+supervisor=supervise-daemon
+command="/usr/bin/python3"
+command_args="/opt/sirus-node/agent.py --config /etc/sirus-node/config.json"
+command_user="sirusnode:sirusnode"
+pidfile="/run/sirus-node.pid"
+respawn_delay=5
+respawn_max=0
+
+depend() {
+    need net
+}

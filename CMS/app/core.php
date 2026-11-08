@@ -4,7 +4,7 @@ if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 
 /** SirusSofts CMS 0.1 — private application code. Never serve this file directly. */
 const SIRUS_CMS_VERSION = '0.1.0-alpha';
-const SIRUS_CMS_DOMAIN = 'sirussofts.com';
+const SIRUS_CMS_DOMAIN = 'sirussofts.org';
 
 /**
  * The CMS directory IS the deployable website directory. Keep all mutable
@@ -17,6 +17,19 @@ function cms_site_root(): string {
     return $site;
 }
 function cms_private_directory(): string {
+    $configured=getenv('SIRUS_CMS_PRIVATE_ROOT');
+    if(is_string($configured)&&$configured!==''){
+        if(!str_starts_with($configured,'/')||str_contains($configured,"\0")||
+           is_link($configured)||!is_dir($configured))
+            throw new RuntimeException('Private root must be an existing absolute directory.');
+        $private=realpath($configured);
+        $site=cms_site_root();
+        $document=realpath((string)($_SERVER['DOCUMENT_ROOT']??''));
+        if($private===false||$private===$site||str_starts_with($private,$site.'/')||
+           ($document&&($private===$document||str_starts_with($private,$document.'/'))))
+            throw new RuntimeException('Private root cannot be publicly served.');
+        return $private;
+    }
     $site=cms_site_root();
     $parent=dirname($site);
     for($cur=$site;;$cur=dirname($cur)){
@@ -83,6 +96,17 @@ SQL);
         id INTEGER PRIMARY KEY AUTOINCREMENT,at TEXT NOT NULL,username TEXT NOT NULL,
         action TEXT NOT NULL,reference TEXT NOT NULL
     )');
+    $db->exec("CREATE TABLE IF NOT EXISTS cms_hosting_preferences (
+        slug TEXT PRIMARY KEY REFERENCES cms_projects(slug) ON DELETE CASCADE,
+        assigned_node TEXT NOT NULL DEFAULT 'vps-primary',
+        database_backend TEXT NOT NULL DEFAULT 'sqlite'
+            CHECK(database_backend IN ('sqlite','mariadb','mysql')),
+        source_repository TEXT NOT NULL DEFAULT '',
+        source_ref TEXT NOT NULL DEFAULT '',
+        release_policy TEXT NOT NULL DEFAULT 'hold'
+            CHECK(release_policy IN ('hold','manual-review')),
+        updated_at TEXT NOT NULL
+    )");
     $db->exec('CREATE INDEX IF NOT EXISTS cms_projects_status ON cms_projects(state,sort_order)');
 }
 function cms_defaults(): array {
@@ -120,13 +144,24 @@ function cms_request_host(): string {
     if(!preg_match('/^[a-z0-9.-]+(?::[0-9]{1,5})?$/D',$raw))return '';
     return preg_replace('/:[0-9]{1,5}$/','',$raw);
 }
+function cms_root_domain(): string {
+    $host=cms_request_host();
+    foreach (['sirussofts.org','sirussofts.com'] as $domain) {
+        if ($host===$domain||$host==='www.'.$domain||str_ends_with($host,'.'.$domain))
+            return $domain;
+    }
+    return SIRUS_CMS_DOMAIN;
+}
 function cms_project_host_slug(string $host): ?string {
-    if($host===SIRUS_CMS_DOMAIN||$host==='www.'.SIRUS_CMS_DOMAIN)return null;
+    foreach (['sirussofts.org','sirussofts.com'] as $domain) {
+        if ($host===$domain || $host==='www.'.$domain) return null;
+        if (str_ends_with($host,'.'.$domain)) {
+            $slug=substr($host,0,-strlen('.'.$domain));
+            return cms_safe_slug($slug)?$slug:'';
+        }
+    }
     if(cms_local() && in_array($host,['localhost','127.0.0.1','::1'],true))return null;
-    $suffix='.'.SIRUS_CMS_DOMAIN;
-    if(!str_ends_with($host,$suffix))return '';
-    $slug=substr($host,0,-strlen($suffix));
-    return cms_safe_slug($slug)?$slug:'';
+    return '';
 }
 function cms_request_path(): string {
     $uri=(string)($_SERVER['REQUEST_URI']??'/');

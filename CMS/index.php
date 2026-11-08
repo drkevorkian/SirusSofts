@@ -3,8 +3,9 @@ declare(strict_types=1);
 /**
  * SirusSofts public homepage / project router.
  * This file belongs at CMS/index.php, alongside assets/, app/, bin/.
- * Deploy the CONTENTS of CMS/ into your Plesk site's document root,
- * or choose the entire CMS/ folder as that document root.
+ * On Ubuntu 24.04 with Hestia: deploy CONTENTS of CMS/ into the Hestia
+ * site's public_html using deploy/ubuntu24/06-deploy-cms-hestia.sh.
+ * Hestia-owned Nginx security includes block access to app/, bin/, tests/.
  * Only the SQLite database lives outside the public web root.
  */
 $private=__DIR__.'/app';
@@ -22,7 +23,7 @@ catch(Throwable $error){
     error_log('SirusSofts CMS unavailable: '.get_class($error));
     http_response_code(503);
     header('Content-Type: text/plain; charset=utf-8');
-    exit('SirusSofts CMS setup is required or its database is unavailable. See README.md and run bin/setup.php as the Plesk site user.');
+    exit('SirusSofts CMS setup is required or its database is unavailable. See deploy/ubuntu24/README.md and initialize as the unprivileged Hestia website user.');
 }
 $host=cms_request_host();
 $subdomain=cms_project_host_slug($host);
@@ -32,7 +33,7 @@ if($subdomain===''){
 }
 $path=cms_request_path();
 if($subdomain!==null) {
-    // Plesk may map content-project subdomains to the shared CMS docroot.
+    // A Hestia-managed content subdomain may map to this shared CMS docroot.
     // Full PHP projects (such as cPoint) get their own document root, so their
     // API and assets work natively without a URL redirect or duplicate DB.
     if($path!=='/'&&$path!=='/index.php'){cms_public_not_found($db);exit;}

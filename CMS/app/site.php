@@ -9,7 +9,7 @@ function cms_layout_start(PDO $db,string $title,bool $admin=false): void {
     $color=cms_setting($db,'accent');
     if(!in_array($color,['blue','cyan','violet'],true))$color='blue';
     // Links on a CMS-hosted project subdomain return to the main public site.
-    $home=cms_project_host_slug(cms_request_host())===null?'':'https://'.SIRUS_CMS_DOMAIN;
+    $home=cms_project_host_slug(cms_request_host())===null?'':'https://'.cms_root_domain();
     ?><!doctype html>
 <html lang="en" data-accent="<?=cms_esc($color)?>">
 <head><meta charset="utf-8">
@@ -37,7 +37,7 @@ function cms_layout_start(PDO $db,string $title,bool $admin=false): void {
 <?php
 }
 function cms_layout_end(PDO $db): void {
-    $home=cms_project_host_slug(cms_request_host())===null?'':'https://'.SIRUS_CMS_DOMAIN;
+    $home=cms_project_host_slug(cms_request_host())===null?'':'https://'.cms_root_domain();
     ?>
 </main>
 <footer class="site-footer"><div class="shell footer-row">
@@ -51,7 +51,7 @@ function cms_project_card(array $project): void {
     $url='/'.$slug;
     ?>
     <article class="project-card">
-      <a class="project-card-link" href="<?=$url?>">
+      <a class="project-card-link" href="<?=$url?>" <?=$project['kind']==='page'?'data-cms-nav':'data-full-navigation'?>>
         <div class="project-icon"><?=cms_esc($project['icon'])?></div>
         <div class="project-tag"><?=cms_esc($project['category'])?> <span>·</span> <?=cms_esc($project['kind']==='app'?'Application':'Project')?></div>
         <h3><?=cms_esc($project['title'])?></h3>

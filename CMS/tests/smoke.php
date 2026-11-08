@@ -14,7 +14,12 @@ check(!cms_safe_slug('../private')&&!cms_safe_slug('admin')&&!cms_safe_slug('bad
       'Reserved/traversal slugs rejected');
 $_SERVER['HTTP_HOST']='sirussofts.com';
 check(cms_project_host_slug(cms_request_host())===null,'Public root host');
-check(cms_project_host_slug('cpoint.sirussofts.com')==='cpoint','Project subdomain');
+check(cms_project_host_slug('cpoint.sirussofts.com')==='cpoint','COM project subdomain');
+check(cms_project_host_slug('cpoint.sirussofts.org')==='cpoint','ORG project subdomain');
+check(cms_project_host_slug('sirussofts.org')===null,'ORG public root');
+check(cms_root_domain()==='sirussofts.com','COM root host selection');
+$_SERVER['HTTP_HOST']='sirussofts.org';
+check(cms_root_domain()==='sirussofts.org','ORG root host selection');
 check(cms_project_host_slug('evil.example.com')==='','Foreign domain denied');
 check(cms_project_host_slug('a.b.sirussofts.com')==='','Nested subdomains denied');
 check(!str_contains(cms_body('<script>alert(1)</script>'),'<script>'),'Content escaped');
