@@ -58,7 +58,7 @@ function cms_admin_post(PDO $db,string $path): void {
     if($action==='github_import_request' && $path==='/admin/github'){
         $db->exec('INSERT OR IGNORE INTO cms_github_sync_state(id) VALUES (1)');
         $db->prepare('UPDATE cms_github_sync_state
-                      SET requested_at=MAX(requested_at + 1,?) WHERE id=1')
+                      SET requested_at=MAX(requested_at + 1, attempted_at + 1, ?) WHERE id=1')
            ->execute([time()]);
         cms_audit($db,'github-import-request','all-accessible-repositories');
         cms_flash('Repository import requested. The scheduled importer will process it on its next run; no repositories have been published.');
