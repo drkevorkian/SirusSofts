@@ -4,7 +4,7 @@ define('SIRUS_CMS_BOOTSTRAPPED', true);
 require dirname(__DIR__) . '/app/core.php';
 require dirname(__DIR__) . '/app/site.php';
 require dirname(__DIR__) . '/app/admin.php';
-require dirname(__DIR__) . '/app/operations.php';
+require_once dirname(__DIR__) . '/app/operations.php';
 
 if (!extension_loaded('pdo_sqlite')) {
     fwrite(STDERR, "pdo_sqlite required\n");
