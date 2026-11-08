@@ -162,7 +162,7 @@ Re-run the audit after hardening.
 
 Log into Hestia over the restricted admin connection. Create a dedicated
 hosting user, for example **sirusweb**, with non-root PHP permissions.
-Then create the primary web domain **sirussofts.org** under that user.
+Then create the primary web domain **sirussofts.com** under that user. Add .org later as an alias, not a separate website.
 
 Do NOT upload a different website into its public_html directory.
 
@@ -171,22 +171,20 @@ For the primary domain:
 - Hestia default Nginx proxy template, default Apache/PHP-FPM backend.
 - No FastCGI cache on the authenticated CMS during initial rollout.
 - Avoid setting a separate nonstandard docroot.
-- Add sirussofts.com, www.sirussofts.org, www.sirussofts.com as aliases
-  of the same Hestia website, if DNS and your selected Hestia package support
-  aliases. This retains a SINGLE CMS SQLite database for both root domains.
+- Initially keep only the .com domain and its normal www.sirussofts.com alias. Later add sirussofts.org and www.sirussofts.org as Hestia aliases on the same site and expand its TLS certificate. Never create a second CMS database.
 - Hestia owns the root-domain TLS certificate and its renewal. Issue a valid
   certificate covering all configured aliases after DNS and port 80 work.
   Don't run another standalone certbot/NGINX rewrite.
 
 Verify the domain exists:
-    /usr/local/hestia/bin/v-list-web-domain sirusweb sirussofts.org
+    /usr/local/hestia/bin/v-list-web-domain sirusweb sirussofts.com
 
 ## Phase 4 — Deploy the SirusSofts CMS files and create private SQLite
 
 From the same reviewed feature-branch checkout:
 
     bash deploy/ubuntu24/06-deploy-cms-hestia.sh --plan \
-      --user sirusweb --domain sirussofts.org
+      --user sirusweb --domain sirussofts.com
 
 Read the output. It refuses to overwrite an existing CMS, project or database.
 The installer verifies a fresh Hestia Coming Soon page by comparing its entire
@@ -197,7 +195,7 @@ to prevent overwriting your content.
 When the Hestia domain and account are ready, type DEPLOY CMS:
 
     bash deploy/ubuntu24/06-deploy-cms-hestia.sh --deploy \
-      --user sirusweb --domain sirussofts.org
+      --user sirusweb --domain sirussofts.com
 
 The script installs TWO root-owned Nginx includes, because default Hestia
 templates load HTTP via `nginx.conf_*` and HTTPS via `nginx.ssl.conf_*`.
@@ -209,7 +207,7 @@ After enabling HTTPS, the dual-protocol routing audit (07-audit-cms-routing.sh) 
 only CMS files, backs up a recognized Hestia default index page privately,
 and initializes SQLite/admin credentials as the NON-root website user.
 CMS user data is stored in:
-    /home/sirusweb/web/sirussofts.org/private/sirus-cms/data/cms.sqlite3
+    /home/sirusweb/web/sirussofts.com/private/sirus-cms/data/cms.sqlite3
 
 The private folder is OUTSIDE public_html. No scripts are deployed for
 cPoint, WorldCom, Sentinel Trader, and no project is auto-published.
@@ -220,23 +218,21 @@ existing GitHub webhook agent or activate private projects. Re-running
 
 ## Phase 5 — Prove the website is safe before DNS/public cutover
 
-From an EXTERNAL machine, after proper DNS and Hestia TLS:
-    curl --fail --head https://sirussofts.org/
+From an EXTERNAL machine, after .com DNS and Hestia TLS:
     curl --fail --head https://sirussofts.com/
-    curl --head https://sirussofts.org/app/core.php
-    curl --head https://sirussofts.org/bin/setup.php
+    curl --head https://sirussofts.com/app/core.php
+    curl --head https://sirussofts.com/bin/setup.php
     curl --head https://sirussofts.com/private/
-    curl --head https://sirussofts.org/admin/login
+    curl --head https://sirussofts.com/admin/login
 
-Expected: public root sites return success, private paths return 403 or 404
-(never 200 or raw PHP text), admin HTTPS login renders but private admin
-content requires authentication. Test both hostnames, desktop/mobile
-browser navigation, access logs and SSL renewal. The PHP CMS is intentionally
-NOT production-ready if these checks fail. Do not bypass certificate errors.
+Expected: public .com root and admin login return success, private paths
+return 403 or 404 (never 200 or raw PHP). The .org hostname is NOT
+required until it is explicitly added as an alias with its own valid TLS.
+Do not bypass certificate errors.
 
-Run the local HTTPS guard check after TLS is active (required before public launch):
+Run the local HTTPS guard check for .com after TLS is active. If .org is later configured as an alias, append `--also-domain sirussofts.org` to the command:
     bash deploy/ubuntu24/07-audit-cms-routing.sh --live \
-      --user sirusweb --domain sirussofts.org
+      --user sirusweb --domain sirussofts.com
 
 Run:
     bash deploy/ubuntu24/04-audit.sh --live

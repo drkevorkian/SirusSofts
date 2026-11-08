@@ -24,7 +24,7 @@ When run through the guarded Hestia installer under the separate `sirusweb`
 website account:
 
 ```text
-/home/sirusweb/web/sirussofts.org/
+/home/sirusweb/web/sirussofts.com/
 ├── public_html/
 │   ├── index.php            # Homepage and project routes
 │   ├── api.php              # Legacy cPoint bridge, inactive until separately deployed
@@ -52,9 +52,10 @@ Existing CMS databases are never silently overwritten or reset. Every
 project starts unpublished until it is intentionally added and published.
 
 Direct access to `/app/`, `/bin/`, `/tests/` and other private paths must
-return 403/404 from HTTPS on **both** `sirussofts.org` and `sirussofts.com`.
+return 403/404 from HTTPS on `sirussofts.com`, and on `.org` later if
+configured as a Hestia alias.
 Run `deploy/ubuntu24/07-audit-cms-routing.sh --live --user sirusweb
---domain sirussofts.org` from the original repository checkout once Hestia
+--domain sirussofts.com` from the original repository checkout once Hestia
 domain aliases, DNS and TLS are configured.
 
 ## Capabilities and current boundaries
