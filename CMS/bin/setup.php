@@ -26,7 +26,7 @@ function cms_setup_web_account(array $args): array {
     $explicit=null;
     foreach(array_slice($args,1) as $arg){
         if(!str_starts_with((string)$arg,'--web-user='))
-            throw new InvalidArgumentException('Usage: php bin/setup.php [--web-user=YOUR_PLESK_USER]');
+            throw new InvalidArgumentException('Usage: php bin/setup.php [--web-user=WEB_USER]');
         if($explicit!==null)
             throw new InvalidArgumentException('Provide --web-user only once.');
         $explicit=substr((string)$arg,11);
@@ -45,13 +45,13 @@ function cms_setup_web_account(array $args): array {
             if(dirname($p)===$p)break;
         }
         if($httpdocs===null)
-            throw new RuntimeException('Cannot locate Plesk httpdocs. Specify --web-user=YOUR_PLESK_USER.');
+            throw new RuntimeException('Cannot locate Plesk httpdocs. Specify --web-user=WEB_USER.');
         $uid=fileowner($httpdocs);
         if($uid===false || (int)$uid===0)
-            throw new RuntimeException('Plesk httpdocs is root-owned or has unknown ownership. Specify --web-user=YOUR_PLESK_USER.');
+            throw new RuntimeException('Plesk httpdocs is root-owned or has unknown ownership. Specify --web-user=WEB_USER.');
         $account=posix_getpwuid((int)$uid);
         if(!is_array($account))
-            throw new RuntimeException('Could not resolve httpdocs owner. Specify --web-user=YOUR_PLESK_USER.');
+            throw new RuntimeException('Could not resolve httpdocs owner. Specify --web-user=WEB_USER.');
     }
     if((int)$account['uid']===0 || (int)$account['gid']===0)
         throw new RuntimeException('Refusing root or root-group as the PHP website identity.');
@@ -109,7 +109,7 @@ catch(Throwable $problem){
 }
 if(is_file(cms_database_file()))exit("CMS database already exists. Refusing to reinstall or reset.\n");
 echo "SirusSofts CMS ".SIRUS_CMS_VERSION." installer\n";
-echo "Only run after creating a private backup of the existing cPoint website/database.\n";
+echo "This initializer does not modify cPoint or publish any project.\n";
 echo "Admin username [admin]: ";
 $username=trim((string)fgets(STDIN));
 if($username==='')$username='admin';
@@ -151,21 +151,11 @@ try{
     $db->prepare('INSERT INTO cms_admins(username,password_hash,created_at) VALUES(?,?,?)')
        ->execute([$username,password_hash($password,PASSWORD_DEFAULT),cms_now()]);
     unset($password);
-    // Seed cPoint without touching its existing sensor tokens or SQLite data.
-    $db->prepare('INSERT INTO cms_projects
-        (slug,title,summary,body,category,icon,kind,state,sort_order,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-       ->execute([
-           'cpoint','cPoint Monitor',
-           'Wi-Fi observation, radio diagnostics and scan-time receiver history.',
-           'Explore the cPoint Monitor project, including its Android receiver and the private observation dashboard.',
-           'Network tools','◉','app','published',10,cms_now(),cms_now()
-       ]);
     $db->commit();
     @chmod(cms_database_file(),0600);
-    echo "Initialized CMS database and public cPoint project card.\n";
-    echo "CMS admin and cPoint admin are separate accounts.\n";
-    echo "Next: confirm CMS/index.php serves the public homepage and finish DNS/Plesk routing.\n";
+    echo "Initialized CMS database. All projects remain unpublished by default.\n";
+    echo "Project applications remain independent from the CMS.\n";
+    echo "Next: configure Nginx routing and valid DNS/TLS.\n";
 }catch(Throwable $error){
     if($db->inTransaction())$db->rollBack();
     error_log('CMS setup failure: '.get_class($error));
