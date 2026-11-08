@@ -194,9 +194,13 @@ When the Hestia domain and account are ready, type DEPLOY CMS:
     bash deploy/ubuntu24/06-deploy-cms-hestia.sh --deploy \
       --user sirusweb --domain sirussofts.org
 
-The script installs a site-specific root-owned Nginx include that blocks
-/app, /bin, /tests, /private, /deploy and sensitive extensions. It verifies
-Nginx loads the include BEFORE placing PHP source in public_html. It stages
+The script installs TWO root-owned Nginx includes, because default Hestia
+templates load HTTP via `nginx.conf_*` and HTTPS via `nginx.ssl.conf_*`.
+Both block /app, /bin, /tests, /private, /deploy and sensitive extensions.
+The HTTP include must be active before copying any PHP source. If SSL already
+exists, its HTTPS include must also be active or deployment stops. Otherwise
+the HTTPS guard is staged in advance for Hestia's later SSL activation.
+After enabling HTTPS, the dual-protocol routing audit MUST pass. It stages
 only CMS files, backs up a recognized Hestia default index page privately,
 and initializes SQLite/admin credentials as the NON-root website user.
 CMS user data is stored in:
@@ -225,6 +229,10 @@ content requires authentication. Test both hostnames, desktop/mobile
 browser navigation, access logs and SSL renewal. The PHP CMS is intentionally
 NOT production-ready if these checks fail. Do not bypass certificate errors.
 
+Run the local HTTPS guard check after TLS is active (required before public launch):
+    bash deploy/ubuntu24/07-audit-cms-routing.sh --live \
+      --user sirusweb --domain sirussofts.org
+
 Run:
     bash deploy/ubuntu24/04-audit.sh --live
     nginx -t && apache2ctl configtest
@@ -249,3 +257,7 @@ base path, authentication and shared-cookie behavior. The previous independent
 Nginx app agent must stay DISABLED under Hestia. Any production rollback
 must preserve private SQLite and Hestia configuration. No destructive
 reinstall over existing data.
+
+Security note: Hestia's official default Nginx proxy .tpl and .stpl templates
+include the separate HTTP `nginx.conf_*` and HTTPS `nginx.ssl.conf_*`
+fragments. Never rely on the HTTP include to protect HTTPS requests.

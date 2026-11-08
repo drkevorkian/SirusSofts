@@ -39,14 +39,17 @@ id "$user" >/dev/null 2>&1 || fail 'Hestia website account does not exist'
 SITEROOT="/home/$user/web/$domain"
 DOCROOT="$SITEROOT/public_html"
 CONF="/home/$user/conf/web/$domain"
-SAFEFILE="$CONF/nginx.conf_siruscms"
+HTTP_GUARD="$CONF/nginx.conf_siruscms"
+HTTPS_GUARD="$CONF/nginx.ssl.conf_siruscms"
 [[ -d "$DOCROOT" && ! -L "$DOCROOT" &&
    -d "$CONF" && ! -L "$CONF" && -d "$SITEROOT" && ! -L "$SITEROOT" ]] ||
   fail 'Expected Hestia managed directories unavailable or symlinked'
 [[ "$(stat -c %U "$DOCROOT")" == "$user" ]] ||
   fail 'Hestia document root is not owned by requested website user'
-[[ ! -e "$SAFEFILE" && ! -L "$SAFEFILE" ]] ||
-  fail 'An existing SirusSofts Nginx include requires manual review'
+for guard_file in "$HTTP_GUARD" "$HTTPS_GUARD"; do
+  [[ ! -e "$guard_file" && ! -L "$guard_file" ]] ||
+    fail "An existing SirusSofts Nginx include requires manual review: $guard_file"
+done
 for name in index.php api.php node-heartbeat.php app assets bin .htaccess; do
   [[ ! -e "$DOCROOT/$name" && ! -L "$DOCROOT/$name" ]] ||
     fail "Document root already contains $name; refusing overwrite"
@@ -59,7 +62,8 @@ if [[ -f "$DOCROOT/index.html" ]]; then
 fi
 if [[ "$mode" == --plan ]]; then
   echo "PASS verified dedicated Hestia user, fresh CMS data and document root: $DOCROOT"
-  echo "The root Nginx server will include: $SAFEFILE"
+  echo "Hestia HTTP Nginx include: $HTTP_GUARD"
+  echo "Hestia HTTPS Nginx include: $HTTPS_GUARD"
   echo 'Only the CMS homepage, assets, code and command-line setup are staged.'
   echo 'Private SQLite goes into the Hestia domain private/ directory, outside public_html.'
   echo 'Attach sirussofts.com and www aliases in Hestia separately; provision TLS after DNS.'
@@ -69,16 +73,33 @@ fi
 [[ -t 0 && -t 1 ]] || fail 'Interactive root console required for initial deployment'
 read -r -p "Type DEPLOY CMS to initialize $domain under $user: " approved
 [[ "$approved" == 'DEPLOY CMS' ]] || fail 'Operator declined'
-# Place this guard BEFORE copying any internal PHP directory into the web root.
-install -o root -g root -m 0644 "$GUARD" "$SAFEFILE"
+# Hestia's Nginx HTTP and HTTPS templates load DIFFERENT wildcard paths.
+# Install both guards BEFORE copying the CMS internals into public_html.
+# Never edit Hestia's generated nginx.conf/nginx.ssl.conf directly.
+install -o root -g root -m 0644 "$GUARD" "$HTTP_GUARD"
+install -o root -g root -m 0644 "$GUARD" "$HTTPS_GUARD"
+remove_guards(){ rm -f -- "$HTTP_GUARD" "$HTTPS_GUARD"; }
 if ! nginx -t || ! apache2ctl configtest; then
-  rm -f -- "$SAFEFILE"
-  fail 'Web server config rejected; removed the custom guard'
+  remove_guards
+  fail 'Web server config rejected; removed BOTH custom guards'
 fi
-nginx_dump="$(nginx -T 2>&1)" || fail 'Cannot inspect active Nginx configuration'
-if ! grep -q 'SIRUSSOFTS_PRIVATE_GUARD' <<< "$nginx_dump"; then
-  rm -f -- "$SAFEFILE"
-  fail 'Hestia does not include nginx.conf_*; no CMS files were exposed'
+nginx_dump="$(nginx -T 2>&1)" || {
+  remove_guards
+  fail 'Cannot inspect effective Nginx configuration; removed BOTH custom guards'
+}
+# nginx -T emits an included-file header for every loaded custom fragment.
+if ! grep -Fq "# configuration file $HTTP_GUARD:" <<< "$nginx_dump"; then
+  remove_guards
+  fail 'Hestia HTTP template does not include nginx.conf_*'
+fi
+if grep -Fq "# configuration file $HTTPS_GUARD:" <<< "$nginx_dump"; then
+  echo 'PASS Hestia HTTPS custom guard is active.'
+elif [[ -e "$CONF/nginx.ssl.conf" || -L "$CONF/nginx.ssl.conf" ]]; then
+  remove_guards
+  fail 'HTTPS vhost exists but its nginx.ssl.conf_* guard is NOT active'
+else
+  echo 'NOTE: HTTPS site has not yet been provisioned; HTTPS guard is preinstalled.'
+  echo 'After enabling TLS in Hestia, run the final dual-protocol routing audit.'
 fi
 systemctl reload nginx
 # Private domain parent is outside public_html; no separate broad system account.
@@ -107,6 +128,6 @@ runuser -u "$user" -- php8.3 "$DOCROOT/bin/setup.php"
   fail 'CMS initialization incomplete; site code remains staged, inspect before retry'
 runuser -u "$user" -- php8.3 "$DOCROOT/bin/migrate-schema.php"
 echo 'PASS CMS files and private SQLite staged in a Hestia-managed website.'
-echo 'Before routing public DNS: verify /app/core.php and /bin/setup.php return 404 through Nginx.'
+echo 'Before routing DNS: both HTTP and HTTPS must block /app/core.php and /bin/setup.php.'
 echo 'Then add .org/.com aliases, obtain/renew site TLS in Hestia, and verify admin HTTPS.'
 echo 'Do not run deploy/install-framework-ubuntu.sh or the old standalone vhost agent on Hestia.'
