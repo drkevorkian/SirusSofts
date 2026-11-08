@@ -20,4 +20,4 @@ ProtectControlGroups=true
 ProtectKernelModules=true
 LockPersonality=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-TimeoutStartSec=180
+TimeoutStartSec=1800
