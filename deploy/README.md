@@ -54,3 +54,34 @@ GitHub ordinary webhooks are configured per repository. A GitHub App installatio
 - GitHub HMAC signature verification: https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries
 - GitHub webhook types: https://docs.github.com/en/webhooks/types-of-webhooks
 - GitHub SSH fingerprints: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+
+
+## Automatic version-family discovery (staging)
+
+`version_groups.py` groups repositories with shared normalized names and terminal
+version suffixes, such as `Gentoo-Installer`, `Gentoo-Installer-2`, and
+`Gentoo_InstallerV3`. The grouping API returns `groups` beside the unchanged
+`projects` list, and the internal catalog admin table displays grouped versions.
+
+Versionless repositories are identified as `Original / unversioned`, **not
+asserted to be v1** without metadata. Version suffixes are recognized from
+repository names only in this revision. GitHub release tags, installer manifests,
+and an administrator-controlled override will be added later.
+
+Each repository keeps its **own** private/public catalog visibility and
+hosting-request state. Merely belonging to a version family does not deploy,
+publish, or expose any source code. No version is automatically promoted to
+production; the active deployable version must be explicitly selected in a
+future CMS release-management interface.
+
+Test grouping independently (from the `deploy/` folder):
+
+```sh
+python3 -m unittest discover -s tests -p 'test_version_groups.py'
+```
+
+**Integration status:** The grouping is implemented in the standalone Python
+GitHub catalog API and its staging admin page. It is *not yet wired into the
+main PHP CMS admin, production web-host routing, or installer*. The existing
+bootstrap instructions above remain provisional until the integrated
+framework migration replaces manual project configuration.
