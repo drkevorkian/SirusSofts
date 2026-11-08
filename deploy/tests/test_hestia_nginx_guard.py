@@ -45,12 +45,12 @@ class HestiaGuardTests(unittest.TestCase):
                 f"server {{ listen 127.0.0.1:{http_port};\n"
                 "server_name sirussofts.org sirussofts.com;\n"
                 f"include {root}/nginx.conf_*;\n"
-                'location / { return 200 "public"; }\n}\n'
+                'location / {\n'\n                '    location ~* ^.+\\.(?:css|js)$ { return 200 "UNSAFE_STATIC"; }\n'\n                '    return 200 "public";\n}\n}\n'
                 f"server {{ listen 127.0.0.1:{ssl_port} ssl;\n"
                 "server_name sirussofts.org sirussofts.com;\n"
                 f"ssl_certificate {cert}; ssl_certificate_key {key};\n"
                 f"include {root}/nginx.ssl.conf_*;\n"
-                'location / { return 200 "public"; }\n}\n}\n'
+                'location / {\n'\n                '    location ~* ^.+\\.(?:css|js)$ { return 200 "UNSAFE_STATIC"; }\n'\n                '    return 200 "public";\n}\n}\n}\n'
             )
             check = subprocess.run(["nginx", "-t", "-c", str(config), "-p", name],
                                    capture_output=True, text=True, timeout=10)
@@ -68,7 +68,7 @@ class HestiaGuardTests(unittest.TestCase):
                         time.sleep(0.1)
                 else:
                     self.fail("Nginx failed to listen")
-                private = ["/app/core.php", "/bin/setup.php", "/tests/smoke.php",
+                private = ["/app/core.php", "/app/secret.js", "/bin/setup.php", "/bin/secret.css", "/tests/smoke.php",
                            "/private/x", "/deploy/config", "/.htaccess",
                            "/.user.ini", "/db.sqlite3", "/secret.key"]
                 hosts = ["sirussofts.org", "sirussofts.com"]
