@@ -1,5 +1,62 @@
 # SirusSofts development recovery checkpoint
 
+## 2026-11-08 follow-up: executable PuTTY SSH installation candidate
+
+The operator wants this to be runnable on the next session, including EXACT
+steps to get the code physically onto the wiped Ubuntu 24.04 server.
+
+**Canonical 1st-stop file:**
+[PuTTY SSH install / public GitHub clone](../deploy/ubuntu24/PUTTY-SSH-QUICKSTART.md)
+
+The SirusSofts GitHub repo is PUBLIC. PuTTY terminal commands:
+- apt-get update; apt-get install -y ca-certificates curl git openssh-server
+- git clone --single-branch --branch feature/cms-vhost-distributed-nodes
+  https://github.com/drkevorkian/SirusSofts.git /root/SirusSofts
+- cd /root/SirusSofts; git rev-parse HEAD
+- bash deploy/ubuntu24/01-preflight.sh --strict
+Then the official Hestia release script is downloaded and SHA-256 reviewed,
+executed only after interactive confirmation, with PHP8.3/8.4,
+Nginx+Apache+FPM+MariaDB+Hestia firewall+Fail2Ban. Post-reboot command
+sequence, PuTTY SSH tunnel, Windows hosts mapping for panel certificate,
+Hestia site creation, .org/.com aliases, Let's Encrypt, CMS initialization
+and both-domain HTTPS audits are documented as literal copy/paste blocks.
+
+**Critical bugs found and FIXED this round:**
+1. Hestia's default homepage actually reads "Coming Soon" rather than
+   "Plesk" or the previously anticipated default-page wording. The
+   installer now compares the ENTIRE original Hestia skeleton index.html
+   after replacing the %domain% token; it only backs up a verified clean
+   default page. No arbitrary homepage overwrite.
+2. PuTTY quickstart Markdown code blocks previously escaped fence tokens.
+   Fixed to render executable copy/paste commands normally, with a CI test.
+3. The PHP CLI CMS setup root account fallback used to depend on a
+   Plesk httpdocs directory. Updated to determine the nonroot owner of
+   the actual site directory, with root-owned checkout fail-closed.
+   The Hestia installer still runs the setup as the unprivileged Hestia
+   website user.
+4. Replaced the CMS/README.md's obsolete Plesk deployment instructions with
+   the actual Hestia path and per-site secure storage layout.
+5. CI now includes deploy/tests/test_hestia_bootstrap.py, which tests the
+   PuTTY clone / command coverage and exact default homepage comparison.
+
+**Verification:** GitHub Actions pass on implementation commit
+6fb10aa1c59fa3aaca683cbea67735dbf1c2cd5d:
+https://github.com/drkevorkian/SirusSofts/actions/runs/42509785773
+
+This checkpoint update itself creates a newer commit; verify its exact
+latest SHA and CI result before the next coding session.
+The actual IONOS Ubuntu server is NOT connected to a remote execution tool
+and no SSH command has been run against it here. This is ready for
+operator-run preflight / installation, not verified production uptime.
+
+No cPoint, WorldCom, Sentinel Trader deployment or database migration was
+attempted. The native Hestia app subdomain/directory deploy service is still
+separate engineering work; use Hestia-owned web templates only. The old
+standalone Nginx service is incompatible with Hestia and stays disabled.
+
+
+---
+
 **Operator-facing PuTTY quickstart:** [deploy/ubuntu24/PUTTY-SSH-QUICKSTART.md](../deploy/ubuntu24/PUTTY-SSH-QUICKSTART.md). The repository is PUBLIC: clone via HTTPS in PuTTY; no GitHub credentials are required to read it. The existing feature branch remains the deployable source until reviewed code is moved to main. This is an executable installer path, not a generic architecture proposal. Actual IONOS execution remains unverified until the operator performs the live audit.\n
 ## NEWER DEPLOYMENT STATE — 2026-11-08 CLEAN UBUNTU 24.04 (SUPERSEDES OLD NGiNX/PLesK PLAN)
 
