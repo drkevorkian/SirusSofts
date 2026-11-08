@@ -51,7 +51,7 @@ class NativeNginxConfigTests(unittest.TestCase):
         conf.write_text(
             "pid " + str(self.root / "nginx.pid") + ";\n"
             "error_log " + str(self.root / "nginx-error.log") + " warn;\n"
-            "events {}\nhttp {\n"
+            "events {}\nhttp {\naccess_log off;\n"
             "include " + str(sites) + "/*.conf;\n}\n"
         )
         result = subprocess.run(
