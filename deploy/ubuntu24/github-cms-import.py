@@ -19,6 +19,7 @@ API = "https://api.github.com/user/repos"
 PAGE_SIZE = 100
 MAX_PAGES = 100
 INTERVAL_SECONDS = 6 * 60 * 60
+FAILURE_RETRY_SECONDS = 15 * 60
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 SLUG = re.compile(r"^[a-z][a-z0-9-]{1,39}$")
 RESERVED = {
@@ -202,21 +203,50 @@ def apply(db, repositories, when):
         db.rollback()
         raise
 
+def import_due(requested_at, attempted_at, success_at, now, force=False):
+    """An authenticated admin request or --force bypasses the timer.
+    A failed attempt (attempted > success) gets a short retry, not 6 hours.
+    """
+    if force or requested_at > attempted_at:
+        return True
+    if attempted_at == 0:
+        return True
+    if attempted_at > success_at:
+        return now - attempted_at >= FAILURE_RETRY_SECONDS
+    return now - success_at >= INTERVAL_SECONDS
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--db")
     parser.add_argument("--token-file")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--test-auth", action="store_true",
+                        help="Validate credential with GitHub; do not touch CMS SQLite")
+    parser.add_argument("--force", action="store_true",
+                        help="Bypass schedule and retry a requested import immediately")
     args = parser.parse_args(argv)
+    if args.check and (args.test_auth or args.force):
+        parser.error("--check cannot be combined with other modes")
+    if args.test_auth and args.force:
+        parser.error("--test-auth cannot be combined with --force")
     if args.check:
         print("PASS GitHub CMS importer available; no network or database changes")
         return 0
-    if not args.db or not args.token_file:
-        parser.error("--db and --token-file are required")
+    if not args.token_file or (not args.test_auth and not args.db):
+        parser.error("--token-file is required; --db is also required for importing")
     with open(args.token_file, "r", encoding="utf8") as stream:
         token = stream.read().strip()
     if len(token) < 20 or "\n" in token:
         raise RuntimeError("GitHub token is absent or invalid")
+    if args.test_auth:
+        response=get_page(token,1)
+        if not isinstance(response,list):
+            raise RuntimeError("GitHub returned an unexpected authentication response")
+        print(f"PASS GitHub accepted the credential; {len(response)} repositories on the first visible page.")
+        if not response:
+            print("WARNING No repositories visible to this credential; review token resource-owner and repository access.")
+        return 0
     if not args.db.startswith("/home/sirusweb/web/sirussofts.com/private/sirus-cms/data/"):
         raise RuntimeError("Database must live under the reviewed private CMS path")
     db = sqlite3.connect("file:" + args.db + "?mode=rw", uri=True, timeout=15)
@@ -224,10 +254,12 @@ def main(argv=None):
     db.execute("PRAGMA busy_timeout=15000")
     prepare_schema(db)
     db.commit()
-    row = db.execute("""SELECT requested_at, attempted_at FROM cms_github_sync_state WHERE id=1""").fetchone()
+    row = db.execute("""SELECT requested_at, attempted_at, success_at
+                        FROM cms_github_sync_state WHERE id=1""").fetchone()
     current = int(time.time())
-    if row[0] <= row[1] and current - row[1] < INTERVAL_SECONDS:
-        print("PASS GitHub repository import not due")
+    if not import_due(*map(int,row),current,args.force):
+        print("PASS GitHub import not due; last success or short error retry interval still applies")
+        db.close()
         return 0
     try:
         repositories = discover(token)
