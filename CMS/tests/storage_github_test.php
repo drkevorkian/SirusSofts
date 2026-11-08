@@ -62,6 +62,51 @@ try {
         githubCheck(str_contains($expected->getMessage(), 'not verified as private'), 'Wrong public refusal');
     }
     githubCheck($publicCalls === 1, 'Publisher sent files to public repository');
+
+    // Recover from the previously mock-uploaded GitHub Contents API responses.
+    $downloadMock = static function ($method, $url, $payload, $token) use ($uploads): array {
+        githubCheck($token === 'github_pat_TEST_ONLY_123456789abcdef', 'Unexpected download token');
+        githubCheck($method === 'GET', 'Download must use GET');
+        if ($url === 'https://api.github.com/repos/owner/private-backups') {
+            return ['status' => 200, 'data' => ['full_name' => 'owner/private-backups', 'private' => true]];
+        }
+        foreach ($uploads as $item) {
+            if ($item['url'] === str_replace('/contents/', '/contents/', $url)) {
+                return ['status' => 200, 'data' => [
+                    'encoding' => 'base64', 'content' => base64_encode($item['data'])
+                ]];
+            }
+        }
+        throw new RuntimeException('Unexpected mock GitHub content URL');
+    };
+    $recoverDir = $dir . '/fetched';
+    mkdir($recoverDir, 0700);
+    $download = SirusPrivateGithubBackup::fetch('owner/private-backups',
+        'example', $result['prefix'], $recoverDir, $key, $tokenFile, $downloadMock);
+    githubCheck($download['authenticated'] === true, 'Downloaded archive not verified');
+    githubCheck(file_get_contents($download['archive']) === file_get_contents($archive),
+        'Recovered ciphertext differs');
+    githubCheck(file_get_contents($download['manifest']) === file_get_contents($manifest),
+        'Recovered recovery marker differs');
+    try {
+        SirusPrivateGithubBackup::fetch('owner/private-backups', 'example',
+            $result['prefix'], $recoverDir, $key, $tokenFile, $downloadMock);
+        throw new RuntimeException('Duplicate remote restore overwrote existing backup');
+    } catch (RuntimeException $expected) {
+        githubCheck(str_contains($expected->getMessage(), 'already contains'),
+            'Wrong duplicate restore rejection');
+    }
+    $untrustedDir = $dir . '/untrusted';
+    mkdir($untrustedDir, 0700);
+    try {
+        SirusPrivateGithubBackup::fetch('owner/private-backups', 'example',
+            $result['prefix'], $untrustedDir, random_bytes(32), $tokenFile, $downloadMock);
+        throw new RuntimeException('Wrong key accepted in GitHub retrieval');
+    } catch (RuntimeException $expected) {}
+    githubCheck(count(glob($untrustedDir . '/*') ?: []) === 0, 'Failed verification left files');
+    foreach (glob($recoverDir . '/*') ?: [] as $file) { @unlink($file); }
+    @rmdir($recoverDir);
+    @rmdir($untrustedDir);
     chmod($tokenFile, 0644);
     try {
         SirusPrivateGithubBackup::publish('owner/private-backups', 'example',

@@ -77,7 +77,7 @@ final class SirusPrivateGithubBackup
             }
             $response = curl_exec($handle);
             $status = curl_getinfo($handle, CURLINFO_HTTP_CODE);
-            if (!is_string($response) || strlen($response) > 100000) {
+            if (!is_string($response) || strlen($response) > (int)ceil(self::MAX_ARCHIVE * 1.5) + 65536) {
                 throw new RuntimeException('GitHub response could not be read safely');
             }
             $data = json_decode($response, true);
@@ -154,4 +154,120 @@ final class SirusPrivateGithubBackup
             'note' => 'Snapshot remains encrypted; original local database is untouched',
         ];
     }
+    private static function downloadContent(
+        callable $transport, string $url, string $token, int $maxBytes
+    ): string {
+        $response = $transport('GET', $url, null, $token);
+        if (!is_array($response) || ($response['status'] ?? null) !== 200 ||
+            ($response['data']['encoding'] ?? null) !== 'base64' ||
+            !is_string($response['data']['content'] ?? null) ||
+            strlen($response['data']['content']) > (int)ceil($maxBytes * 1.5) + 4096) {
+            throw new RuntimeException('GitHub backup file not available in expected base64 format');
+        }
+        $bytes = base64_decode($response['data']['content'], true);
+        if ($bytes === false || strlen($bytes) > $maxBytes) {
+            throw new RuntimeException('Invalid or oversized encrypted GitHub backup content');
+        }
+        return $bytes;
+    }
+
+    /**
+     * Fetch a previously uploaded encrypted backup into a NEW local directory,
+     * validating its authenticated stream before exposing it. This does not
+     * restore/activate a database or overwrite any existing file.
+     */
+    public static function fetch(
+        string $repository, string $project, string $prefix, string $directory,
+        string $key, string $tokenFile, ?callable $transport = null
+    ): array {
+        if (!preg_match('#^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$#D', $repository) ||
+            str_contains($repository, '..') ||
+            !preg_match('/^[a-z][a-z0-9-]{1,63}$/D', $project) ||
+            !preg_match('#^backups/' . preg_quote($project, '#') .
+                '/[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$#D', $prefix)) {
+            throw new InvalidArgumentException('Invalid backup repository, project, or snapshot prefix');
+        }
+        if (!str_starts_with($directory, '/') || is_link($directory) ||
+            !is_dir($directory) || !is_writable($directory)) {
+            throw new InvalidArgumentException('Restore directory must be a private existing absolute directory');
+        }
+        $realDir = realpath($directory);
+        $public = realpath(dirname(__DIR__));
+        if ($realDir === false || ($public !== false &&
+            ($realDir === $public || str_starts_with($realDir, $public . '/')))) {
+            throw new InvalidArgumentException('Restore directory must not be public');
+        }
+        $token = self::secret($tokenFile);
+        $transport ??= [self::class, 'request'];
+        $root = 'https://api.github.com/repos/' . $repository;
+        $metadata = $transport('GET', $root, null, $token);
+        if (!is_array($metadata) || ($metadata['status'] ?? null) !== 200 ||
+            ($metadata['data']['private'] ?? null) !== true ||
+            strcasecmp((string)($metadata['data']['full_name'] ?? ''), $repository) !== 0) {
+            throw new RuntimeException('Destination repository was not verified as private');
+        }
+        $manifestBytes = self::downloadContent($transport,
+            $root . '/contents/' . $prefix . '/manifest.json', $token, self::MAX_MANIFEST);
+        $manifest = json_decode($manifestBytes, true, 20, JSON_THROW_ON_ERROR);
+        if (!is_array($manifest) || ($manifest['project_id'] ?? null) !== $project ||
+            count($manifest['files'] ?? []) !== 1 ||
+            !is_string($manifest['files'][0]['name'] ?? null)) {
+            throw new RuntimeException('Recovery manifest does not match requested project');
+        }
+        $name = $manifest['files'][0]['name'];
+        if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,100}\.ssb$/D', $name)) {
+            throw new RuntimeException('Invalid encrypted archive name in manifest');
+        }
+        $ciphertext = self::downloadContent($transport,
+            $root . '/contents/' . $prefix . '/' . $name, $token, self::MAX_ARCHIVE);
+        $staging = $realDir . '/.sirus-github-restore-' . bin2hex(random_bytes(10));
+        if (!mkdir($staging, 0700)) {
+            throw new RuntimeException('Cannot create private recovery staging directory');
+        }
+        $stageArchive = $staging . '/' . $name;
+        $stageManifest = $staging . '/manifest.json';
+        $finalArchive = $realDir . '/' . $name;
+        $finalManifest = $realDir . '/' . $name . '.manifest.json';
+        $linkedArchive = false;
+        try {
+            $oldMask = umask(0077);
+            try {
+                if (file_put_contents($stageArchive, $ciphertext, LOCK_EX) === false ||
+                    file_put_contents($stageManifest, $manifestBytes, LOCK_EX) === false) {
+                    throw new RuntimeException('Cannot stage encrypted backup');
+                }
+            } finally {
+                umask($oldMask);
+            }
+            // Keep the exact archive basename required by the manifest. The
+            // destination manifest path may differ, because matching is only
+            // required for the archive itself.
+            SirusEncryptedSqliteBackup::verify(
+                $stageArchive, $stageManifest, $key, $project
+            );
+            if (file_exists($finalArchive) || is_link($finalArchive) ||
+                file_exists($finalManifest) || is_link($finalManifest)) {
+                throw new RuntimeException('Recovery destination already contains these files');
+            }
+            if (!link($stageArchive, $finalArchive)) {
+                throw new RuntimeException('Cannot publish verified encrypted backup file');
+            }
+            $linkedArchive = true;
+            if (!link($stageManifest, $finalManifest)) {
+                throw new RuntimeException('Cannot publish verified recovery manifest');
+            }
+            $linkedArchive = false;
+        } finally {
+            if ($linkedArchive) { @unlink($finalArchive); }
+            @unlink($stageArchive);
+            @unlink($stageManifest);
+            @rmdir($staging);
+        }
+        return [
+            'repository' => $repository, 'project' => $project, 'prefix' => $prefix,
+            'archive' => $finalArchive, 'manifest' => $finalManifest,
+            'authenticated' => true, 'database_restored' => false,
+        ];
+    }
+
 }
