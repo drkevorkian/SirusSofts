@@ -3,7 +3,7 @@ declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 
 /** SirusSofts CMS 0.1 — private application code. Never serve this file directly. */
-const SIRUS_CMS_VERSION = '0.3.0-alpha';
+const SIRUS_CMS_VERSION = '0.4.0-alpha';
 const SIRUS_CMS_DOMAIN = 'sirussofts.com';
 
 /**
@@ -135,6 +135,25 @@ CREATE TABLE IF NOT EXISTS cms_github_sync_state (
 )
 SQL);
     $db->exec('INSERT OR IGNORE INTO cms_github_sync_state(id) VALUES (1)');
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS cms_viewers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+    auth_version INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    last_login TEXT
+)
+SQL);
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS cms_source_permissions (
+    viewer_id INTEGER NOT NULL REFERENCES cms_viewers(id) ON DELETE CASCADE,
+    github_id INTEGER NOT NULL REFERENCES cms_github_repositories(github_id) ON DELETE CASCADE,
+    PRIMARY KEY (viewer_id,github_id)
+)
+SQL);
+    $db->exec('CREATE INDEX IF NOT EXISTS cms_source_permission_repo ON cms_source_permissions(github_id)');
     $db->exec('CREATE INDEX IF NOT EXISTS cms_github_project_link ON cms_github_repositories(project_id)');
     $db->exec('CREATE INDEX IF NOT EXISTS cms_projects_status ON cms_projects(state,sort_order)');
 }
@@ -251,6 +270,13 @@ function cms_login(PDO $db,string $username,string $password): bool {
     $st=$db->prepare('SELECT id,password_hash FROM cms_admins WHERE username=?');
     $st->execute([$username]);$admin=$st->fetch();
     $okay=$admin && password_verify($password,(string)$admin['password_hash']);
+    $member=null;
+    if(!$okay){
+        $st=$db->prepare('SELECT id,password_hash,auth_version FROM cms_viewers
+                          WHERE username=? COLLATE NOCASE AND enabled=1');
+        $st->execute([$username]);$member=$st->fetch();
+        $okay=$member && password_verify($password,(string)$member['password_hash']);
+    }
     if(!$okay){
         $count=$rec&&time()-(int)$rec['started']<900?(int)$rec['count']+1:1;
         $beg=$count===1?time():(int)$rec['started'];
@@ -261,11 +287,21 @@ function cms_login(PDO $db,string $username,string $password): bool {
     }
     $db->prepare('DELETE FROM cms_logins WHERE ip=? AND username=?')->execute([$ip,$username]);
     session_regenerate_id(true);
-    $_SESSION['cms_admin_id']=(int)$admin['id'];
+    unset($_SESSION['cms_admin_id'],$_SESSION['cms_member_id'],$_SESSION['cms_member_version']);
     $_SESSION['cms_username']=$username;
     $_SESSION['cms_csrf']=bin2hex(random_bytes(32));
-    $db->prepare('UPDATE cms_admins SET last_login=? WHERE id=?')->execute([cms_now(),$admin['id']]);
-    cms_audit($db,'sign-in','admin');
+    if($admin && password_verify($password,(string)$admin['password_hash'])){
+        $_SESSION['cms_admin_id']=(int)$admin['id'];
+        $db->prepare('UPDATE cms_admins SET last_login=? WHERE id=?')
+           ->execute([cms_now(),$admin['id']]);
+        cms_audit($db,'sign-in','admin');
+    }else{
+        $_SESSION['cms_member_id']=(int)$member['id'];
+        $_SESSION['cms_member_version']=(int)$member['auth_version'];
+        $db->prepare('UPDATE cms_viewers SET last_login=? WHERE id=?')
+           ->execute([cms_now(),$member['id']]);
+        cms_audit($db,'sign-in','viewer');
+    }
     return true;
 }
 function cms_audit(PDO $db,string $action,string $reference): void {
