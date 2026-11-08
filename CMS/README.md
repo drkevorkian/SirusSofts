@@ -199,3 +199,45 @@ The initial `systemctl start` performs the first sync immediately.
   the unprivileged website account.
 - Stop automatic syncing with `systemctl disable --now
   sirus-github-import.timer`; this does not delete imported projects.
+
+### Troubleshooting GitHub HTTP 401 and failed sync backoff
+
+The SirusSofts GitHub importer uses a SEPARATE server-side GitHub credential,
+not the ChatGPT GitHub connection. An HTTP 401 means GitHub rejected this
+server credential. Confirm that a real, unexpired GitHub token (not its
+name, ID, or an example) was saved into
+`/etc/sirussofts/github.token` with root-only permissions.
+
+Test it without importing anything or displaying secrets:
+
+```bash
+python3 deploy/ubuntu24/github-cms-import.py --test-auth \
+  --token-file /etc/sirussofts/github.token
+```
+
+A successful response reports the number of API-visible repositories on the
+first page. A 401 means replace the token securely. A valid fine-grained
+token requires access to the correct GitHub resource owner/repositories and
+repository Metadata: Read. A fine-grained PAT may not enumerate every
+organization/collaborator repo available through other accounts; authorize
+the missing owners separately if needed.
+
+A failed GitHub request is retried after **15 minutes**, not six hours.
+A fresh authenticated CMS `Import all repositories` request bypasses this
+cooldown, while successful automatic scans run every six hours.
+To update the already-installed scheduled importer code WITHOUT reinstalling
+Hestia or re-creating systemd service files, after a new reviewed commit:
+
+```bash
+systemctl stop sirus-github-import.timer sirus-github-import.service
+install -o root -g root -m 0755 \
+  deploy/ubuntu24/github-cms-import.py \
+  /usr/local/libexec/sirus-github-import.py
+systemctl start sirus-github-import.timer
+```
+
+Then click `Import all repositories` in `/admin/github`, and run
+`systemctl start sirus-github-import.service` in PuTTY to process it
+immediately; inspect `journalctl -u sirus-github-import.service -n 30
+--no-pager`. Do not relax the permissions on the token file or paste the
+credential into ChatGPT.
