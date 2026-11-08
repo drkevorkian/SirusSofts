@@ -1,175 +1,187 @@
-# SirusSofts engineering recovery checkpoint
+# SirusSofts development recovery checkpoint
 
-Checkpoint date: 2026-11-08 UTC.
-Authoritative repository: https://github.com/drkevorkian/SirusSofts
-Development branch: feature/cms-vhost-distributed-nodes
-Draft pull request: https://github.com/drkevorkian/SirusSofts/pull/5
-Target base: main.
-Latest verified implementation commit before this checkpoint:
-c04ad0483e25e9f921cb04f3ae2a8b6cc43cf3f0.
-The checkpoint commit itself changes HEAD. Future sessions MUST fetch branch HEAD live
-and inspect recent commits and PR before proceeding.
+Updated: 2026-11-08 UTC.
+Repository: https://github.com/drkevorkian/SirusSofts
+Working branch: feature/cms-vhost-distributed-nodes
+Open draft pull request: https://github.com/drkevorkian/SirusSofts/pull/5 (against main).
+Latest successfully tested IMPLEMENTATION commit prior to this documentation update:
+7737f83c8ff8c7b84ae5ef431bb5dfdef7e52344.
+Latest green CI: https://github.com/drkevorkian/SirusSofts/actions/runs/42504411730
 
-## VERIFIED - source and tests committed
+IMPORTANT: This checkpoint update creates a NEW branch commit. The actual
+current HEAD is that documentation commit or later. Always fetch GitHub's
+branch ref and PR/CI before making further changes. Do not trust a cached SHA.
 
-1. Existing custom PHP CMS public homepage, project catalog, page editing,
-   session-based admin/settings and publication controls are present; inherited
-   from earlier merged PRs. This branch preserves them.
-2. CMS/app/storage_registry.php: per-project driver, node, connection reference,
-   schema version and migration state registry outside public document root.
-3. CMS/app/storage_adapters.php: SQLite PDO and MySQL/MariaDB PDO adapters.
-   Remote MySQL requires configured CA certificate and server validation;
-   passwords come from trusted external secret resolver, never Git.
-4. CMS/app/storage_backup.php: SQLite VACUUM INTO consistent snapshot, including
-   WAL data; restrictive umask on temporary plaintext; streaming sodium
-   secretstream-xchacha20poly1305 encryption; plaintext and ciphertext SHA-256
-   hashes in manifest, authenticated verification and validated non-destructive
-   restore that will not overwrite original DB.
-5. CMS/bin/storage-tool.php: independent offline PHP CLI commands backup,
-   verify, restore, preflight, compare. Encryption key is read from a root-
-   controlled private binary key file (mode 0400/0600), NOT a CLI parameter.
-   CMS/tests/storage_cli_test.php executes real subprocess integration tests.
-6. CMS/app/storage_migration.php: read-only SQLite integrity and foreign key
-   preflight, schema/row fingerprints and source/target verification; persistent
-   state transition journal. Cross-engine automatic migration is BLOCKED.
-   Activation only records journal metadata and does not switch a live database.
-7. CMS/app/node_registry.php and CMS/node-heartbeat.php: per-node HMAC-SHA256
-   signatures, nonce replay rejection, timestamp freshness, node inventory,
-   online/offline health and queued workload metadata. No arbitrary remote
-   commands or job execution. Heartbeat endpoint remains disabled until
-   private environment configuration is explicitly provided.
-8. node/: standalone Python Gentoo/OpenRC outbound-only heartbeat agent
-   (CPU, memory, GPU vendor discovery), HTTPS verification, retry on outages,
-   manual idempotent installer, WireGuard peer example, unit tests. No tunnel
-   or service enabled anywhere by this work.
-9. CMS/app/core.php: both .org and .com canonical root/subdomain recognition;
-   dedicated private CMS state env override. CMS/assets/cms.js: History API
-   async content navigation, Back/Forward and full-page fallback.
-   CMS/bin/setup.php: clean initialization no longer auto-publishes cPoint.
-10. CMS/app/vhosts.php and CMS/app/admin.php: admin UI connects to limited
-    AF_UNIX Nginx vhost service, preview/apply/rollback, operator text confirmation
-    and both domain routes. Page-type CMS projects only; app-type intentionally
-    blocked. Existing Plesk files remain in repo but must NOT be used.
-11. deploy/nginx_vhost_agent.py: root-owned fixed-operation Nginx page-vhost
-    agent, dual-domain certificate name+expiry checks, fixed Nginx test/reload,
-    managed config integrity, rollback, and tests. It writes nginx site files
-    into sites-enabled and registry metadata into a private directory.
-12. deploy/install-nginx-vhost-agent.sh: separate opt-in installer for the
-    restricted agent. It installs unit files but DOES NOT enable/start service.
-13. deploy/install-framework-ubuntu.sh, nginx-sirussofts.conf and PHP-FPM pool:
-    Ubuntu 24.04 custom-PHP-only website installer, idempotent release paths,
-    private SQLite state, non-root PHP, no Docker/Plesk/Laravel. Manual DNS and
-    HTTPS provisioning required. No live execution performed.
-14. CMS/app/operations.php and CMS admin /admin/infrastructure:
-    authenticated read-only storage/backend inventory and node heartbeat
-    telemetry; connection references and HMAC keys excluded from HTML.
-    Missing registries are reported as not configured.
+## Authoritative status
 
-15. CMS/app/github_projects.php and CMS admin /admin/github:
-    read-only integration with the standalone Python GitHub catalog SQLite
-    cache; automatic repository version-family grouping matches Python naming
-    conventions (Gentoo Installer original/2/3, AI Bridge original/2), with
-    independent per-version visibility/hosting metadata. PHP does not need
-    GitHub API tokens and cannot publish, clone or deploy from this screen.
-    CMS/tests/github_projects_test.php verifies grouping, private catalog
-    access control, read-only data and admin rendering. Catalog sync still
-    runs separately in Python and must be configured by the administrator.
+The SirusSofts framework is a custom PHP CMS, not Laravel. GitHub contains
+staged WORKING SOURCE with verified tests. **No code from this branch was
+installed on the live IONOS VPS, Gentoo compute node or cPoint.** No production
+websites, DNS, certs, databases or private GitHub backup repositories were
+modified. PR #5 is DRAFT and not merged.
 
-## Tests genuinely executed
+The existing CMS has a public homepage, admin authentication/settings, page
+and project catalog, project draft/published status, dual .org/.com hostname
+support, and History API asynchronous navigation with ordinary URL fallback.
 
-GitHub Actions workflow: .github/workflows/php-framework.yml
-LATEST GREEN test run:
-https://github.com/drkevorkian/SirusSofts/actions/runs/42502171831
-Commit tested: c04ad0483e25e9f921cb04f3ae2a8b6cc43cf3f0
-Results: SUCCESS.
+### Completed source and tests (implementation, not deployment)
 
-Included:
-- PHP syntax for entire CMS tree.
-- Original registry persistence and CMS routing/privacy smoke tests.
-- SQLite adapter factory/validation and integration tests.
-- WAL-consistent encrypted snapshot, restore, checksum, wrong-key, tamper and
-  non-overwrite tests.
-- SQLite preflight, fingerprint, target verification and migration journal.
-- Signed node registry replay rejection, offline detection, queued jobs and
-  redacted telemetry listing.
-- PHP storage-tool CLI end-to-end subprocess tests (backup, verify, restore,
-  preflight, compare, insecure key refusal).
-- Protected CMS operations dashboard rendering tests, unauthorized access
-  rejection and sensitive-data output checks.
-- PHP GitHub repository family/version grouping and private cached catalog
-  rendering tests, including denial of public catalog access.
-- Python Gentoo agent unit tests.
-- Python Nginx agent preview/apply/rollback/tamper/TLS refusal tests.
-- JavaScript syntax, Bash syntax, Ubuntu and Nginx agent installers' read-only
-  --check preflight.
+1. CMS/app/storage_registry.php: project storage driver, reference, schema
+   version and primary node stored in private SQLite; never stores passwords.
+2. CMS/app/storage_adapters.php: SQLite, MariaDB and MySQL PDO adapters, external
+   secret resolution and remote MySQL TLS server-verification requirement.
+   MySQL/MariaDB have not yet been live integration tested.
+3. CMS/app/storage_backup.php: consistent SQLite VACUUM INTO snapshot (WAL
+   inclusive), restrictive plaintext temp permissions, sodium secretstream
+   XChaCha20-Poly1305 encryption, SHA-256 manifest and integrity-checked
+   non-overwriting restore.
+4. CMS/bin/storage-tool.php: operator-only backup, verify, restore, migration
+   preflight, compare, publish-github and fetch-github CLI commands. Keys and
+   tokens come from private files, never CLI arguments or the public PHP app.
+5. CMS/app/storage_migration.php: SQLite preflight checks, schema/record
+   fingerprints, source-target verification and durable journal. Automatic
+   cross-engine conversion/activation is BLOCKED, source DB never deleted.
+6. CMS/app/storage_github.php: **small encrypted snapshots only** (<=5 MiB)
+   uploaded to a verified PRIVATE GitHub repository using the Contents API
+   with locally authenticated backup validation. Manifest is uploaded LAST as
+   completion marker. Encrypted archive and manifest can also be fetched into
+   NEW local files, verified by sodium/authenticated hashes before exposure,
+   without overwriting or activating a database. All GitHub API tests are
+   simulated via injected transports; no real upload/download occurred.
+   The actual CLI requires php8.3-curl (included in Ubuntu installer).
+   Large backup storage and full disaster recovery remain outstanding.
+7. CMS/app/node_registry.php + CMS/node-heartbeat.php: authenticated HMAC-SHA256
+   hardware heartbeats, replay detection, offline health, stored assignments as
+   metadata. Nothing executes jobs remotely.
+8. node/: Gentoo Python outbound-only heartbeat agent, CPU/RAM/GPU vendor
+   discovery, secure per-node key file, retry, OpenRC service and staged install,
+   example WireGuard config. No real Gentoo server/tunnel test or installation.
+9. CMS/app/github_projects.php and CMS admin /admin/github: read-only grouping
+   of cached GitHub repo families/versions, independent publication metadata.
+   Existing Python catalog remains the sync engine. No automatic publication.
+10. CMS/app/operations.php and /admin/infrastructure: authenticated read-only
+    compute node/status and database registry inventory; secrets omitted.
+11. CMS/app/hosting_config.php + /admin/hosting: per-project planned server,
+    database backend, GitHub repository/ref and manual approval/on-hold release
+    policy in a private CMS table. All inputs validated and under admin/CSRF.
+    Records are metadata only: saving does NOT migrate data, deploy, start a
+    server, or publish a project. cPoint, WorldCom and Sentinel Trader remain
+    protected from updates. CMS/bin/migrate-schema.php upgrades existing
+    private CMS schema idempotently (included in installer).
+12. deploy/nginx_vhost_agent.py: root-owned limited AF_UNIX command bridge
+    with only preview/apply/rollback; no raw shell, templates, arbitrary paths,
+    hostnames or upstream URLs from PHP. Supports BOTH .org/.com and /project/
+    Nginx routes for independently running HTTP apps on explicitly approved
+    healthy **127.0.0.1** ports listed in private root-managed
+    /etc/sirussofts/app-routes.json. Directory requests strip /project/ prefix;
+    app must honor X-Forwarded-Prefix for assets/cookies/redirects.
+    The same agent manages CMS page subdomains and rollback.
+    Refuses cPoint, WorldCom, Sentinel Trader and reserved names.
+    Certificate coverage, expiry, OS-trusted chain, matching private key,
+    private-key mode, Nginx syntax and managed-file digests are checked.
+    No application is enabled in the repository. Separate app service setup is
+    not yet implemented; the agent does NOT deploy app code.
+13. deploy/nginx-sirussofts.conf: root .org/.com HTTP vhost with a managed
+    directory route include. Root-domain HTTPS is not automatically provisioned.
+14. deploy/install-framework-ubuntu.sh: opt-in repeatable Ubuntu 24.04
+    Nginx/PHP-FPM/SQLite installer for the CMS, dedicated non-root PHP account,
+    private CMS state, CLI schema migration and manual TLS operator step.
+    deploy/install-nginx-vhost-agent.sh installs the root-owned agent but
+    does NOT start/enable it. No installer ran on production.
+15. docs/NGINX_VHOST_AGENT.md (under deploy/) and other implementation
+    documentation detail the staging model.
 
-Earlier RED runs were investigated and fixed:
-- PDO journal transaction mismatch fixed in 4c7d29eb.
-- Duplicate operations test include fixed in ff03a007.
-- Incorrect test assertion assuming literal domain in HTML fixed in b8d6df7.
-A GitHub catalog test initially expected AI instead of Python-compatible Ai
-capitalization; the corrected assertion passed in c04ad048.
-The local container lacks pdo_sqlite, so its original registry test EXITED 2
-there; the fully supported Ubuntu 24.04 GitHub Actions runner DID execute it.
+### Tests actually executed (not merely written)
 
-## Known missing features and real blockers
+The most recent successful GitHub Actions run:
+https://github.com/drkevorkian/SirusSofts/actions/runs/42504411730
+Verified implementation revision:
+7737f83c8ff8c7b84ae5ef431bb5dfdef7e52344
 
-- Nothing was deployed to live IONOS VPS, Gentoo, DNS, TLS or cPoint.
-- This is an interim framework, not a production-ready CMS/distributed cluster.
-- Existing deploy/vhost_agent.py and install-vhost-agent.sh are Plesk-specific
-  obsolete staging sources; do not install. Nginx replacement only serves CMS
-  PAGE subdomains; independent executable apps are NOT routed.
-- Nginx vhost agent was only unit-tested with mocked command execution.
-  There is no disposable Ubuntu VM Nginx/TLS end-to-end test.
-- No actual DNS/TLS provisioning in bootstrap; admin requires HTTPS.
-  Test wildcard certificate name/expiry handling, chain/key matching,
-  socket ownership and systemd sandbox before deployment.
-- CMS host editing currently includes project slug/kind/visibility/preview but
-  NOT one unified editable assigned node, database backend, deploy config UI.
-  Infrastructure page is read-only, not a full management screen.
-- PHP admin now reads and groups the existing Python GitHub catalog in a
-  read-only view. Python sync must still be configured and run; no automatic
-  private discovery or deployment runs on the CMS itself.
-- Storage CLI supports SQLite-native portable encrypted snapshots, not
-  cross-database logical export/import. MySQL and MariaDB live integration
-  tests, schema conversion, verified DB cutover, restore drills and
-  automated source/target reconciliation are still unimplemented.
-- No private GitHub backup upload, encrypted retention policy, large backup
-  storage connector or one-command full disaster-recovery replay.
-- Node workloads are metadata only: no signed job protocol, quotas,
-  idempotent execution, reconnect resume, encrypted WireGuard setup service,
-  failover or actual remote compute dispatch.
-- Unreviewed third-party projects WorldCom and Sentinel Trader are explicitly
-  excluded from auto deployment. cPoint Monitor is independent, untouched.
-- PHP web process must NEVER gain unrestricted root shell or password access.
+Commands/checks include:
+- PHP lint on all CMS/*.php files, original CMS/registry smoke.
+- SQLite adapters, WAL encrypted backup/restore/tamper, migration integrity and
+  journal transitions, CLI subprocess backup/verify/restore/compare.
+- Authenticated node registry and admin infrastructure page tests.
+- GitHub family/version grouping and read-only admin rendering tests.
+- Hosting metadata tests for authorization, input validation, persistence,
+  draft privacy and protected slugs.
+- GitHub encrypted upload/download simulated private API tests: refusal of
+  public repo, incorrect key, insecure token, existing targets; archive-first
+  manifest-last upload, authenticated staged fetch. No external GitHub API call.
+- Gentoo Python unit tests, restricted Nginx vhost preview/apply/rollback tests,
+  malformed app backend config/tamper refusal, TLS chain/key validation units.
+- **Real Nginx -t** on disposable generated main site, CMS page and app vhosts.
+- **Actual disposable Nginx HTTP and TLS request tests**. A separate loopback
+  test backend received requests via both main root domains /test-project/
+  and both secure project subdomains. Prefix stripping and forwarded headers
+  and TLS hostname validation were asserted. Does NOT test production TLS/DNS.
+- JavaScript syntax, Bash syntax, Ubuntu/Nginx agent installer --check. No
+  full Ubuntu install run; no browser E2E for History API.
 
-## Exact continuation instructions
+Historical failed CI runs were diagnosed and corrected:
+- PDO journal transaction tracking mismatch.
+- Test double-include / too-specific layout assertion.
+- GitHub family capitalization assertion.
+- Nginx parser test runner lacked permissions for default logs/ports.
+Latest run is GREEN. Local PHP here lacks pdo_sqlite; GitHub Ubuntu CI has it
+and actually executed storage integration tests.
 
-1. Fetch current repo HEAD, branch/PR #5 status, latest commit contents, and CI
-   to avoid overwriting concurrent work. Keep PR #5 DRAFT.
-2. Run existing complete CI suite locally where PDO_SQLITE is available or
-   use the minimal PR GitHub Actions workflow. Add disposable Ubuntu 24.04 VM
-   Nginx vhost integration tests; validate all supported domains, TLS
-   certificate hostname/key/chain, AF_UNIX permissions, apply and rollback.
-3. Implement safe separately-deployed app route support for both subdomain
-   and root directory URL (NO automatic cPoint/WorldCom/Sentinel Trader deploy).
-   Extend CMS admin hosting editor to include assigned node, database backend
-   and deployment configuration, with security/CSRF guards.
-4. Extend the integrated read-only PHP version catalog to include an explicitly
-   selected deployment version per project, without publishing automatically.
-   Connect the separate Python catalog sync service only after a staging
-   permissions and token review.
-5. Add MariaDB and MySQL real integration and portable import/export,
-   database migration cutover gate and non-destructive rollback tests.
-6. Implement encrypted private GitHub backup destination with local verification
-   and strict backup size/retention constraints; no keys in Git.
-7. Complete signed node workloads and reconnect semantics, then operator
-   staged WireGuard/Gentoo-to-Ubuntu test.
-8. After each real implementation slice: execute tests, inspect red CI logs,
-   fix failures, commit on feature/cms-vhost-distributed-nodes, update
-   this checkpoint with latest verified head, tests and next step. Do not
-   deploy or merge before explicit operator approval and security review.
+## Open engineering tasks / known limitations
 
-Security invariants: no secrets or plaintext private database contents in Git,
-no live SQLite-file copy as replication, no source DB deletion after migration,
-no arbitrary root execution from the public PHP CMS.
+- **No production deployment**: Main GitHub branch, IONOS VPS, Gentoo,
+  certificates, DNS and cPoint remain unchanged.
+- The legacy deploy/vhost_agent.py and deploy/install-vhost-agent.sh are
+  Plesk-only OLD staging code: DO NOT RUN on the Nginx Ubuntu target.
+- App upstreams are separately deployed HTTP runtimes. No managed creation of
+  those service units/ports/isolated credentials yet. No automatic cPoint
+  conversion. Do not enable a route until upstream base-path safety and
+  authorization/cookies have been reviewed on staging.
+- Admin hosting settings are intended metadata only; the root service reads
+  a separate root-owned allowlist. No safe publish/deploy coupling yet.
+- Existing default root Nginx configuration is HTTP-only. Provision DNS and
+  production root/wildcard TLS separately; test cert renewal, firewall and
+  private key access without exposing source or data.
+- Nginx agent has real disposable HTTP/TLS route tests but has NOT been
+  installed under its actual systemd sandbox/socket permissions.
+- MySQL and MariaDB real connections, logical cross-engine import/export,
+  preflight/cutover, rollback and restore-drill integration unfinished.
+- Github backups allow small encrypted snapshots only and have mocked API
+  tests. No external private backup repo operations, scheduled retention,
+  large-object store, or one-command whole-site disaster recovery.
+- No authenticated remote workload executor, idempotent job acknowledgements,
+  node quotas or WireGuard/SSH tunnel installation.
+- GitHub version family selection is read-only; no approved release-selection
+  and deploy wiring. Do not automatically publish versions.
+- Existing CMS/index.php and setup comments contain historical Plesk wording;
+  retire obsolete documentation in the next cleanup.
+- Browser History API behavior has JS syntax and PHP routing tests, but no
+  real automated browser Back/Forward E2E tests yet.
+
+## Exact next implementation step
+
+1. Inspect actual GitHub HEAD, PR #5 (keep DRAFT), latest CI job and current
+   files. Verify no concurrent changes before writing commits.
+2. Build a **restricted per-app loopback HTTP runtime installer** supporting
+   independent service identities, source/version allowlisting, PHP-FPM or
+   isolated HTTP listeners, port ownership and prefix-aware redirects.
+   Never deploy cPoint, WorldCom or Sentinel Trader automatically.
+3. Extend CMS hosting management to show a preview of the root-owned backend
+   allowlist vs planned metadata; add permission/authorization tests. Never let
+   the PHP user edit root-owned Nginx files or arbitrary service commands.
+4. Add real browser navigation tests and disposable Ubuntu 24.04 installer
+   provision/run/rollback tests before production review.
+5. Add MySQL/MariaDB live tests, logical export/import and cutover consistency
+   gates. Verify source remains intact and rollback is demonstrably safe.
+6. Add a staged PRIVATE GitHub backup API integration with an intentionally
+   designated test repo only after operator approval; test restore drill.
+7. Add WireGuard test and authenticated job dispatch when resource isolation
+   and replay/acknowledgement semantics are defined.
+8. Commit each tested implementation on feature/cms-vhost-distributed-nodes,
+   update this checkpoint and PR #5. Keep both in staging until explicitly
+   authorized for deployment or merging.
+
+Invariants: no Laravel, no arbitrary root PHP execution, no tokens/keys/
+plaintext databases in Git, no active SQLite file copying as replication,
+no deletion of original databases after migration, no automatic deployment of
+cPoint, WorldCom or Sentinel Trader, no live VPS changes without approval.
