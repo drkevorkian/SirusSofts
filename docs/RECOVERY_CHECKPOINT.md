@@ -6,7 +6,7 @@ Development branch: feature/cms-vhost-distributed-nodes
 Draft pull request: https://github.com/drkevorkian/SirusSofts/pull/5
 Target base: main.
 Latest verified implementation commit before this checkpoint:
-b8d6df7e2ec64f0ef6b26f79e37c148bf14a3f92.
+c04ad0483e25e9f921cb04f3ae2a8b6cc43cf3f0.
 The checkpoint commit itself changes HEAD. Future sessions MUST fetch branch HEAD live
 and inspect recent commits and PR before proceeding.
 
@@ -65,12 +65,22 @@ and inspect recent commits and PR before proceeding.
     telemetry; connection references and HMAC keys excluded from HTML.
     Missing registries are reported as not configured.
 
+15. CMS/app/github_projects.php and CMS admin /admin/github:
+    read-only integration with the standalone Python GitHub catalog SQLite
+    cache; automatic repository version-family grouping matches Python naming
+    conventions (Gentoo Installer original/2/3, AI Bridge original/2), with
+    independent per-version visibility/hosting metadata. PHP does not need
+    GitHub API tokens and cannot publish, clone or deploy from this screen.
+    CMS/tests/github_projects_test.php verifies grouping, private catalog
+    access control, read-only data and admin rendering. Catalog sync still
+    runs separately in Python and must be configured by the administrator.
+
 ## Tests genuinely executed
 
 GitHub Actions workflow: .github/workflows/php-framework.yml
 LATEST GREEN test run:
-https://github.com/drkevorkian/SirusSofts/actions/runs/42501721256
-Commit tested: b8d6df7e2ec64f0ef6b26f79e37c148bf14a3f92
+https://github.com/drkevorkian/SirusSofts/actions/runs/42502171831
+Commit tested: c04ad0483e25e9f921cb04f3ae2a8b6cc43cf3f0
 Results: SUCCESS.
 
 Included:
@@ -86,6 +96,8 @@ Included:
   preflight, compare, insecure key refusal).
 - Protected CMS operations dashboard rendering tests, unauthorized access
   rejection and sensitive-data output checks.
+- PHP GitHub repository family/version grouping and private cached catalog
+  rendering tests, including denial of public catalog access.
 - Python Gentoo agent unit tests.
 - Python Nginx agent preview/apply/rollback/tamper/TLS refusal tests.
 - JavaScript syntax, Bash syntax, Ubuntu and Nginx agent installers' read-only
@@ -95,6 +107,8 @@ Earlier RED runs were investigated and fixed:
 - PDO journal transaction mismatch fixed in 4c7d29eb.
 - Duplicate operations test include fixed in ff03a007.
 - Incorrect test assertion assuming literal domain in HTML fixed in b8d6df7.
+A GitHub catalog test initially expected AI instead of Python-compatible Ai
+capitalization; the corrected assertion passed in c04ad048.
 The local container lacks pdo_sqlite, so its original registry test EXITED 2
 there; the fully supported Ubuntu 24.04 GitHub Actions runner DID execute it.
 
@@ -113,8 +127,9 @@ there; the fully supported Ubuntu 24.04 GitHub Actions runner DID execute it.
 - CMS host editing currently includes project slug/kind/visibility/preview but
   NOT one unified editable assigned node, database backend, deploy config UI.
   Infrastructure page is read-only, not a full management screen.
-- Project version grouping exists only in standalone Python GitHub catalog,
-  not PHP CMS administrator integration.
+- PHP admin now reads and groups the existing Python GitHub catalog in a
+  read-only view. Python sync must still be configured and run; no automatic
+  private discovery or deployment runs on the CMS itself.
 - Storage CLI supports SQLite-native portable encrypted snapshots, not
   cross-database logical export/import. MySQL and MariaDB live integration
   tests, schema conversion, verified DB cutover, restore drills and
@@ -140,8 +155,10 @@ there; the fully supported Ubuntu 24.04 GitHub Actions runner DID execute it.
    and root directory URL (NO automatic cPoint/WorldCom/Sentinel Trader deploy).
    Extend CMS admin hosting editor to include assigned node, database backend
    and deployment configuration, with security/CSRF guards.
-4. Integrate existing Python GitHub project/version discovery into PHP CMS
-   as read-only candidate discovery. Never publish automatically.
+4. Extend the integrated read-only PHP version catalog to include an explicitly
+   selected deployment version per project, without publishing automatically.
+   Connect the separate Python catalog sync service only after a staging
+   permissions and token review.
 5. Add MariaDB and MySQL real integration and portable import/export,
    database migration cutover gate and non-destructive rollback tests.
 6. Implement encrypted private GitHub backup destination with local verification
