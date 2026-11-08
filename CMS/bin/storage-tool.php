@@ -13,6 +13,7 @@ if (PHP_SAPI !== 'cli') {
 require dirname(__DIR__) . '/app/storage_adapters.php';
 require dirname(__DIR__) . '/app/storage_backup.php';
 require dirname(__DIR__) . '/app/storage_migration.php';
+require dirname(__DIR__) . '/app/storage_github.php';
 
 function sirusStorageUsage(): never
 {
@@ -21,7 +22,8 @@ function sirusStorageUsage(): never
         . " php CMS/bin/storage-tool.php verify --project=ID --archive=... --manifest=... --key-file=...\n"
         . " php CMS/bin/storage-tool.php restore --project=ID --archive=... --manifest=... --key-file=... --target=/private/new.sqlite\n"
         . " php CMS/bin/storage-tool.php preflight --db=/private/source.sqlite [--target-driver=sqlite|mysql|mariadb]\n"
-        . " php CMS/bin/storage-tool.php compare --db=/private/source.sqlite --other-db=/private/target.sqlite\n");
+        . " php CMS/bin/storage-tool.php compare --db=/private/source.sqlite --other-db=/private/target.sqlite\n"
+        . " php CMS/bin/storage-tool.php publish-github --project=ID --repo=owner/PRIVATE-repo --archive=... --manifest=... --key-file=... --token-file=/private/github.token\n");
     exit(2);
 }
 
@@ -35,6 +37,7 @@ function sirusStorageOptions(array $argv): array
         'restore' => ['project', 'archive', 'manifest', 'key-file', 'target'],
         'preflight' => ['db', 'target-driver'],
         'compare' => ['db', 'other-db'],
+        'publish-github' => ['project', 'repo', 'archive', 'manifest', 'key-file', 'token-file'],
         default => sirusStorageUsage(),
     };
     $options = [];
@@ -53,6 +56,7 @@ function sirusStorageOptions(array $argv): array
         'restore' => ['project', 'archive', 'manifest', 'key-file', 'target'],
         'preflight' => ['db'],
         'compare' => ['db', 'other-db'],
+        'publish-github' => ['project', 'repo', 'archive', 'manifest', 'key-file', 'token-file'],
     };
     foreach ($required as $name) {
         if (!isset($options[$name])) { sirusStorageUsage(); }
@@ -112,6 +116,12 @@ try {
         case 'preflight':
             $result = SirusSqliteMigration::preflight(
                 sirusStorageDb($o['db']), $o['target-driver'] ?? 'sqlite'
+            );
+            break;
+        case 'publish-github':
+            $result = SirusPrivateGithubBackup::publish(
+                $o['repo'], $o['project'], $o['archive'], $o['manifest'],
+                sirusStorageKey($o['key-file']), $o['token-file']
             );
             break;
         case 'compare':

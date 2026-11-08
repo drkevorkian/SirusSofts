@@ -53,7 +53,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
     nginx ca-certificates git python3 php8.3-cli php8.3-fpm \
-    php8.3-sqlite3 php8.3-mysql php8.3-mbstring php8.3-xml \
+    php8.3-sqlite3 php8.3-mysql php8.3-mbstring php8.3-xml php8.3-curl \
     sqlite3 wireguard-tools certbot python3-certbot-nginx
 if ! id sirusweb >/dev/null 2>&1; then
   useradd --system --create-home --home-dir /var/lib/sirussofts \

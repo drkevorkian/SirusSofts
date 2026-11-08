@@ -34,6 +34,7 @@ jobs:
           php CMS/tests/operations_admin_test.php
           php CMS/tests/github_projects_test.php
           php CMS/tests/hosting_config_test.php
+          php CMS/tests/storage_github_test.php
       - name: Gentoo agent unit tests
         run: python3 -m unittest discover -s node/tests -p 'test_*.py' -v
       - name: OpenRC installer syntax
