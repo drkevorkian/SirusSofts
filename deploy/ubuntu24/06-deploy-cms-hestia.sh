@@ -56,9 +56,17 @@ for name in index.php api.php node-heartbeat.php app assets bin .htaccess; do
 done
 [[ ! -e "$SITEROOT/private/sirus-cms/data/cms.sqlite3" ]] ||
   fail 'Existing private CMS database: this is not a first-time installation'
-if [[ -f "$DOCROOT/index.html" ]]; then
-  grep -qiE 'hestia|default web page|congratulations' "$DOCROOT/index.html" ||
-    fail 'Existing index.html was not recognized as a default Hestia placeholder'
+if [[ -e "$DOCROOT/index.html" || -L "$DOCROOT/index.html" ]]; then
+  [[ -f "$DOCROOT/index.html" && ! -L "$DOCROOT/index.html" ]] ||
+    fail 'Unexpected index.html symlink or non-regular file'
+  SKEL="/usr/local/hestia/data/templates/web/skel/public_html/index.html"
+  [[ -f "$SKEL" && ! -L "$SKEL" ]] ||
+    fail 'Hestia original placeholder template is unavailable'
+  # Hestia replaces %domain% in the stock Coming Soon page when creating
+  # the web domain. Compare the ENTIRE file rather than relying on text
+  # markers that an existing custom homepage might also contain.
+  cmp -s "$DOCROOT/index.html" <(sed "s/%domain%/$domain/g" "$SKEL") ||
+    fail 'Existing index.html is not the EXACT unmodified Hestia placeholder'
 fi
 if [[ "$mode" == --plan ]]; then
   echo "PASS verified dedicated Hestia user, fresh CMS data and document root: $DOCROOT"

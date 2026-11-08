@@ -215,7 +215,9 @@ bash deploy/ubuntu24/06-deploy-cms-hestia.sh --plan \
   --user sirusweb --domain sirussofts.org
 ```
 
-When the plan reports a clean dedicated Hestia site:
+The plan checks that the existing homepage is exactly the unmodified Hestia
+Coming Soon template; it refuses a changed homepage. When it reports a clean
+dedicated Hestia site:
 
 ```bash
 bash deploy/ubuntu24/06-deploy-cms-hestia.sh --deploy \

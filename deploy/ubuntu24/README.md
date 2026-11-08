@@ -189,8 +189,10 @@ From the same reviewed feature-branch checkout:
       --user sirusweb --domain sirussofts.org
 
 Read the output. It refuses to overwrite an existing CMS, project or database.
-It must recognize any Hestia default index.html before proceeding. If the
-site directory has a different existing homepage, STOP and review it.
+The installer verifies a fresh Hestia Coming Soon page by comparing its entire
+contents with Hestia's installed skeleton template (after domain substitution).
+If you changed the default page in any way, the deployment intentionally stops
+to prevent overwriting your content.
 
 When the Hestia domain and account are ready, type DEPLOY CMS:
 
