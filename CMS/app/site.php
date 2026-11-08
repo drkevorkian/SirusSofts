@@ -2,6 +2,34 @@
 declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 
+
+/** List every imported repository publicly, but never expose unreviewed draft text. */
+function cms_public_directory_projects(PDO $db): array {
+    $rows=$db->query("SELECT p.*,r.github_id,r.github_private,r.full_name
+        FROM cms_projects p
+        LEFT JOIN cms_github_repositories r ON r.project_id=p.id
+        WHERE p.state='published' OR r.github_id IS NOT NULL
+        ORDER BY p.sort_order ASC,p.title COLLATE NOCASE ASC")->fetchAll();
+    foreach($rows as &$project){
+        if($project['github_id']!==null && $project['state']!=='published'){
+            // Draft project summaries and bodies are not approved for publication.
+            $project['title']=(string)$project['full_name'];
+            $project['summary']='GitHub project listing. Repository source is available only to authorized accounts.';
+            $project['body']='';
+            $project['category']='GitHub';
+            $project['kind']='page';
+        }
+    }
+    unset($project);
+    return $rows;
+}
+function cms_public_directory_project(PDO $db,string $slug): ?array {
+    foreach(cms_public_directory_projects($db) as $project){
+        if($project['slug']===$slug)return $project;
+    }
+    return null;
+}
+
 /** Shared site shell. Public pages never require an administrator session. */
 function cms_layout_start(PDO $db,string $title,bool $admin=false): void {
     $site=cms_setting($db,'site_name');
@@ -62,7 +90,7 @@ function cms_project_card(array $project): void {
     <?php
 }
 function cms_public_home(PDO $db): void {
-    $projects=cms_projects($db,true);
+    $projects=cms_public_directory_projects($db);
     cms_layout_start($db,cms_setting($db,'site_name'));
     ?>
     <section class="hero">
@@ -100,13 +128,13 @@ function cms_public_home(PDO $db): void {
     cms_layout_end($db);
 }
 function cms_public_catalog(PDO $db): void {
-    $projects=cms_projects($db,true);
+    $projects=cms_public_directory_projects($db);
     cms_layout_start($db,'Projects');
     ?><section class="page-intro"><div class="eyebrow">PROJECT DIRECTORY</div>
       <h1>Explore our projects.</h1><p>Every application has a home here. Follow the links to see what's available.</p></section>
       <div class="project-grid">
         <?php foreach($projects as $project)cms_project_card($project);?>
-        <?php if(!$projects):?><div class="panel empty-state">No projects have been published yet.</div><?php endif;?>
+        <?php if(!$projects):?><div class="panel empty-state">No projects have been imported yet.</div><?php endif;?>
       </div>
     <?php cms_layout_end($db);
 }
@@ -122,6 +150,13 @@ function cms_public_project(PDO $db,array $project): void {
       </div>
     </section>
     <section class="content-panel">
+      <?php if(($project['github_id']??null)!==null):?>
+        <p>This repository is listed publicly, but its source code is available only through
+          the authenticated SirusSofts source browser to administrators and explicitly
+          authorized accounts.</p>
+        <p><a class="btn primary" href="/admin/source?repo=<?=(int)$project['github_id']?>">
+          Sign in to view source</a></p>
+      <?php endif;?>
       <?=cms_body((string)$project['body'])?>
       <?php if($project['kind']==='app'):?>
         <div class="notice">This application's runtime is deployed separately. Its runtime, domain or proxy, DNS, and TLS must be provisioned separately through Hestia; a CMS project record does not deploy executable code.</div>
