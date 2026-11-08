@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
 import urllib.request, urllib.error
+from version_groups import grouped_projects
 
 DATA=Path('/var/lib/sirusdeploy')
 TOKEN=Path('/etc/sirusdeploy/github.token')
@@ -170,26 +171,45 @@ table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #506075;
 <p>Everything imports privately. Public visibility means a project listing, NOT public source code or live hosting.</p>
 <label>Admin token <input type="password" id="token" autocomplete="off"></label>
 <button onclick="load()">Load</button><button onclick="sync()">Sync all GitHub repositories</button>
-<p id="status"></p><table><thead><tr><th>Project</th><th>GitHub</th><th>Visibility</th><th>Source sync</th><th>Hosting</th></tr></thead><tbody id="projects"></tbody></table>
+<p id="status"></p><table><thead><tr><th>Project / version</th><th>GitHub</th><th>Visibility</th><th>Source sync</th><th>Hosting</th></tr></thead><tbody id="projects"></tbody></table>
 <script>
 async function req(url,method='GET',data=null){
 const r=await fetch(url,{method,headers:{'Authorization':'Bearer '+document.getElementById('token').value,
 'Content-Type':'application/json'},body:data?JSON.stringify(data):null,cache:'no-store'});
 const x=await r.json();if(!r.ok)throw Error(x.error||'Request failed');return x;
 }
-async function load(){try{let x=await req('/api/projects');let box=document.getElementById('projects');box.replaceChildren();
-for(let p of x.projects){let row=document.createElement('tr');let fields=[p.full_name,p.github_private?'private':'public',
-p.site_visibility,p.sync_status,p.hosting_requested?'requested':'not hosted'];
-for(let s of fields){let td=row.insertCell();td.textContent=s;}
-let v=document.createElement('button');v.textContent='Toggle visibility';v.onclick=async()=>{
-if(p.site_visibility==='private'&&!confirm('Show project listing publicly? (Source remains private.)'))return;
-await req('/api/projects/'+encodeURIComponent(p.full_name),'POST',{site_visibility:p.site_visibility==='private'?'public':'private'});load();};
-row.cells[2].append(v);
-let h=document.createElement('button');h.textContent='Request / cancel hosting';h.onclick=async()=>{
-await req('/api/projects/'+encodeURIComponent(p.full_name),'POST',{hosting_requested:!p.hosting_requested});load();};
-row.cells[4].append(h);box.append(row);}
-document.getElementById('status').textContent=x.projects.length+' repositories';}
-catch(e){document.getElementById('status').textContent=e.message;}}
+async function load(){try{
+let x=await req('/api/projects');let box=document.getElementById('projects');box.replaceChildren();
+for(let family of x.groups){
+  let heading=document.createElement('tr');let headingCell=heading.insertCell();
+  headingCell.colSpan=5;
+  headingCell.style.cssText='font-weight:700;background:#263347;padding:14px';
+  headingCell.textContent=(family.grouped?'Version family: ':'Project: ')+family.label+
+    (family.grouped?' ('+family.versions.length+' repositories)':'');
+  box.append(heading);
+  for(let p of family.versions){
+    let row=document.createElement('tr');
+    let label=p.full_name+(family.grouped?' — '+p.version_label:'');
+    let fields=[label,p.github_private?'private':'public',p.site_visibility,
+                p.sync_status,p.hosting_requested?'requested':'not hosted'];
+    for(let s of fields){let td=row.insertCell();td.textContent=s;}
+    let v=document.createElement('button');v.textContent='Toggle visibility';
+    v.onclick=async()=>{
+      if(p.site_visibility==='private'&&!confirm('Show project listing publicly? (Source remains private.)'))return;
+      await req('/api/projects/'+encodeURIComponent(p.full_name),'POST',
+                {site_visibility:p.site_visibility==='private'?'public':'private'});
+      load();};
+    row.cells[2].append(v);
+    let h=document.createElement('button');h.textContent='Request / cancel hosting';
+    h.onclick=async()=>{
+      await req('/api/projects/'+encodeURIComponent(p.full_name),'POST',
+                {hosting_requested:!p.hosting_requested});
+      load();};
+    row.cells[4].append(h);box.append(row);
+  }
+}
+document.getElementById('status').textContent=x.projects.length+' repositories in '+x.groups.length+' families';
+}catch(e){document.getElementById('status').textContent=e.message;}}
 async function sync(){try{let r=await req('/api/sync','POST',{});document.getElementById('status').textContent=r.message;}
 catch(e){document.getElementById('status').textContent=e.message;}}
 </script></html>"""
@@ -229,8 +249,12 @@ def handler(service):
                 self.send_header('Content-Length',str(len(raw)))
                 self.end_headers();self.wfile.write(raw);return
             if not self.authorized():return
-            if self.path=='/api/projects':return self.reply(200,{'projects':list_projects(service.db)})
-            if self.path=='/api/public':return self.reply(200,{'projects':list_projects(service.db,True)})
+            if self.path=='/api/projects':
+                projects=list_projects(service.db)
+                return self.reply(200,{'projects':projects,'groups':grouped_projects(projects)})
+            if self.path=='/api/public':
+                projects=list_projects(service.db,True)
+                return self.reply(200,{'projects':projects,'groups':grouped_projects(projects)})
             if self.path=='/api/status':return self.reply(200,service.status)
             self.reply(404,{'error':'not found'})
         def do_POST(self):
