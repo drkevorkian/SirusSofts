@@ -41,11 +41,16 @@ class NativeNginxConfigTests(unittest.TestCase):
             (routes / "app.conf").write_text(directory)
         else:
             site = self.agent._config(slug)
+        # nginx -t may bind listeners; use high loopback ports in unprivileged CI.
+        site = site.replace("listen 80;", "listen 127.0.0.1:18080;")
+        site = site.replace("listen 443 ssl;", "listen 127.0.0.1:18443 ssl;")
         (sites / "project.conf").write_text(site)
         original = Path(__file__).resolve().parents[1] / "nginx-sirussofts.conf"
         website = original.read_text().replace(
             "/etc/nginx/sirussofts-managed/routes/*.conf", str(routes) + "/*.conf")
         website = website.replace("/srv/sirussofts/current/CMS", str(self.root / "CMS"))
+        website = website.replace("listen [::]:80;", "")
+        website = website.replace("listen 80;", "listen 127.0.0.1:18080;")
         (sites / "root.conf").write_text(website)
         conf = self.root / "nginx.conf"
         conf.write_text(
