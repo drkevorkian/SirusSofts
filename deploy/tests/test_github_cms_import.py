@@ -108,6 +108,34 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(db.execute("SELECT COUNT(*) FROM cms_projects").fetchone()[0],0)
         self.assertIsNone(db.execute("SELECT project_id FROM cms_github_repositories").fetchone()[0])
 
+    def test_due_schedule_recovers_from_failures(self):
+        due=worker.import_due
+        self.assertTrue(due(0,0,0,1000), "First run due")
+        self.assertFalse(due(0,1000,0,1005), "Failed run not retried every few seconds")
+        self.assertFalse(due(0,1000,0,1000+14*60), "Failure backoff applies")
+        self.assertTrue(due(0,1000,0,1000+15*60), "Failure retries after 15 minutes")
+        self.assertTrue(due(0,1000,0,1001,True), "Forced retry is immediate")
+        self.assertTrue(due(1001,1000,0,1001), "Admin request bypasses failure cooldown")
+        self.assertFalse(due(1000,1000,1000,1001), "Recent success not due")
+        self.assertFalse(due(1000,1000,1000,1000+worker.INTERVAL_SECONDS-1),
+                         "Automatic refresh waits six hours")
+        self.assertTrue(due(1000,1000,1000,1000+worker.INTERVAL_SECONDS),
+                        "Automatic refresh due after six hours")
+        self.assertTrue(due(1100,1150,1100,1150+15*60),
+                        "Failed refresh after previous success retries quickly")
+
+    def test_auth_check_no_db_changes(self):
+        # The CLI test-auth branch requires a token but no database path.
+        # It is a read-only API call, not an import operation.
+        from unittest.mock import patch
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode="w",delete=True) as token:
+            token.write("github_pat_" + "x"*40)
+            token.flush()
+            with patch.object(worker,"get_page",return_value=[record(3,"user/test")]) as mock:
+                self.assertEqual(worker.main(["--test-auth","--token-file",token.name]),0)
+                mock.assert_called_once()
+
     def test_bad_repo_response_rejected(self):
         for item in [record(1,"a/../b"),dict(record(1,"owner/okay"),private=None),
                      dict(record(1,"owner/okay"),id=-1)]:
