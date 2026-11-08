@@ -54,7 +54,11 @@ class UbuntuHestiaBootstrapTests(unittest.TestCase):
     def test_upgrader_preserves_live_sqlite_and_checks_hestia_guards(self):
         upgrade = (UBUNTU / "08-upgrade-cms-hestia.sh").read_text()
         self.assertIn('if [[ "$mode" == --check ]]', upgrade)
-        self.assertIn('sqlite3 "$DB" ".backup', upgrade)
+        self.assertIn('runuser -u "$user" -- sqlite3 "$DB" ".backup', upgrade)
+        self.assertNotIn('sqlite3 "$DB" ".backup', upgrade.replace('runuser -u "$user" -- sqlite3 "$DB" ".backup', ''))
+        self.assertIn('Live CMS homepage returned HTTPS', upgrade)
+        self.assertIn('Existing CMS homepage does not return HTTPS 200', upgrade)
+        self.assertIn('systemctl reload php8.3-fpm', upgrade)
         self.assertIn('trap rollback_on_exit EXIT', upgrade)
         self.assertIn('runuser -u "$user" -- php8.3', upgrade)
         self.assertIn('cmp -s "$file" "$GUARD"', upgrade)
