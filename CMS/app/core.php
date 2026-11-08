@@ -4,7 +4,7 @@ if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 
 /** SirusSofts CMS 0.1 — private application code. Never serve this file directly. */
 const SIRUS_CMS_VERSION = '0.1.0-alpha';
-const SIRUS_CMS_DOMAIN = 'sirussofts.com';
+const SIRUS_CMS_DOMAIN = 'sirussofts.org';
 
 /**
  * The CMS directory IS the deployable website directory. Keep all mutable
@@ -120,13 +120,24 @@ function cms_request_host(): string {
     if(!preg_match('/^[a-z0-9.-]+(?::[0-9]{1,5})?$/D',$raw))return '';
     return preg_replace('/:[0-9]{1,5}$/','',$raw);
 }
+function cms_root_domain(): string {
+    $host=cms_request_host();
+    foreach (['sirussofts.org','sirussofts.com'] as $domain) {
+        if ($host===$domain||$host==='www.'.$domain||str_ends_with($host,'.'.$domain))
+            return $domain;
+    }
+    return SIRUS_CMS_DOMAIN;
+}
 function cms_project_host_slug(string $host): ?string {
-    if($host===SIRUS_CMS_DOMAIN||$host==='www.'.SIRUS_CMS_DOMAIN)return null;
+    foreach (['sirussofts.org','sirussofts.com'] as $domain) {
+        if ($host===$domain || $host==='www.'.$domain) return null;
+        if (str_ends_with($host,'.'.$domain)) {
+            $slug=substr($host,0,-strlen('.'.$domain));
+            return cms_safe_slug($slug)?$slug:'';
+        }
+    }
     if(cms_local() && in_array($host,['localhost','127.0.0.1','::1'],true))return null;
-    $suffix='.'.SIRUS_CMS_DOMAIN;
-    if(!str_ends_with($host,$suffix))return '';
-    $slug=substr($host,0,-strlen($suffix));
-    return cms_safe_slug($slug)?$slug:'';
+    return '';
 }
 function cms_request_path(): string {
     $uri=(string)($_SERVER['REQUEST_URI']??'/');

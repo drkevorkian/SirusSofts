@@ -33,3 +33,5 @@ jobs:
         run: python3 -m unittest discover -s node/tests -p 'test_*.py' -v
       - name: OpenRC installer syntax
         run: bash -n node/install-openrc.sh
+      - name: JavaScript syntax
+        run: node --check CMS/assets/cms.js
