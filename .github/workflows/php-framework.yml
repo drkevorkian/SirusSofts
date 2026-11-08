@@ -49,6 +49,11 @@ jobs:
         run: bash -n node/install-openrc.sh
       - name: JavaScript syntax
         run: node --check CMS/assets/cms.js
+      - name: GitHub repository importer tests
+        run: |
+          python3 -m unittest discover -s deploy/tests -p 'test_github_cms_import.py' -v
+          python3 deploy/ubuntu24/github-cms-import.py --check
+          bash deploy/ubuntu24/09-install-github-import.sh --check
       - name: Ubuntu installer syntax and read-only preflight
         run: |
           bash -n deploy/install-framework-ubuntu.sh
