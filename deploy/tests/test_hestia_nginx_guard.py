@@ -45,12 +45,16 @@ class HestiaGuardTests(unittest.TestCase):
                 f"server {{ listen 127.0.0.1:{http_port};\n"
                 "server_name sirussofts.org sirussofts.com;\n"
                 f"include {root}/nginx.conf_*;\n"
-                'location / {\n'\n                '    location ~* ^.+\\.(?:css|js)$ { return 200 "UNSAFE_STATIC"; }\n'\n                '    return 200 "public";\n}\n}\n'
+                'location / {\n'
+                '    location ~* ^.+\\.(?:css|js)$ { return 200 "UNSAFE_STATIC"; }\n'
+                '    return 200 "public";\n}\n}\n'
                 f"server {{ listen 127.0.0.1:{ssl_port} ssl;\n"
                 "server_name sirussofts.org sirussofts.com;\n"
                 f"ssl_certificate {cert}; ssl_certificate_key {key};\n"
                 f"include {root}/nginx.ssl.conf_*;\n"
-                'location / {\n'\n                '    location ~* ^.+\\.(?:css|js)$ { return 200 "UNSAFE_STATIC"; }\n'\n                '    return 200 "public";\n}\n}\n}\n'
+                'location / {\n'
+                '    location ~* ^.+\\.(?:css|js)$ { return 200 "UNSAFE_STATIC"; }\n'
+                '    return 200 "public";\n}\n}\n}\n'
             )
             check = subprocess.run(["nginx", "-t", "-c", str(config), "-p", name],
                                    capture_output=True, text=True, timeout=10)
