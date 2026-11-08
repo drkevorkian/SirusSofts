@@ -1,0 +1,22 @@
+[Unit]
+Description=SirusSofts restricted Nginx vhost service (page projects only)
+After=network.target nginx.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /opt/sirussofts/nginx_vhost_agent.py
+RuntimeDirectory=sirus-nginx
+RuntimeDirectoryMode=0755
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/etc/nginx/sirussofts-managed /run/sirus-nginx
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

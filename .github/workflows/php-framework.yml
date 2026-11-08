@@ -39,3 +39,5 @@ jobs:
         run: |
           bash -n deploy/install-framework-ubuntu.sh
           bash deploy/install-framework-ubuntu.sh --check
+      - name: Restricted Nginx vhost agent tests
+        run: python3 -m unittest discover -s deploy/tests -p 'test_nginx_vhost_agent.py' -v
