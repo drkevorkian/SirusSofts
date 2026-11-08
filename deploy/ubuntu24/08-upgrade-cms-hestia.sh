@@ -62,6 +62,12 @@ for name in nginx.conf_siruscms nginx.ssl.conf_siruscms; do
 done
 command -v sqlite3 >/dev/null || fail 'sqlite3 CLI required for WAL-consistent snapshot'
 command -v php8.3 >/dev/null || fail 'PHP 8.3 CLI missing'
+command -v curl >/dev/null || fail 'curl required for live HTTPS validation'
+live_code="$(curl --noproxy '*' --silent --show-error --max-time 12 \
+  --output /dev/null --write-out '%{http_code}' "https://$domain/" || true)"
+if [[ "$live_code" != 200 ]]; then
+  fail "Existing CMS homepage does not return HTTPS 200 (got $live_code). Diagnose the live site before another upgrade."
+fi
 for name in index.php api.php node-heartbeat.php app assets bin .htaccess; do
   if [[ "$name" == *php ]]; then php8.3 -l "$SOURCE/$name" >/dev/null; fi
 done
@@ -91,10 +97,17 @@ chmod 0700 "$release"
 install -d -m 0700 "$release/stage" "$release/previous"
 echo "Private recovery directory: $release"
 # SQLite .backup uses a consistent snapshot even when the site uses WAL mode.
-sqlite3 "$DB" ".backup '$release/cms-before.sqlite3'" ||
+# Open the LIVE WAL database as its website owner, NOT as root: a root
+# SQLite connection could create root-owned -wal/-shm files alongside it.
+tmp_snapshot="$(runuser -u "$user" -- mktemp "$PRIVATE/data/.cms-before-XXXXXXXX.sqlite3")" ||
+  fail 'Could not create restricted SQLite staging snapshot'
+runuser -u "$user" -- sqlite3 "$DB" ".backup '$tmp_snapshot'" ||
   fail 'Could not capture a consistent SQLite snapshot'
-sqlite3 "$release/cms-before.sqlite3" 'PRAGMA integrity_check;' | grep -qx ok ||
+runuser -u "$user" -- sqlite3 "$tmp_snapshot" 'PRAGMA integrity_check;' | grep -qx ok ||
   fail 'SQLite snapshot integrity check failed'
+mv -- "$tmp_snapshot" "$release/cms-before.sqlite3"
+chown root:root "$release/cms-before.sqlite3"
+chmod 0600 "$release/cms-before.sqlite3"
 for name in $managed; do
   cp -a -- "$SOURCE/$name" "$release/stage/$name"
   chown -R -- "$user:$(id -gn "$user")" "$release/stage/$name"
@@ -111,6 +124,8 @@ rollback_on_exit(){
           echo "RECOVERY REQUIRED: $name could not be restored" >&2
       fi
     done
+    systemctl reload php8.3-fpm >/dev/null 2>&1 ||
+      echo 'RECOVERY REQUIRED: PHP 8.3-FPM reload failed' >&2
     echo "Consistent pre-upgrade SQLite snapshot is at $release/cms-before.sqlite3" >&2
     echo 'Database was NOT automatically overwritten; review any migrations.' >&2
   fi
@@ -124,6 +139,17 @@ runuser -u "$user" -- php8.3 "$DOCROOT/bin/migrate-schema.php" ||
   fail 'Schema migration failed; prior code will be restored'
 nginx -t >/dev/null && apache2ctl -t >/dev/null ||
   fail 'Webserver configuration check failed; prior code will be restored'
+# Clear PHP opcache following the on-disk code swap.
+systemctl reload php8.3-fpm || fail 'PHP 8.3-FPM reload failed; prior code will be restored'
+live_code=''
+for retry in 1 2 3; do
+  live_code="$(curl --noproxy '*' --silent --show-error --max-time 12 \
+    --output /dev/null --write-out '%{http_code}' "https://$domain/" || true)"
+  [[ "$live_code" == 200 ]] && break
+  sleep 2
+done
+[[ "$live_code" == 200 ]] ||
+  fail "Live CMS homepage returned HTTPS $live_code after the swap. Prior code will be restored."
 swapping=0
 echo 'PASS: CMS application files upgraded; existing database and administrator credentials retained.'
 echo "Old code and consistent SQLite snapshot are stored privately: $release"
