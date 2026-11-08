@@ -51,6 +51,13 @@ jobs:
         run: |
           bash -n deploy/install-nginx-vhost-agent.sh
           bash deploy/install-nginx-vhost-agent.sh --check
+      - name: Fresh Ubuntu 24.04 Hestia installer read-only tests
+        run: |
+          for script in deploy/ubuntu24/*.sh; do
+            bash -n "$script"
+            bash "$script" --check
+          done
+          python3 -m unittest discover -s deploy/tests -p 'test_hestia_firewall.py' -v
       - name: Parse generated app and CMS configs with real Nginx
         run: |
           if ! command -v nginx >/dev/null 2>&1; then
@@ -59,3 +66,4 @@ jobs:
           fi
           python3 -m unittest discover -s deploy/tests -p 'test_nginx_config.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_nginx_proxy_e2e.py' -v
+          python3 -m unittest discover -s deploy/tests -p 'test_hestia_nginx_guard.py' -v
