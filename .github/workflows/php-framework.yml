@@ -35,3 +35,7 @@ jobs:
         run: bash -n node/install-openrc.sh
       - name: JavaScript syntax
         run: node --check CMS/assets/cms.js
+      - name: Ubuntu installer syntax and read-only preflight
+        run: |
+          bash -n deploy/install-framework-ubuntu.sh
+          bash deploy/install-framework-ubuntu.sh --check
