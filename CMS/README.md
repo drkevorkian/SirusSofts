@@ -241,3 +241,62 @@ Then click `Import all repositories` in `/admin/github`, and run
 immediately; inspect `journalctl -u sirus-github-import.service -n 30
 --no-pager`. Do not relax the permissions on the token file or paste the
 credential into ChatGPT.
+
+## Public project listings and restricted source browsing (v0.4.0-alpha)
+
+**All imported GitHub repositories are listed** on the public Projects directory,
+including those whose GitHub source repositories are private. If an imported
+CMS project is still a draft, its public listing shows only its GitHub repository
+name and a neutral summary; custom unpublished draft notes/body are NOT exposed.
+GitHub's privacy settings do not change. Publishing a CMS page still does not
+deploy source, share credentials or change a GitHub repository's visibility.
+
+### Administrator users and grants
+
+Sign in as an existing administrator at `/admin/login`. Open
+`/admin/users` to create a **viewer** account (username + initial password,
+14 characters minimum), enable/disable it, reset its password, and grant
+source access to individual imported GitHub repositories. A viewer starts with
+**zero grants**. These accounts never receive CMS administrative privileges.
+The administrator can revoke a grant or disable a viewer immediately; every
+source-page request checks current permissions from the database. Resetting
+a password invalidates existing viewer sessions.
+
+Viewers sign in at `/admin/login`, access their assigned repos at
+`/admin/source`, and can change their password at `/admin/account`.
+Administrators may view every imported repository in the same source browser.
+The GitHub credential is never displayed in the browser.
+
+### One-time source gateway setup (root SSH)
+
+Upgrade the existing CMS as normal with `08-upgrade-cms-hestia.sh --plan`
+then `--apply`. Ensure `07-audit-cms-routing.sh --live` still passes.
+The private source browser requires one **additional** root-owned systemd unit
+separate from the six-hour metadata import timer.
+
+```bash
+cd /root/SirusSofts
+bash deploy/ubuntu24/10-install-source-browser.sh --plan
+bash deploy/ubuntu24/10-install-source-browser.sh --install
+systemctl is-active sirus-source-browser.service
+journalctl -u sirus-source-browser.service -n 20 --no-pager
+```
+
+The interactive installer requests `ENABLE SOURCE BROWSER`. It installs a
+root-owned gateway script under `/usr/local/libexec` and runs it as
+`sirusweb`. Systemd loads the root-only token via `LoadCredential`, not
+via PHP or a public path. Communication is over the protected Unix socket
+`/run/sirussofts-source/bridge.sock`. PHP verifies session, repository
+existence and explicit per-viewer grants **before** requesting source.
+
+Only GitHub's read-only Contents API is used, with a 192 KiB UTF-8 text
+preview limit; binary data, symlinks and large files cannot be previewed.
+Source files are HTML-escaped and never executed. No code is cloned to the
+web root, and no GitHub permissions are changed. Network or GitHub API
+failures are reported as unavailable, not a reason to relax authorization.
+
+**Operational boundary:** Since the GitHub Contents API uses one
+server-level credential, it can only read repositories visible to that
+credential. Users should not treat CMS source permission as equivalent to
+being invited into GitHub itself. Do not create viewer accounts with
+passwords you would not trust to protect the repository source.

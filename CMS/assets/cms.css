@@ -199,3 +199,14 @@ code{color:#98d2ff;overflow-wrap:anywhere;font-size:12px}
 [data-project-row]{cursor:grab}
 [data-project-row].is-dragging{opacity:.48}
 [data-project-row]:active{cursor:grabbing}
+
+/* Source viewer and administrator-only repository grants */
+.grant-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:9px;
+ border:1px solid var(--stroke);border-radius:12px;padding:16px;margin:18px 0}
+.grant-grid legend{font-weight:700;padding:0 7px}
+.grant-option{display:flex;align-items:center;gap:9px;font-size:13px;margin:0}
+.grant-option input{width:17px;height:17px;flex-shrink:0}
+.source-repos{display:flex;flex-wrap:wrap;gap:9px;margin:15px 0}
+.source-content{white-space:pre;overflow:auto;font:13px/1.6 ui-monospace,Consolas,monospace;
+ background:var(--bg-deep);border:1px solid var(--stroke);border-radius:10px;padding:18px;max-height:72vh}
+.source-content code{white-space:pre}
