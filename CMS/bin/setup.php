@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Private, single-run CLI initializer.
  * This file is part of the complete deployable CMS folder.
- * Run from an interactive SSH/Plesk terminal: php bin/setup.php
+ * Run via the dedicated Hestia website user (or use --web-user as root).
  * The CMS database is created outside the web root automatically.
  * Never pass passwords on shell command lines.
  */
@@ -14,10 +14,10 @@ require __DIR__.'/../app/core.php';
 if(!extension_loaded('pdo_sqlite'))exit("PHP PDO_SQLITE is required.\n");
 
 /**
- * Root SSH access is supported. Before creating SQLite, identify the Plesk
- * hosting account, prepare ONLY this CMS's private storage, and permanently
- * drop UID/GID privileges. No root-owned SQLite or root-running web process.
- * Use --web-user=USERNAME if the Plesk httpdocs owner cannot be determined.
+ * Root SSH access is supported: identify the real nonroot website owner,
+ * prepare ONLY this CMS's private storage, and permanently drop UID/GID.
+ * No root-owned SQLite or root-running PHP application. Pass --web-user=NAME
+ * when the deployed CMS directory owner cannot be safely identified.
  */
 function cms_setup_web_account(array $args): array {
     if(!function_exists('posix_getpwnam') || !function_exists('posix_getpwuid'))
@@ -38,20 +38,16 @@ function cms_setup_web_account(array $args): array {
         if(!is_array($account))
             throw new RuntimeException('Requested website user does not exist.');
     }else{
+        // The CMS directory is under /home/USER/web/DOMAIN/public_html on
+        // Hestia. The actual directory owner is the PHP website account.
+        // Refuse running from a root-owned Git checkout outside a web root.
         $root=cms_site_root();
-        $httpdocs=null;
-        for($p=$root;;$p=dirname($p)){
-            if(basename($p)==='httpdocs'){$httpdocs=$p;break;}
-            if(dirname($p)===$p)break;
-        }
-        if($httpdocs===null)
-            throw new RuntimeException('Cannot locate Plesk httpdocs. Specify --web-user=WEB_USER.');
-        $uid=fileowner($httpdocs);
+        $uid=fileowner($root);
         if($uid===false || (int)$uid===0)
-            throw new RuntimeException('Plesk httpdocs is root-owned or has unknown ownership. Specify --web-user=WEB_USER.');
+            throw new RuntimeException('CMS directory is root-owned or has no known owner. Run as the site user or pass --web-user=WEB_USER.');
         $account=posix_getpwuid((int)$uid);
         if(!is_array($account))
-            throw new RuntimeException('Could not resolve httpdocs owner. Specify --web-user=WEB_USER.');
+            throw new RuntimeException('Could not resolve CMS site owner. Specify --web-user=WEB_USER.');
     }
     if((int)$account['uid']===0 || (int)$account['gid']===0)
         throw new RuntimeException('Refusing root or root-group as the PHP website identity.');
@@ -61,14 +57,14 @@ function cms_setup_prepare_storage(array $account): void {
     $private=cms_private_directory();
     $parent=dirname($private);
     if(is_link($parent))
-        throw new RuntimeException('Refusing a symlinked Plesk private/ directory.');
+        throw new RuntimeException('Refusing a symlinked private storage directory.');
     if(!is_dir($parent)){
-        // A fresh Plesk subscription may not contain private/ yet.
+        // A fresh Hestia web domain normally creates private/ for this account.
         if(basename($parent)!=='private' || !is_dir(dirname($parent)) ||
            !@mkdir($parent,0700) ||
            !@chown($parent,(string)$account['name']) ||
            !@chgrp($parent,(int)$account['gid']))
-            throw new RuntimeException('Unable to create a private/ folder for the Plesk hosting user.');
+            throw new RuntimeException('Unable to create a private/ folder for the website user.');
     }
     foreach([$private,$private.'/data'] as $directory){
         if(is_link($directory))
@@ -88,7 +84,7 @@ function cms_setup_drop_root(array $args): void {
         throw new RuntimeException('PHP POSIX extension is needed for root-safe CMS setup.');
     if(posix_geteuid()!==0)return;
     $account=cms_setup_web_account($args);
-    echo "Root terminal detected. CMS will initialize as Plesk account: ".
+    echo "Root terminal detected. CMS will initialize as website account: ".
         $account['name']." (uid ".(int)$account['uid'].").\n";
     cms_setup_prepare_storage($account);
     if(!function_exists('posix_initgroups') ||
@@ -99,7 +95,7 @@ function cms_setup_drop_root(array $args): void {
     if(posix_geteuid()!==(int)$account['uid'] || posix_getegid()!==(int)$account['gid'])
         throw new RuntimeException('Website UID/GID verification failed.');
     if(!is_writable(dirname(cms_database_file())))
-        throw new RuntimeException('Plesk user cannot write CMS private storage. Check private/ parent access.');
+        throw new RuntimeException('Website user cannot write CMS private storage. Check private/ parent access.');
     echo "Privileges dropped successfully. No SQLite file will be owned by root.\n";
 }
 try{cms_setup_drop_root($argv);}
