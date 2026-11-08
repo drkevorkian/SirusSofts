@@ -1,0 +1,28 @@
+name: PHP framework checks
+on:
+  pull_request:
+    paths:
+      - 'CMS/**'
+      - '.github/workflows/php-framework.yml'
+  workflow_dispatch:
+jobs:
+  php:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP prerequisites
+        run: |
+          php -v
+          php -m | grep -qi pdo_sqlite
+          php -m | grep -qi sodium
+      - name: PHP syntax
+        run: find CMS -name '*.php' -type f -print0 | xargs -0 -n1 php -l
+      - name: Registry and CMS tests
+        run: |
+          php -d zend.assertions=1 -d assert.exception=1 CMS/tests/storage_registry_test.php
+          php CMS/tests/smoke.php
+      - name: Storage, backup, and migration tests
+        run: |
+          php CMS/tests/storage_adapter_test.php
+          php CMS/tests/backup_test.php
