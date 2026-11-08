@@ -79,7 +79,7 @@ try {
     ob_start();
     cms_github_projects_page($db);
     $html = ob_get_clean();
-    catalogCheck(str_contains($html, 'AI Bridge') && str_contains($html, 'v2'),
+    catalogCheck(str_contains($html, 'Ai Bridge') && str_contains($html, 'v2'),
         'Family and versions not rendered in CMS');
     catalogCheck(str_contains($html, 'private'), 'Private visibility not preserved');
     catalogCheck(!str_contains($html, 'secret project') && !str_contains($html, 'secret v2'),
