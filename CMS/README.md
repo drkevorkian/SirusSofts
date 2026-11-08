@@ -289,6 +289,12 @@ via PHP or a public path. Communication is over the protected Unix socket
 `/run/sirussofts-source/bridge.sock`. PHP verifies session, repository
 existence and explicit per-viewer grants **before** requesting source.
 
+The saved fine-grained GitHub token must include **Contents: Read** for every
+private repository whose source should be browsable. **Metadata: Read** alone
+is sufficient for repository discovery but not for source viewing; if the
+existing token was created with only metadata access, adjust its GitHub
+permissions and replace the root-owned file before activating this service.
+
 Only GitHub's read-only Contents API is used, with a 192 KiB UTF-8 text
 preview limit; binary data, symlinks and large files cannot be previewed.
 Source files are HTML-escaped and never executed. No code is cloned to the
@@ -300,3 +306,5 @@ server-level credential, it can only read repositories visible to that
 credential. Users should not treat CMS source permission as equivalent to
 being invited into GitHub itself. Do not create viewer accounts with
 passwords you would not trust to protect the repository source.
+
+The authentication and authorization rules protect the CMS source browser; this is not a GitHub membership invite or a full replacement for GitHub account access. Users with source grants can read the permitted repository files via the CMS interface. Keep repository credentials out of any PHP scripts and use GitHub's normal access controls when actual cloning, pushing or contributing is needed.
