@@ -58,6 +58,7 @@ jobs:
             bash "$script" --check
           done
           python3 -m unittest discover -s deploy/tests -p 'test_hestia_firewall.py' -v
+          python3 -m unittest discover -s deploy/tests -p 'test_hestia_bootstrap.py' -v
       - name: Parse generated app and CMS configs with real Nginx
         run: |
           if ! command -v nginx >/dev/null 2>&1; then
