@@ -42,6 +42,8 @@ try {
         $registry->acceptHeartbeat($body, hash_hmac('sha256', $body, $key), $resolve, $now+500);
         throw new RuntimeException('Stale heartbeat accepted');
     } catch (InvalidArgumentException $expected) {}
+    nodeCheck(count($registry->allNodes($now)) === 1, 'List recorded telemetry');
+    nodeCheck(!isset($registry->allNodes($now)[0]['last_nonce']), 'Nonce excluded from admin telemetry');
     $registry->assignWorkload('job-example-0001','gentoo-home','example','compute');
     $jobs = $registry->workloadsFor('gentoo-home');
     nodeCheck(count($jobs) === 1 && $jobs[0]['state'] === 'queued', 'Assignment persisted');

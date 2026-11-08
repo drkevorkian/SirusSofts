@@ -2,6 +2,7 @@
 declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 require_once __DIR__.'/vhosts.php';
+require_once __DIR__.'/operations.php';
 
 /** Private CMS administration. No arbitrary PHP upload or shell command console. */
 function cms_admin_post(PDO $db,string $path): void {
@@ -154,7 +155,7 @@ function cms_admin_shell_start(PDO $db,string $title): void {
       <div class="admin-layout"><aside class="admin-sidebar">
         <?php foreach([
            '/admin'=>'Overview','/admin/projects'=>'Projects','/admin/pages'=>'Content pages',
-           '/admin/hosting'=>'Virtual hosts','/admin/settings'=>'Site settings','/admin/security'=>'Security',
+           '/admin/hosting'=>'Virtual hosts','/admin/infrastructure'=>'Infrastructure','/admin/settings'=>'Site settings','/admin/security'=>'Security',
            '/admin/activity'=>'Activity log'
         ] as $url=>$label):?><a href="<?=$url?>"><?=cms_esc($label)?></a><?php endforeach;?>
         <form method="post" action="/admin/logout">
@@ -268,6 +269,7 @@ function cms_admin_run(PDO $db,string $path): never {
     if($path==='/admin/login')cms_go('/admin');
     if($path==='/admin/logout'){cms_go('/admin');}
     if($path==='/admin/hosting'){cms_vhost_page($db,$error);exit;}
+    if($path==='/admin/infrastructure'){cms_operations_page($db);exit;}
     if($path==='/admin/projects/new'){cms_admin_project_editor($db,null);exit;}
     if(preg_match('#^/admin/projects/([1-9][0-9]*)$#D',$path,$mt)){
         $st=$db->prepare('SELECT * FROM cms_projects WHERE id=?');$st->execute([(int)$mt[1]]);
@@ -303,7 +305,7 @@ function cms_admin_run(PDO $db,string $path): never {
             <a class="btn subtle" href="/" target="_blank" rel="noopener">View public site</a></div>
           </div>
           <div class="admin-panel"><h2>Deployment boundary</h2>
-            <p>The CMS manages content and URLs. DNS, HTTPS certificates, Plesk virtual hosts and application runtimes remain server-operator tasks. PHP will never execute a command typed into the website editor.</p>
+            <p>The CMS manages content and URLs. DNS, HTTPS certificates, and application runtime deployments remain server-operator tasks. PHP will never execute a command typed into the website editor.</p>
           </div><?php
     }elseif($path==='/admin/projects'){
         $rows=cms_projects($db,false);
