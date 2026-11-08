@@ -200,7 +200,7 @@ Both block /app, /bin, /tests, /private, /deploy and sensitive extensions.
 The HTTP include must be active before copying any PHP source. If SSL already
 exists, its HTTPS include must also be active or deployment stops. Otherwise
 the HTTPS guard is staged in advance for Hestia's later SSL activation.
-After enabling HTTPS, the dual-protocol routing audit MUST pass. It stages
+After enabling HTTPS, the dual-protocol routing audit (07-audit-cms-routing.sh) MUST pass. It stages
 only CMS files, backs up a recognized Hestia default index page privately,
 and initializes SQLite/admin credentials as the NON-root website user.
 CMS user data is stored in:
