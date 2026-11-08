@@ -187,6 +187,7 @@ class Service:
         self.sites_root.mkdir(parents=True, exist_ok=True)
         self.queue = Queue(self.data_dir / "queue.sqlite3")
         self.event = threading.Event()
+        self.sync = threading.Lock()
         self.event.set()
 
     def accept(self, event_name, delivery_id, body):
@@ -208,18 +209,21 @@ class Service:
             return 202, {"status": "ignored", "reason": "deleted or invalid commit"}
         if not re.fullmatch(r"[A-Za-z0-9-]{36}", delivery_id):
             return 400, {"error": "invalid delivery ID"}
-        new = self.queue.put(delivery_id, repo, sha)
-        if new:
-            self.event.set()
+        with self.sync:
+            new = self.queue.put(delivery_id, repo, sha)
+            if new:
+                self.event.set()
         return 202, {"status": "queued" if new else "duplicate", "repo": repo, "sha": sha}
 
     def worker(self):
         while True:
             self.event.wait()
             while True:
-                job = self.queue.pop()
+                with self.sync:
+                    job = self.queue.pop()
+                    if not job:
+                        self.event.clear()
                 if not job:
-                    self.event.clear()
                     break
                 try:
                     config = self.cfg["projects"][job["repo"]]
