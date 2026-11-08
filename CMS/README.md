@@ -61,6 +61,7 @@ domain aliases, DNS and TLS are configured.
 ## Capabilities and current boundaries
 
 The CMS supports a public landing page, draft/published project listings,
+accessible project reordering (drag or keyboard arrows in /admin/projects),
 admin settings/pages, a read-only GitHub project-family catalog, node and
 database inventory, encrypted SQLite backup/restore CLI, and planned
 infrastructure settings.
@@ -80,3 +81,32 @@ tests, authenticated node heartbeats, Hestia scripts' no-write `--check`
 mode, separate HTTP/HTTPS Nginx private-path denial, and firewall parsing.
 A successful CI run is not equivalent to a real IONOS VPS installation;
 the live launch audit must pass before announcing the website is online.
+
+## Update an already deployed Hestia CMS
+
+**Never rerun the first-install script** `06-deploy-cms-hestia.sh --deploy`
+on an existing site. It intentionally refuses overwrites.
+
+After reviewing a newer feature-branch commit and fetching it into the VPS,
+use the dedicated upgrade workflow:
+
+```bash
+cd /root/SirusSofts
+git status --short
+git fetch origin feature/cms-vhost-distributed-nodes
+git checkout VERIFIED_REVIEWED_COMMIT
+php8.3 CMS/tests/smoke.php
+node --check CMS/assets/cms.js
+bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com
+bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --apply --user sirusweb --domain sirussofts.com
+bash deploy/ubuntu24/07-audit-cms-routing.sh --live --user sirusweb --domain sirussofts.com
+```
+
+Replace the placeholder with the **specific reviewed SHA**, after checking CI
+and inspecting the commit diff. Do not discard local modifications. The update
+script runs an interactive gate, verifies Hestia Nginx HTTP+HTTPS protection,
+snapshots the live SQLite database consistently (including WAL), and saves the
+previous CMS code inside the Hestia domain's private directory. It replaces
+only managed CMS code/assets, never overwrites SQLite or resets admin credentials.
+Any custom edits inside these managed code directories will be replaced; review
+and back them up first. No cPoint project is deployed by the updater.

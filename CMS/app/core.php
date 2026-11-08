@@ -3,7 +3,7 @@ declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 
 /** SirusSofts CMS 0.1 — private application code. Never serve this file directly. */
-const SIRUS_CMS_VERSION = '0.1.0-alpha';
+const SIRUS_CMS_VERSION = '0.2.0-alpha';
 const SIRUS_CMS_DOMAIN = 'sirussofts.com';
 
 /**
