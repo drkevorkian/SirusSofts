@@ -17,6 +17,19 @@ function cms_site_root(): string {
     return $site;
 }
 function cms_private_directory(): string {
+    $configured=getenv('SIRUS_CMS_PRIVATE_ROOT');
+    if(is_string($configured)&&$configured!==''){
+        if(!str_starts_with($configured,'/')||str_contains($configured,"\0")||
+           is_link($configured)||!is_dir($configured))
+            throw new RuntimeException('Private root must be an existing absolute directory.');
+        $private=realpath($configured);
+        $site=cms_site_root();
+        $document=realpath((string)($_SERVER['DOCUMENT_ROOT']??''));
+        if($private===false||$private===$site||str_starts_with($private,$site.'/')||
+           ($document&&($private===$document||str_starts_with($private,$document.'/'))))
+            throw new RuntimeException('Private root cannot be publicly served.');
+        return $private;
+    }
     $site=cms_site_root();
     $parent=dirname($site);
     for($cur=$site;;$cur=dirname($cur)){
