@@ -57,6 +57,30 @@ class VhostTests(unittest.TestCase):
         }), encoding="utf-8")
         self.agent.app_routes.chmod(0o600)
 
+    def test_tls_public_key_chain_and_permissions_checked(self):
+        cert = self.agent.cert
+        key = self.agent.key
+        cert.write_text("test certificate")
+        key.write_text("test key")
+        key.chmod(0o600)
+        self.agent.tls_checker = None
+        commands = []
+        def trust(command):
+            commands.append(command)
+            if "-pubkey" in command:
+                return "matching public key\n"
+            if "-pubout" in command:
+                return "matching public key\n"
+            return ""
+        self.agent.runner = trust
+        self.assertTrue(self.agent._tls_valid("example"))
+        self.assertTrue(any("verify" in cmd for cmd in commands))
+        self.assertTrue(any("-checkhost" in cmd for cmd in commands))
+        self.agent.runner = lambda cmd: "wrong" if "-pubout" in cmd else "matching public key"
+        self.assertFalse(self.agent._tls_valid("example"))
+        key.chmod(0o644)
+        self.assertFalse(self.agent._tls_valid("example"))
+
     def test_app_routes_both_domains_and_rollback(self):
         self.allow_app()
         preview = self.agent.preview("example", "app")

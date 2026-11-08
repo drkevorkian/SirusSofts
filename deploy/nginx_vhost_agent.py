@@ -80,13 +80,23 @@ class NginxVhosts:
             return bool(self.tls_checker(slug))
         if not self.cert.is_file() or not self.key.is_file() or self.key.is_symlink():
             return False
+        if self.key.stat().st_mode & 0o077:
+            return False  # Nginx master, not the public PHP pool, reads private keys.
         try:
             self.runner(["openssl", "x509", "-in", str(self.cert), "-noout", "-checkend", "0"])
             for domain in ("sirussofts.org", "sirussofts.com"):
                 self.runner(["openssl", "x509", "-in", str(self.cert), "-noout",
                              "-checkhost", slug + "." + domain])
-            return True
-        except VhostError:
+            # Verify that the presented full chain terminates at an OS trusted CA.
+            self.runner(["openssl", "verify", "-CAfile",
+                         "/etc/ssl/certs/ca-certificates.crt", "-untrusted",
+                         str(self.cert), str(self.cert)])
+            certificate_public = self.runner(
+                ["openssl", "x509", "-in", str(self.cert), "-pubkey", "-noout"]).strip()
+            private_public = self.runner(
+                ["openssl", "pkey", "-in", str(self.key), "-pubout"]).strip()
+            return bool(certificate_public) and certificate_public == private_public
+        except (VhostError, OSError, subprocess.TimeoutExpired):
             return False
 
     def _file(self, slug):
