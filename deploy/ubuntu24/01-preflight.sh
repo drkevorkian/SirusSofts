@@ -37,6 +37,9 @@ mem_kb="$(awk '/^MemTotal:/{print $2}' /proc/meminfo)"
 space_kb="$(df -Pk / | awk 'NR==2 {print $4}')"
 [[ "$space_kb" =~ ^[0-9]+$ && "$space_kb" -ge 6291456 ]] ||
   fail 'Need at least 6 GiB free disk before installation; 40 GiB SSD recommended'
+if ! ss -H -ltn "sport = :22" | grep -q .; then
+  fail 'No TCP 22 SSH listener. Hestia defaults to allowing 22; configure the custom SSH firewall port with IONOS console before installation.'
+fi
 for port in 80 443 8080 8443 8083; do
   if ss -H -ltn "sport = :$port" | grep -q .; then
     fail "TCP $port already has a listener. Investigate before installing."

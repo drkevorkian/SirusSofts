@@ -32,6 +32,12 @@ ss -ltnp | grep -E '(^State|:(22|80|443|8080|8443|8083|3306)[[:space:]])' || tru
 echo 'Hestia firewall rules (check default public 8083 ACCEPT has been removed):'
 if [[ -x /usr/local/hestia/bin/v-list-firewall ]]; then
   /usr/local/hestia/bin/v-list-firewall || bad=1
+  HERE="$(cd "$(dirname "$0")" && pwd)"
+  if ! /usr/local/hestia/bin/v-list-firewall json |
+       python3 "$HERE/firewall_rules.py" --audit; then
+    echo 'FAIL: panel publicly exposed or Hestia firewall audit inconclusive'
+    bad=1
+  fi
 else bad=1; fi
 echo 'Hestia panel should be accessed only over an SSH tunnel or approved IP.'
 echo 'Verify 2FA enabled and recovery codes stored OFF-server.'

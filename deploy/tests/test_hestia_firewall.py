@@ -4,7 +4,7 @@ import unittest
 import json
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "ubuntu24"))
-from firewall_rules import verify_rule
+from firewall_rules import verify_rule, audit_public_panel
 
 
 class HestiaFirewallTests(unittest.TestCase):
@@ -31,6 +31,27 @@ class HestiaFirewallTests(unittest.TestCase):
         ]:
             with self.assertRaises(ValueError):
                 verify_rule(payload, rule_id, cidr)
+
+    def test_public_rule_inventory_audit(self):
+        exposed = audit_public_panel(json.dumps({
+            "1": {"ACTION": "ACCEPT", "IP": "0.0.0.0/0",
+                  "PORT": "80,443", "PROTOCOL": "TCP"},
+            "2": {"ACTION": "ACCEPT", "IP": "0.0.0.0/0",
+                  "PORT": "8083", "PROTOCOL": "TCP"},
+            "3": {"ACTION": "ACCEPT", "IP": "127.0.0.1/32",
+                  "PORT": "8083", "PROTOCOL": "TCP"},
+        }))
+        self.assertEqual(exposed, ["2"])
+        self.assertEqual(audit_public_panel(json.dumps({
+            "2": {"ACTION": "ACCEPT", "IP": "127.0.0.1/32",
+                  "PORT": "8083", "PROTOCOL": "TCP"},
+        })), [])
+        self.assertEqual(audit_public_panel(json.dumps({
+            "2": {"ACTION": "ACCEPT", "IP": "::/0",
+                  "PORT": "8080:8090", "PROTOCOL": "TCP"},
+        })), ["2"])
+        with self.assertRaises(ValueError):
+            audit_public_panel("{}")
 
 
 if __name__ == "__main__":
