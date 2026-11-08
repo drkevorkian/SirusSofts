@@ -160,7 +160,7 @@ final class SirusMigrationJournal
             'failed' => [],
             'rolled_back' => [],
         ];
-        $this->db->exec('BEGIN IMMEDIATE');
+        $this->db->beginTransaction();
         try {
             $row = $this->get($id);
             if (!$row || !in_array($next, $nextByState[$row['state']] ?? [], true)) {
