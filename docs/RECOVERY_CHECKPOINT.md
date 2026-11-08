@@ -1,5 +1,6 @@
 # SirusSofts development recovery checkpoint
 
+**Operator-facing PuTTY quickstart:** [deploy/ubuntu24/PUTTY-SSH-QUICKSTART.md](../deploy/ubuntu24/PUTTY-SSH-QUICKSTART.md). The repository is PUBLIC: clone via HTTPS in PuTTY; no GitHub credentials are required to read it. The existing feature branch remains the deployable source until reviewed code is moved to main. This is an executable installer path, not a generic architecture proposal. Actual IONOS execution remains unverified until the operator performs the live audit.\n
 ## NEWER DEPLOYMENT STATE — 2026-11-08 CLEAN UBUNTU 24.04 (SUPERSEDES OLD NGiNX/PLesK PLAN)
 
 The operator confirmed **the IONOS vServer has been WIPED and is now fresh

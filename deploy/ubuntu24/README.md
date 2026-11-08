@@ -1,5 +1,7 @@
 # Deploy SirusSofts on a CLEAN Ubuntu 24.04 server
 
+**Using PuTTY to get code on the VPS? Start with the [copy/paste Windows PuTTY SSH quickstart](PUTTY-SSH-QUICKSTART.md).**
+
 **Deployment track: HestiaCP (free hosting control panel), Nginx + Apache +
 PHP-FPM/FastCGI, MariaDB, independent SQLite, Hestia-managed firewall and
 Fail2Ban.**
@@ -75,8 +77,9 @@ authentication (SSH deploy key for a private repo, NOT a token in a URL):
     git rev-parse HEAD
     bash deploy/ubuntu24/01-preflight.sh --strict
 
-Inspect every deployment script. The branch is still staging / PR #5 DRAFT.
-Use a pinned commit SHA approved by the operator, not unreviewed new changes.
+Inspect every deployment script. The published feature branch includes the test-backed installation procedure.
+A reviewed, CI-green commit is the installation source; verify its SHA before
+executing the installer. The older main branch is not needed for this path.
 
 ## Phase 1 — Install the free panel and full LAMP/LEMP hybrid stack
 

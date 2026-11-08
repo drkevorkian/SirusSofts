@@ -3,8 +3,8 @@
 **Current VPS target: WIPED, CLEAN Ubuntu 24.04 LTS, no Plesk. This code is
 STAGED in GitHub only; nothing has been executed on the server.**
 
-**FIRST deployment entry point:** [Clean Ubuntu 24.04 + free HestiaCP
-bootstrap and CMS runbook](deploy/ubuntu24/README.md). Hestia owns Nginx,
+**Start here in PuTTY on Windows:** [Step-by-step SSH installation and public GitHub clone](deploy/ubuntu24/PUTTY-SSH-QUICKSTART.md).
+The detailed technical reference is [Clean Ubuntu 24.04 + HestiaCP deployment runbook](deploy/ubuntu24/README.md). Hestia owns Nginx,
 Apache, PHP-FPM and firewall rules. Never run the older direct Nginx/Plesk
 installers on this Hestia target. cPoint is NOT installed by the CMS setup.
 
