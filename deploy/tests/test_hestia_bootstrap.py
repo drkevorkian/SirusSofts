@@ -32,7 +32,7 @@ class UbuntuHestiaBootstrapTests(unittest.TestCase):
             skel = path / "index.html.template"
             deployed = path / "index.html"
             skel.write_text("<h1>We're working on it!</h1>\nDomain: %domain%\n")
-            deployed.write_text("<h1>We're working on it!</h1>\nDomain: sirussofts.org\n")
+            deployed.write_text("<h1>We're working on it!</h1>\nDomain: sirussofts.com\n")
             cmd = ["bash", "-c",
                    'cmp -s "$1" <(sed "s/%domain%/$3/g" "$2")',
                    "bash", str(deployed), str(skel), "sirussofts.com"]
