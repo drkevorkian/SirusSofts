@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 import pwd
 import re
+import socket
+import stat
 import socketserver
 import subprocess
 import tempfile
@@ -24,6 +26,8 @@ CERT = Path("/etc/sirussofts/tls/fullchain.pem")
 KEY = Path("/etc/sirussofts/tls/privkey.pem")
 SOCKET = Path("/run/sirus-nginx/agent.sock")
 SITES = Path("/etc/nginx/sites-enabled")
+APP_ROUTES = Path("/etc/sirussofts/app-routes.json")
+FRAGMENTS = Path("/etc/nginx/sirussofts-managed/routes")
 RESERVED = {"admin", "api", "app", "assets", "bin", "cms", "deploy", "health",
             "internal", "lib", "login", "pages", "private", "root", "settings",
             "static", "system", "tests", "www", "worldcom", "sentinel-trader",
@@ -51,10 +55,14 @@ def validate(slug, kind):
 
 class NginxVhosts:
     def __init__(self, root=ROOT, managed=MANAGED, cert=CERT, key=KEY, sites=SITES,
-                 runner=run_command, tls_checker=None):
+                 runner=run_command, tls_checker=None, app_routes=APP_ROUTES,
+                 fragments=FRAGMENTS, upstream_checker=None):
         self.root = Path(root)
         self.managed = Path(managed)
         self.sites = Path(sites)
+        self.app_routes = Path(app_routes)
+        self.fragments = Path(fragments)
+        self.upstream_checker = upstream_checker
         self.cert = Path(cert)
         self.key = Path(key)
         self.runner = runner
@@ -112,6 +120,86 @@ server {{
 }}
 """
 
+
+    def _app_backend(self, slug):
+        """Backend destination is root-controlled data; never supplied over PHP IPC."""
+        path = self.app_routes
+        if path.is_symlink() or not path.is_file():
+            raise VhostError("No approved application backend registry")
+        mode = path.stat()
+        if mode.st_mode & 0o022 or (os.geteuid() == 0 and mode.st_uid != 0):
+            raise VhostError("Application backend registry requires root ownership and no group/world write")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, UnicodeError, OSError):
+            raise VhostError("Invalid application registry JSON") from None
+        if not isinstance(data, dict) or set(data) != {"schema_version", "applications"} or \
+                data["schema_version"] != 1 or not isinstance(data["applications"], dict):
+            raise VhostError("Unsupported application registry")
+        used = set()
+        for name, spec in data["applications"].items():
+            validate(name, "app")
+            if not isinstance(spec, dict) or set(spec) != {"enabled", "host", "port"} or \
+                    type(spec["enabled"]) is not bool or spec["host"] != "127.0.0.1" or \
+                    type(spec["port"]) is not int or not 1024 <= spec["port"] <= 65535:
+                raise VhostError("Invalid application backend entry")
+            if spec["enabled"]:
+                if spec["port"] in used:
+                    raise VhostError("Duplicate enabled application backend port")
+                used.add(spec["port"])
+        record = data["applications"].get(slug)
+        if record is None or not record["enabled"]:
+            raise VhostError("Application is not explicitly approved for routing")
+        return record["port"]
+
+    def _upstream_ready(self, slug, port):
+        if self.upstream_checker is not None:
+            return bool(self.upstream_checker(slug, port))
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.6):
+                return True
+        except OSError:
+            return False
+
+    def _route_file(self, slug):
+        return self.fragments / ("sirussofts-app-" + slug + ".conf")
+
+    @staticmethod
+    def _proxy_options(prefix):
+        return (f"        proxy_set_header Host $host;\n"
+                f"        proxy_set_header X-Real-IP $remote_addr;\n"
+                f"        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
+                f"        proxy_set_header X-Forwarded-Proto $scheme;\n"
+                f"        proxy_set_header X-Forwarded-Prefix {prefix};\n"
+                f"        proxy_connect_timeout 3s;\n"
+                f"        proxy_read_timeout 60s;\n"
+                f"        proxy_redirect off;\n")
+
+    def _app_config(self, slug, port):
+        hosts = slug + ".sirussofts.org " + slug + ".sirussofts.com"
+        # The upstream must be a separately deployed HTTP application, bound
+        # only to loopback, with its own runtime and database permissions.
+        return (f"# Managed SirusSofts app upstream; PHP cannot alter templates.\n"
+                f"server {{\n    listen 80;\n    server_name {hosts};\n"
+                f"    return 308 https://$host$request_uri;\n}}\n"
+                f"server {{\n    listen 443 ssl;\n    server_name {hosts};\n"
+                f"    ssl_certificate {self.cert};\n"
+                f"    ssl_certificate_key {self.key};\n"
+                f"    location / {{\n"
+                f"        proxy_pass http://127.0.0.1:{port};\n"
+                + self._proxy_options("") +
+                f"    }}\n}}\n")
+
+    def _app_directory_route(self, slug, port):
+        # Prefix is removed before forwarding to the app, which must generate
+        # prefix-aware asset URLs and redirects using X-Forwarded-Prefix.
+        return (f"# Managed directory route for {slug} on BOTH root domains.\n"
+                f"location = /{slug} {{ return 308 /{slug}/; }}\n"
+                f"location ^~ /{slug}/ {{\n"
+                f"        proxy_pass http://127.0.0.1:{port}/;\n"
+                + self._proxy_options("/" + slug) +
+                f"}}\n")
+
     def _state_path(self):
         return self.managed / "managed.json"
 
@@ -145,87 +233,130 @@ server {{
     def _save(self, data):
         self._atomic(self._state_path(), json.dumps(data, sort_keys=True, indent=2) + "\n")
 
-    def _result(self, slug, status, ready, note):
-        return {"status": status, "kind": "page", "hostname": slug + ".sirussofts.org",
+    def _result(self, slug, status, ready, note, kind="page"):
+        return {"status": status, "kind": kind, "hostname": slug + ".sirussofts.org",
                 "subdomain_url": "https://" + slug + ".sirussofts.org",
                 "secondary_subdomain_url": "https://" + slug + ".sirussofts.com",
                 "directory_url": "https://sirussofts.org/" + slug,
                 "secondary_directory_url": "https://sirussofts.com/" + slug,
                 "www_root": str(self.root), "ready": ready, "note": note}
 
+    def _plans(self, slug, kind):
+        if kind == "page":
+            return self._config(slug), None
+        port = self._app_backend(slug)
+        return self._app_config(slug, port), self._app_directory_route(slug, port)
+
+    @staticmethod
+    def _sha(content):
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def _expected_state(self, kind, site, directory):
+        return {"kind": kind, "site_sha256": self._sha(site),
+                "directory_sha256": self._sha(directory) if directory is not None else None}
+
+    def _owned_files(self, slug, kind, site, directory):
+        if site.is_symlink() or not site.is_file() or \
+                self._sha(site.read_text(encoding="utf-8")) != kind["site_sha256"]:
+            raise VhostError("Managed site differs from recorded digest")
+        if kind["directory_sha256"] is None:
+            if directory.exists() or directory.is_symlink():
+                raise VhostError("Unexpected unmanaged directory route")
+        elif directory.is_symlink() or not directory.is_file() or \
+                self._sha(directory.read_text(encoding="utf-8")) != kind["directory_sha256"]:
+            raise VhostError("Managed directory route differs from recorded digest")
+
     def preview(self, slug, kind):
         validate(slug, kind)
         self._root_valid()
-        if kind != "page":
-            return self._result(slug, "blocked-app", False,
-                "Executable app vhosts are not supported by this page-only adapter. No changes made.")
+        try:
+            site, route = self._plans(slug, kind)
+        except VhostError as err:
+            return self._result(slug, "blocked", False, str(err), kind)
         tls = self._tls_valid(slug)
-        return self._result(slug, "preview", tls,
-            "Wildcard TLS certificate validated" if tls else
-            "Apply blocked until a reviewed certificate covers both project hostnames")
+        upstream = True
+        if kind == "app":
+            upstream = self._upstream_ready(slug, self._app_backend(slug))
+        return self._result(slug, "preview", bool(tls and upstream),
+            ("TLS and upstream validated" if tls and upstream else
+             "Apply blocked: valid TLS and a running approved backend required"), kind)
 
     def apply(self, slug, kind):
         validate(slug, kind)
         self._root_valid()
-        if kind != "page":
-            raise VhostError("Application vhosts are not supported; no configuration written")
+        site, directory = self._plans(slug, kind)
         if not self._tls_valid(slug):
-            raise VhostError("Valid wildcard TLS coverage is required before apply")
-        config = self._config(slug)
-        digest = hashlib.sha256(config.encode()).hexdigest()
+            raise VhostError("Valid TLS coverage of both project hostnames is required")
+        if kind == "app" and not self._upstream_ready(slug, self._app_backend(slug)):
+            raise VhostError("Approved loopback application backend is unavailable")
+        state = self._expected_state(kind, site, directory)
+        path = self._file(slug)
+        fragment = self._route_file(slug)
         with self.lock:
-            records = self._state()
-            existing = self._file(slug)
-            if existing.exists():
-                if existing.is_symlink() or records.get(slug) != digest or \
-                        hashlib.sha256(existing.read_bytes()).hexdigest() != digest:
-                    raise VhostError("Existing unmanaged or modified vhost; refusing overwrite")
-                return self._result(slug, "already-managed", True, "No changes required")
-            self._atomic(existing, config)
+            ledger = self._state()
+            if slug in ledger or path.exists() or path.is_symlink() or \
+                    fragment.exists() or fragment.is_symlink():
+                if ledger.get(slug) != state:
+                    raise VhostError("Existing route is unmanaged or has a different deployment configuration")
+                self._owned_files(slug, state, path, fragment)
+                return self._result(slug, "already-managed", True, "No changes required", kind)
+            written = []
             try:
+                self._atomic(path, site)
+                written.append(path)
+                if directory is not None:
+                    self._atomic(fragment, directory)
+                    written.append(fragment)
                 self.runner(["nginx", "-t"])
-                updated = dict(records)
-                updated[slug] = digest
+                updated = dict(ledger)
+                updated[slug] = state
                 self._save(updated)
                 self.runner(["systemctl", "reload", "nginx"])
             except Exception:
-                existing.unlink(missing_ok=True)
-                self._save(records)
+                for item in written:
+                    item.unlink(missing_ok=True)
+                self._save(ledger)
                 try:
                     self.runner(["nginx", "-t"])
                     self.runner(["systemctl", "reload", "nginx"])
                 except Exception:
                     pass
                 raise
-        return self._result(slug, "applied", True, "Managed configuration written and Nginx reloaded")
+        return self._result(slug, "applied", True, "Managed Nginx routes activated", kind)
 
     def rollback(self, slug, kind):
         validate(slug, kind)
+        site = self._file(slug)
+        fragment = self._route_file(slug)
         with self.lock:
-            records = self._state()
-            existing = self._file(slug)
-            expected = records.get(slug)
-            if not expected or not existing.is_file() or existing.is_symlink() or \
-                    hashlib.sha256(existing.read_bytes()).hexdigest() != expected:
-                raise VhostError("No matching managed vhost to roll back")
-            old = existing.read_text(encoding="utf-8")
-            existing.unlink()
-            updated = dict(records)
+            ledger = self._state()
+            state = ledger.get(slug)
+            if not isinstance(state, dict) or state.get("kind") != kind:
+                raise VhostError("No matching managed vhost of this type")
+            self._owned_files(slug, state, site, fragment)
+            old_site = site.read_text(encoding="utf-8")
+            old_route = fragment.read_text(encoding="utf-8") if state["directory_sha256"] else None
+            site.unlink()
+            if old_route is not None:
+                fragment.unlink()
+            updated = dict(ledger)
             del updated[slug]
             try:
                 self.runner(["nginx", "-t"])
                 self._save(updated)
                 self.runner(["systemctl", "reload", "nginx"])
             except Exception:
-                self._atomic(existing, old)
-                self._save(records)
+                self._atomic(site, old_site)
+                if old_route is not None:
+                    self._atomic(fragment, old_route)
+                self._save(ledger)
                 try:
                     self.runner(["nginx", "-t"])
                     self.runner(["systemctl", "reload", "nginx"])
                 except Exception:
                     pass
                 raise
-        return self._result(slug, "rolled-back", False, "Managed vhost removed; no project data deleted")
+        return self._result(slug, "rolled-back", False, "Managed routes removed, app data preserved", kind)
 
 
 class Handler(socketserver.StreamRequestHandler):

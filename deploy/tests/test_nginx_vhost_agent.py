@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -20,7 +21,9 @@ class VhostTests(unittest.TestCase):
         self.agent = vhost.NginxVhosts(
             root=self.root, managed=p / "managed", sites=p / "sites",
             cert=p / "fullchain.pem", key=p / "privkey.pem",
-            runner=lambda cmd: self.commands.append(cmd), tls_checker=lambda slug: True)
+            runner=lambda cmd: self.commands.append(cmd), tls_checker=lambda slug: True,
+            app_routes=p / "apps.json", fragments=p / "routes",
+            upstream_checker=lambda slug, port: True)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -36,7 +39,7 @@ class VhostTests(unittest.TestCase):
         self.assertEqual(self.agent._state(), {})
 
     def test_reject_apps_protected_slugs_and_missing_tls(self):
-        self.assertEqual(self.agent.preview("example", "app")["status"], "blocked-app")
+        self.assertEqual(self.agent.preview("example", "app")["status"], "blocked")
         with self.assertRaises(vhost.VhostError):
             self.agent.apply("example", "app")
         for slug in ("cpoint", "worldcom", "../secrets", "a.b", "admin"):
@@ -46,6 +49,75 @@ class VhostTests(unittest.TestCase):
         with self.assertRaises(vhost.VhostError):
             self.agent.apply("example", "page")
         self.assertEqual(self.commands, [])
+
+    def allow_app(self, slug="example", port=23081, enabled=True):
+        self.agent.app_routes.write_text(json.dumps({
+            "schema_version": 1,
+            "applications": {slug: {"enabled": enabled, "host": "127.0.0.1", "port": port}}
+        }), encoding="utf-8")
+        self.agent.app_routes.chmod(0o600)
+
+    def test_app_routes_both_domains_and_rollback(self):
+        self.allow_app()
+        preview = self.agent.preview("example", "app")
+        self.assertTrue(preview["ready"])
+        self.assertEqual(preview["kind"], "app")
+        self.assertEqual(self.agent.apply("example", "app")["status"], "applied")
+        site = self.agent._file("example").read_text()
+        fragment = self.agent._route_file("example").read_text()
+        self.assertIn("example.sirussofts.org example.sirussofts.com", site)
+        self.assertIn("proxy_pass http://127.0.0.1:23081;", site)
+        self.assertIn("location ^~ /example/", fragment)
+        self.assertIn("proxy_pass http://127.0.0.1:23081/;", fragment)
+        self.assertEqual(self.agent.apply("example", "app")["status"], "already-managed")
+        self.assertEqual(self.agent.rollback("example", "app")["status"], "rolled-back")
+        self.assertFalse(self.agent._route_file("example").exists())
+        self.assertFalse(self.agent._file("example").exists())
+
+    def test_app_requires_explicit_healthy_backend(self):
+        self.allow_app(enabled=False)
+        self.assertFalse(self.agent.preview("example", "app")["ready"])
+        with self.assertRaises(vhost.VhostError):
+            self.agent.apply("example", "app")
+        self.allow_app(enabled=True)
+        self.agent.upstream_checker = lambda slug, port: False
+        self.assertFalse(self.agent.preview("example", "app")["ready"])
+        with self.assertRaises(vhost.VhostError):
+            self.agent.apply("example", "app")
+        self.assertFalse(self.agent._file("example").exists())
+
+    def test_app_rejects_tamper_and_config_switch(self):
+        self.allow_app()
+        self.agent.apply("example", "app")
+        self.agent._route_file("example").write_text("modified")
+        with self.assertRaises(vhost.VhostError):
+            self.agent.rollback("example", "app")
+        self.allow_app(port=24082)
+        with self.assertRaises(vhost.VhostError):
+            self.agent.apply("example", "app")
+
+    def test_app_cannot_route_protected_projects(self):
+        self.allow_app(slug="cpoint")
+        with self.assertRaises(vhost.VhostError):
+            self.agent.apply("cpoint", "app")
+        self.allow_app(slug="example", port=80)
+        with self.assertRaises(vhost.VhostError):
+            self.agent.apply("example", "app")
+        self.allow_app()
+        self.agent.app_routes.chmod(0o666)
+        with self.assertRaises(vhost.VhostError):
+            self.agent.apply("example", "app")
+
+    def test_failed_app_nginx_test_removes_both_routes(self):
+        self.allow_app()
+        def fail(command):
+            if command == ["nginx", "-t"]:
+                raise vhost.VhostError("Bad nginx config")
+        self.agent.runner = fail
+        with self.assertRaises(vhost.VhostError):
+            self.agent.apply("example", "app")
+        self.assertFalse(self.agent._file("example").exists())
+        self.assertFalse(self.agent._route_file("example").exists())
 
     def test_refuses_modified_config(self):
         self.agent.apply("example", "page")

@@ -4,6 +4,7 @@ on:
     paths:
       - 'CMS/**'
       - 'node/**'
+      - 'deploy/**'
       - '.github/workflows/php-framework.yml'
   workflow_dispatch:
 jobs:
