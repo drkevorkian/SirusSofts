@@ -27,3 +27,4 @@ jobs:
           php CMS/tests/storage_adapter_test.php
           php CMS/tests/backup_test.php
           php CMS/tests/storage_migration_test.php
+          php CMS/tests/node_registry_test.php
