@@ -190,3 +190,56 @@ It backups the old Python worker, preserves its existing key and
 configuration, replaces only the worker code, and restarts OpenRC.
 The installer is not required on Ubuntu; upgrade the CMS separately
 using the reviewed Hestia code updater.
+
+## Gentoo PCI inventory fix (worker 0.4.2)
+
+On a mixed NVIDIA GTX 1660 / AMD Radeon RX 590 Gentoo machine, the
+KDE Info Center listed both display cards but the original SirusSofts
+worker showed only the GTX 1660. The earlier worker started discovery
+at `/sys/class/drm/card*/device/vendor`, so GPUs without a corresponding
+DRM device were silently omitted.
+
+**0.4.2** inventories all actual PCI display controllers from
+`/sys/bus/pci/devices/*/{vendor,class}` (PCI class `0x03`), then
+reads metrics from the matching driver/sysfs paths if available.
+It merges only DRM-only devices not already discovered by PCI and
+excludes GPU audio functions (PCI class `0x04`). The NVIDIA `nvidia-smi`
+and NVML telemetry fallback remains enabled.
+
+`lspci -mm -s <PCI slot>` may name a card's GPU family (for example,
+Radeon RX 470/480/570/580/590); it cannot always identify the exact
+retail model, memory size, or Sapphire board branding. In the absence
+of `lspci`, the worker reports vendor and PCI device ID rather than
+inventing a model. GPU utilization, temperature and VRAM remain `N/A`
+unless the corresponding *running driver* actually exposes those
+values; seeing the card in KDE is not proof of driver telemetry.
+
+For a node already installed from the self-contained ChatGPT starter,
+use the standalone attachment
+`SirusSofts-Gentoo-PCI-GPU-Fix.sh`:
+
+```bash
+chmod +x SirusSofts-Gentoo-PCI-GPU-Fix.sh
+./SirusSofts-Gentoo-PCI-GPU-Fix.sh --check
+su -c './SirusSofts-Gentoo-PCI-GPU-Fix.sh --upgrade'
+```
+
+The patcher only updates `/opt/sirus-gentoo-node/client.py`; it
+creates a private backup, checks syntax and restarts the OpenRC
+service if it was running. The existing HMAC key, config and node
+identity stay unchanged. Run the 0.4.2 worker's `--probe` to confirm
+that *two* GPU objects appear in the JSON results.
+
+For missing GPU metrics, inspect Gentoo's active drivers as the
+non-root node account and via system PCI facilities:
+
+```bash
+lspci -nnk | grep -Ei -A4 'VGA|3D controller|Display controller'
+su -s /bin/sh sirusnode -c 'command -v nvidia-smi && nvidia-smi'
+su -s /bin/sh sirusnode -c 'python3 /opt/sirus-gentoo-node/client.py --probe'
+```
+
+Don't install or change GPU drivers just to obtain dashboard statistics
+without separately reviewing their effect on the working KDE/Wayland
+desktop. The CMS continues to accept and display both GPU records
+without an Ubuntu-side schema change.
