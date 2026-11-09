@@ -4,6 +4,8 @@ if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 require_once __DIR__.'/vhosts.php';
 require_once __DIR__.'/operations.php';
 require_once __DIR__.'/github_projects.php';
+require_once __DIR__.'/access.php';
+require_once __DIR__.'/source.php';
 
 /** Keep draft and published projects in one explicit, validated order. */
 function cms_reorder_project_ids(PDO $db,string $ids): void {
@@ -40,20 +42,32 @@ function cms_reorder_project_ids(PDO $db,string $ids): void {
 function cms_admin_post(PDO $db,string $path): void {
     cms_check_csrf();
     $action=(string)($_POST['action']??'');
-    if($action==='login' && !cms_is_admin()){
+    if($action==='login'){
         if(!cms_login($db,(string)($_POST['username']??''),(string)($_POST['password']??'')))
             throw new InvalidArgumentException('Incorrect username or password.');
-        cms_flash('Welcome to your SirusSofts dashboard.');cms_go('/admin');
-    }
-    cms_need_admin();
-    if(in_array($action,['vhost_preview','vhost_apply','vhost_rollback','vhost_settings'],true)&&$path==='/admin/hosting'){
-        cms_vhost_post($db,$action);
+        cms_flash('Welcome to SirusSofts.');
+        cms_go(cms_is_admin()?'/admin':'/admin/source');
     }
     if($action==='logout'){
+        if(!cms_authenticated($db))throw new InvalidArgumentException('Not signed in.');
         cms_audit($db,'sign-out','admin');
         $_SESSION=[];
         session_regenerate_id(true);
         cms_go('/admin/login');
+    }
+    if($action==='viewer_password' && $path==='/admin/account'){
+        cms_change_viewer_password($db);
+    }
+    cms_need_admin();
+    if($path==='/admin/users' &&
+       in_array($action,['create_viewer','set_viewer_status','reset_viewer_password','save_viewer_grants'],true)){
+        cms_users_post($db,$action);
+    }
+    if(in_array($action,['vhost_preview','vhost_apply','vhost_rollback','vhost_settings'],true)&&$path==='/admin/hosting'){
+        cms_vhost_post($db,$action);
+    }
+    if($path==='/admin/infrastructure' && $action==='enqueue_gentoo_job'){
+        cms_operations_post($db,$action);
     }
     if($action==='github_import_request' && $path==='/admin/github'){
         $db->exec('INSERT OR IGNORE INTO cms_github_sync_state(id) VALUES (1)');
@@ -160,15 +174,17 @@ function cms_admin_post(PDO $db,string $path): void {
     }
     if($action==='save_settings'){
         $limits=['site_name'=>80,'tagline'=>140,'hero_title'=>160,'hero_body'=>2000,
-                 'about'=>30000,'footer'=>200,'accent'=>10];
+                 'about'=>30000,'footer'=>200,'accent'=>10,'theme'=>20];
         $db->beginTransaction();
         try{
             $st=$db->prepare('INSERT INTO cms_settings(name,value) VALUES(?,?)
                 ON CONFLICT(name) DO UPDATE SET value=excluded.value');
             foreach($limits as $key=>$limit){
                 $value=cms_text($_POST[$key]??'',$limit,$key,$key==='site_name');
-                if($key==='accent'&&!in_array($value,['blue','cyan','violet'],true))
+                if($key==='accent'&&!array_key_exists($value,cms_accent_options()))
                     throw new InvalidArgumentException('Choose a supported accent color.');
+                if($key==='theme'&&!array_key_exists($value,cms_theme_options()))
+                    throw new InvalidArgumentException('Choose a supported website theme.');
                 $st->execute([$key,$value]);
             }
             cms_audit($db,'update-settings','site');
@@ -203,7 +219,8 @@ function cms_admin_shell_start(PDO $db,string $title): void {
         <?php foreach([
            '/admin'=>'Overview','/admin/projects'=>'Projects','/admin/pages'=>'Content pages',
            '/admin/hosting'=>'Virtual hosts','/admin/infrastructure'=>'Infrastructure',
-           '/admin/github'=>'GitHub projects','/admin/settings'=>'Site settings','/admin/security'=>'Security',
+           '/admin/github'=>'GitHub projects','/admin/users'=>'Users & source access',
+           '/admin/source'=>'Source browser','/admin/settings'=>'Site settings','/admin/security'=>'Security',
            '/admin/activity'=>'Activity log'
         ] as $url=>$label):?><a href="<?=$url?>"><?=cms_esc($label)?></a><?php endforeach;?>
         <form method="post" action="/admin/logout">
@@ -219,16 +236,16 @@ function cms_admin_shell_end(PDO $db): void {
     cms_layout_end($db);
 }
 function cms_admin_login(PDO $db,?string $error): void {
-    cms_layout_start($db,'Administrator sign-in');
+    cms_layout_start($db,'Member sign-in');
     ?><section class="auth-layout"><div class="auth-copy">
       <span class="eyebrow">PRIVATE WORKSPACE</span><h1>Manage the work behind the scenes.</h1>
       <p>The website is public. Administration is private. Sign in to manage projects, content and settings.</p>
-    </div><div class="admin-panel login-panel"><h2>Administrator sign-in</h2>
+    </div><div class="admin-panel login-panel"><h2>Account sign-in</h2>
       <?php if($error):?><p class="form-error"><?=cms_esc($error)?></p><?php endif;?>
       <form method="post" action="/admin/login">
         <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
         <input type="hidden" name="action" value="login">
-        <label>Username<input name="username" autocomplete="username" required maxlength="64" value="admin"></label>
+        <label>Username<input name="username" autocomplete="username" required maxlength="64" ></label>
         <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
         <button class="btn primary" type="submit">Sign in</button>
       </form><small>Only available over HTTPS.</small>
@@ -311,11 +328,18 @@ function cms_admin_run(PDO $db,string $path): never {
             $error=$e instanceof PDOException?'A database constraint prevented that change.':$e->getMessage();
         }
     }
-    if(!cms_is_admin()){
+    if(!cms_authenticated($db)){
         cms_admin_login($db,$error);exit;
     }
-    if($path==='/admin/login')cms_go('/admin');
+    if($path==='/admin/login')cms_go(cms_is_admin()?'/admin':'/admin/source');
+    if($path==='/admin/source'){cms_source_page($db,$error);exit;}
+    if(!cms_is_admin()){
+        if($path==='/admin/account'){cms_viewer_account_page($db,$error);exit;}
+        if($path==='/admin' || $path==='/admin/logout')cms_go('/admin/source');
+        http_response_code(403);exit('Administrator permission required.');
+    }
     if($path==='/admin/logout'){cms_go('/admin');}
+    if($path==='/admin/users'){cms_users_page($db,$error);exit;}
     if($path==='/admin/hosting'){cms_vhost_page($db,$error);exit;}
     if($path==='/admin/infrastructure'){cms_operations_page($db);exit;}
     if($path==='/admin/github'){cms_github_projects_page($db);exit;}
@@ -425,10 +449,31 @@ function cms_admin_run(PDO $db,string $path): never {
                 <?php endif;?>
               </label>
             <?php endforeach;?>
-            <label>Accent color<select name="accent">
-            <?php foreach(['blue'=>'Blizzard blue','cyan'=>'Cyan','violet'=>'Violet'] as $key=>$name):?>
-            <option value="<?=$key?>" <?=cms_setting($db,'accent')===$key?'selected':''?>><?=cms_esc($name)?></option>
-            <?php endforeach;?></select></label>
+            <fieldset class="theme-picker" aria-label="Website appearance">
+              <legend>Website theme</legend>
+              <p>Choose a full background and interface palette. Preview it immediately;
+                save your settings to publish the choice.</p>
+              <div class="theme-grid">
+                <?php foreach(cms_theme_options() as $key=>$name):?>
+                  <label class="theme-choice" data-theme-choice="<?=cms_esc($key)?>">
+                    <input type="radio" name="theme" value="<?=cms_esc($key)?>" data-preview-theme
+                      <?=cms_setting($db,'theme')===$key?'checked':''?> required>
+                    <span class="theme-chip" aria-hidden="true">
+                      <span class="theme-chip-panel"><span class="theme-chip-accent"></span></span>
+                    </span>
+                    <span class="theme-name"><?=cms_esc($name)?></span>
+                  </label>
+                <?php endforeach;?>
+              </div>
+            </fieldset>
+            <label>Accent color
+              <select name="accent" data-preview-accent>
+                <?php foreach(cms_accent_options() as $key=>$name):?>
+                  <option value="<?=cms_esc($key)?>" <?=cms_setting($db,'accent')===$key?'selected':''?>><?=cms_esc($name)?></option>
+                <?php endforeach;?>
+              </select>
+            </label>
+            <p class="muted small">Themes and accents are site-wide; the selection also applies to the public Projects directory and administrator dashboard.</p>
             <button class="btn primary" type="submit">Save site settings</button>
           </form>
         </div><?php

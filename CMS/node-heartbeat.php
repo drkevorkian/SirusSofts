@@ -13,8 +13,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !$https) {
     http_response_code(405);
     exit('{"ok":false,"error":"HTTPS POST required"}');
 }
-$keyDir = getenv('SIRUS_NODE_KEY_DIR') ?: '';
-$registryPath = getenv('SIRUS_NODE_REGISTRY_FILE') ?: '';
+// Use the Hestia private CMS directory by default. Older custom deployments
+// can continue supplying explicit trusted PHP-FPM environment overrides.
+define('SIRUS_CMS_BOOTSTRAPPED', true);
+require __DIR__ . '/app/core.php';
+$private = cms_private_directory();
+$keyDir = getenv('SIRUS_NODE_KEY_DIR') ?: $private . '/nodes/keys';
+$registryPath = getenv('SIRUS_NODE_REGISTRY_FILE') ?: $private . '/nodes/registry.sqlite3';
 if (!str_starts_with($keyDir, '/') || !str_starts_with($registryPath, '/') ||
     !is_dir($keyDir) || !is_dir(dirname($registryPath))) {
     http_response_code(503);

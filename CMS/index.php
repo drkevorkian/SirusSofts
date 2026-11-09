@@ -37,7 +37,7 @@ if($subdomain!==null) {
     // Full PHP projects (such as cPoint) get their own document root, so their
     // API and assets work natively without a URL redirect or duplicate DB.
     if($path!=='/'&&$path!=='/index.php'){cms_public_not_found($db);exit;}
-    $project=cms_project($db,$subdomain,true);
+    $project=cms_public_directory_project($db,$subdomain);
     if(!$project){cms_public_not_found($db);exit;}
     cms_public_project($db,$project);exit;
 }
@@ -55,7 +55,7 @@ if(preg_match('#^/pages/([a-z][a-z0-9-]{1,39})$#D',$path,$match)){
 }
 if(preg_match('#^/projects/([a-z][a-z0-9-]{1,39})$#D',$path,$match)||
    preg_match('#^/([a-z][a-z0-9-]{1,39})$#D',$path,$match)){
-    $project=cms_project($db,$match[1],true);
+    $project=cms_public_directory_project($db,$match[1]);
     if($project){cms_public_project($db,$project);exit;}
 }
 cms_public_not_found($db);

@@ -241,3 +241,131 @@ Then click `Import all repositories` in `/admin/github`, and run
 immediately; inspect `journalctl -u sirus-github-import.service -n 30
 --no-pager`. Do not relax the permissions on the token file or paste the
 credential into ChatGPT.
+
+## Public project listings and restricted source browsing (v0.4.0-alpha)
+
+**All imported GitHub repositories are listed** on the public Projects directory,
+including those whose GitHub source repositories are private. If an imported
+CMS project is still a draft, its public listing shows only its GitHub repository
+name and a neutral summary; custom unpublished draft notes/body are NOT exposed.
+GitHub's privacy settings do not change. Publishing a CMS page still does not
+deploy source, share credentials or change a GitHub repository's visibility.
+
+### Administrator users and grants
+
+Sign in as an existing administrator at `/admin/login`. Open
+`/admin/users` to create a **viewer** account (username + initial password,
+14 characters minimum), enable/disable it, reset its password, and grant
+source access to individual imported GitHub repositories. A viewer starts with
+**zero grants**. These accounts never receive CMS administrative privileges.
+The administrator can revoke a grant or disable a viewer immediately; every
+source-page request checks current permissions from the database. Resetting
+a password invalidates existing viewer sessions.
+
+Viewers sign in at `/admin/login`, access their assigned repos at
+`/admin/source`, and can change their password at `/admin/account`.
+Administrators may view every imported repository in the same source browser.
+The GitHub credential is never displayed in the browser.
+
+### One-time source gateway setup (root SSH)
+
+Upgrade the existing CMS as normal with `08-upgrade-cms-hestia.sh --plan`
+then `--apply`. Ensure `07-audit-cms-routing.sh --live` still passes.
+The private source browser requires one **additional** root-owned systemd unit
+separate from the six-hour metadata import timer.
+
+```bash
+cd /root/SirusSofts
+bash deploy/ubuntu24/10-install-source-browser.sh --plan
+bash deploy/ubuntu24/10-install-source-browser.sh --install
+systemctl is-active sirus-source-browser.service
+journalctl -u sirus-source-browser.service -n 20 --no-pager
+```
+
+The interactive installer requests `ENABLE SOURCE BROWSER`. It installs a
+root-owned gateway script under `/usr/local/libexec` and runs it as
+`sirusweb`. Systemd loads the root-only token via `LoadCredential`, not
+via PHP or a public path. Communication is over the protected Unix socket
+`/run/sirussofts-source/bridge.sock`. PHP verifies session, repository
+existence and explicit per-viewer grants **before** requesting source.
+
+The saved fine-grained GitHub token must include **Contents: Read** for every
+private repository whose source should be browsable. **Metadata: Read** alone
+is sufficient for repository discovery but not for source viewing; if the
+existing token was created with only metadata access, adjust its GitHub
+permissions and replace the root-owned file before activating this service.
+
+Only GitHub's read-only Contents API is used, with a 192 KiB UTF-8 text
+preview limit; binary data, symlinks and large files cannot be previewed.
+Source files are HTML-escaped and never executed. No code is cloned to the
+web root, and no GitHub permissions are changed. Network or GitHub API
+failures are reported as unavailable, not a reason to relax authorization.
+
+**Operational boundary:** Since the GitHub Contents API uses one
+server-level credential, it can only read repositories visible to that
+credential. Users should not treat CMS source permission as equivalent to
+being invited into GitHub itself. Do not create viewer accounts with
+passwords you would not trust to protect the repository source.
+
+The authentication and authorization rules protect the CMS source browser; this is not a GitHub membership invite or a full replacement for GitHub account access. Users with source grants can read the permitted repository files via the CMS interface. Keep repository credentials out of any PHP scripts and use GitHub's normal access controls when actual cloning, pushing or contributing is needed.
+
+## v0.5.0-alpha: Gentoo/Ubuntu distributed work broker
+
+The system now separates three independently deployable parts:
+
+- [`gentoo-node/`](../gentoo-node/README.md): outbound Gentoo Python
+  heartbeat, telemetry, signed job submission, status polling and OpenRC.
+- `CMS/node-work.php` + `CMS/app/work_broker.php`: authenticated website
+  mailbox, replay-resistant HMAC-SHA256 job ingress, idempotent queue and
+  per-node job status. **The website does not execute jobs.**
+- [`ubuntu-worker/`](../ubuntu-worker/README.md): restricted background
+  Python worker under `sirusweb` with explicit read-only job types and
+  systemd autostart.
+
+`/admin/infrastructure` displays recent Gentoo heartbeat metrics and
+Ubuntu-delegated job progress. The website is an intermediary; Gentoo
+connects outbound to `sirussofts.com` over TLS. No SSH tunnel is necessary
+for job requests or health telemetry.
+
+**Do not use the legacy `node/` staging agent for the new deployment.**
+It remains for compatibility and experimental SSH maintenance. The new
+standalone Gentoo app is in `gentoo-node/` by design.
+
+### Deployment boundary
+
+1. On Ubuntu update to a **reviewed, green feature-branch commit**.
+2. Upgrade the already-running Hestia CMS with `08-upgrade-cms-hestia.sh`
+   (`--plan` then `--apply`) and enter `UPGRADE CMS` **at the actual
+   interactive prompt**. Never paste the next commands into that prompt.
+   This upgrade safely adds the previously absent `node-work.php` file.
+3. Run the HTTPS routing audit `07-audit-cms-routing.sh --live`.
+4. Install the private systemd Ubuntu worker with
+   `bash ubuntu-worker/install.sh --plan` and `--install`.
+5. Install `gentoo-node/` via its OpenRC installer on the actual Gentoo
+   host, securely transfer the node's 32-byte HMAC key to Ubuntu
+   `private/sirus-cms/nodes/keys/gentoo-home.key`, and test `--once`.
+6. Test delegation from Gentoo with `--delegate health_snapshot --wait`,
+   then start/enable its OpenRC daemon.
+
+Check both corresponding README files for precise commands. The first
+two task kinds are read-only `health_snapshot` and `site_health`.
+There is **no remote code execution, arbitrary command forwarding,
+package installation or deployment automation** in the initial version.
+Additional execution capabilities require separately reviewed, bounded,
+role-restricted worker handlers.
+
+## Full-site theme gallery (0.5.0-alpha)
+
+Administrators may choose among **ten independent website palettes** in
+`/admin/settings`: original Midnight Blue, Obsidian Black, Blizzard Ice,
+Aurora Teal, Amethyst, Evergreen, Ember, Graphite Slate, Ghost White,
+and Warm Paper. The site also offers eight independent accent colors
+(Blue, Cyan, Violet, Emerald, Amber, Rose, Crimson, Silver).
+Themes are presented as radio cards with miniature swatches. Changing
+theme/accent previews the selection locally, and pressing **Save site
+settings** publishes it for all visitors and the admin dashboard.
+The choice is stored in the existing private CMS SQLite settings table;
+the Hestia CMS updater preserves it. Existing installations default to
+the original Midnight Blue until an administrator selects another theme.
+All theme and accent IDs are strictly allowlisted; users cannot inject
+arbitrary stylesheet URLs or CSS rules.

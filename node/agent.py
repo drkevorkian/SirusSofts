@@ -2,6 +2,8 @@
 """SirusSofts outbound Gentoo/OpenRC heartbeat. No remote command executor."""
 from __future__ import annotations
 import argparse
+import subprocess
+import shutil
 import hashlib
 import hmac
 import json
@@ -15,7 +17,7 @@ import time
 import urllib.parse
 import urllib.request
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 NODE_RE = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 
 
@@ -92,12 +94,156 @@ def distro() -> str:
     return "linux"
 
 
+
+def meminfo() -> dict[str, int]:
+    values = {}
+    try:
+        for line in Path("/proc/meminfo").read_text(encoding="ascii").splitlines():
+            if line.startswith(("MemTotal:", "MemAvailable:")):
+                key, val, *_ = line.split()
+                values[key.rstrip(":")] = int(val) * 1024
+    except (OSError, ValueError):
+        return {}
+    return values
+
+
+def cpu_usage_percent() -> float | None:
+    def sample():
+        line = Path("/proc/stat").read_text(encoding="ascii").splitlines()[0]
+        if not line.startswith("cpu "):
+            return None
+        values = [int(v) for v in line.split()[1:9]]
+        return (sum(values), values[3] + values[4])
+    try:
+        first = sample()
+        time.sleep(0.15)
+        second = sample()
+        if first is None or second is None:
+            return None
+        total = second[0] - first[0]
+        idle = second[1] - first[1]
+        if total <= 0:
+            return None
+        return round(max(0.0, min(100.0, 100.0 * (total - idle) / total)), 1)
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def cpu_temperature() -> float | None:
+    for hwmon in Path("/sys/class/hwmon").glob("hwmon*"):
+        try:
+            driver = (hwmon / "name").read_text(encoding="ascii").strip()
+            if driver not in ("k10temp", "coretemp", "zenpower"):
+                continue
+            for candidate in ("temp1_input", "temp2_input"):
+                value = hwmon / candidate
+                if value.exists():
+                    temp = int(value.read_text().strip()) / 1000
+                    if -20 <= temp <= 140:
+                        return round(temp, 1)
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def gpu_devices() -> list[dict]:
+    devices = []
+    for vendor_file in sorted(Path("/sys/class/drm").glob("card[0-9]*/device/vendor")):
+        try:
+            vendor = vendor_file.read_text(encoding="ascii").strip().lower()
+        except (OSError, UnicodeError):
+            continue
+        if vendor not in ("0x1002", "0x10de", "0x8086"):
+            continue
+        device = vendor_file.parent
+        gpu = {"vendor": vendor, "name": {"0x1002":"AMD GPU","0x10de":"NVIDIA GPU",
+                                       "0x8086":"Intel GPU"}[vendor],
+               "usage_pct": None, "temp_c": None, "vram_used_bytes": None,
+               "vram_total_bytes": None}
+        try:
+            busy = device / "gpu_busy_percent"
+            if busy.exists():
+                value = float(busy.read_text().strip())
+                if 0 <= value <= 100: gpu["usage_pct"] = round(value, 1)
+            for hwmon in (device / "hwmon").glob("hwmon*"):
+                file = hwmon / "temp1_input"
+                if file.exists():
+                    temp = int(file.read_text().strip()) / 1000
+                    if -20 <= temp <= 140:gpu["temp_c"] = round(temp, 1)
+                    break
+            for name, field in (("mem_info_vram_used","vram_used_bytes"),
+                                ("mem_info_vram_total","vram_total_bytes")):
+                file = device / name
+                if file.exists():gpu[field] = max(0,int(file.read_text().strip()))
+        except (OSError, ValueError):
+            pass
+        devices.append(gpu)
+    if shutil.which("nvidia-smi"):
+        try:
+            result=subprocess.run([
+                "nvidia-smi", "--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total",
+                "--format=csv,noheader,nounits"
+            ],capture_output=True,text=True,timeout=3,check=True)
+            nvidia = [item for item in devices if item["vendor"]=="0x10de"]
+            for position,line in enumerate(result.stdout.splitlines()[:8]):
+                fields=[value.strip() for value in line.split(",")]
+                if len(fields)!=5:continue
+                if position<len(nvidia):
+                    gpu=nvidia[position]
+                else:
+                    gpu={"vendor":"0x10de","name":"NVIDIA GPU","usage_pct":None,
+                         "temp_c":None,"vram_used_bytes":None,"vram_total_bytes":None}
+                    devices.append(gpu)
+                gpu["name"]=fields[0][:80]
+                for key,raw in (("usage_pct",fields[1]),("temp_c",fields[2])):
+                    try:
+                        value=float(raw)
+                        if (0<=value<=100 if key=="usage_pct" else -20<=value<=140):
+                            gpu[key]=round(value,1)
+                    except ValueError:pass
+                for key,raw in (("vram_used_bytes",fields[3]),("vram_total_bytes",fields[4])):
+                    try:gpu[key]=max(0,int(float(raw)*1048576))
+                    except ValueError:pass
+        except (OSError,subprocess.SubprocessError):
+            pass
+    return devices[:16]
+
+
+def performance() -> dict:
+    memory=meminfo()
+    total=memory.get("MemTotal",0)
+    available=memory.get("MemAvailable",total)
+    try:
+        filesystem=os.statvfs("/")
+        disk_total=filesystem.f_blocks*filesystem.f_frsize
+        disk_used=(filesystem.f_blocks-filesystem.f_bfree)*filesystem.f_frsize
+    except OSError:
+        disk_total,disk_used=0,0
+    try:
+        uptime=int(float(Path("/proc/uptime").read_text().split()[0]))
+    except (OSError,ValueError,IndexError):
+        uptime=0
+    try:
+        load=round(os.getloadavg()[0],2)
+    except OSError:
+        load=0.0
+    return {
+        "cpu_pct":cpu_usage_percent(),
+        "cpu_temp_c":cpu_temperature(),
+        "load_1":load,
+        "memory_used_bytes":max(0,min(total,total-available)),
+        "disk_used_bytes":max(0,disk_used),
+        "disk_total_bytes":max(0,disk_total),
+        "uptime_seconds":max(0,uptime),
+        "gpus":gpu_devices()
+    }
+
 def telemetry(node_id: str, when: int | None = None) -> dict:
     return {"node_id": node_id, "sent_at": int(time.time()) if when is None else when,
             "nonce": secrets.token_hex(16), "os": distro(), "init": init_system(),
             "agent_version": VERSION, "cpu_threads": max(1, os.cpu_count() or 1),
             "ram_bytes": memory_bytes(), "gpu_vendors": gpu_vendors(),
-            "capabilities": ["compute", "index"]}
+            "capabilities": ["compute", "index"], "metrics": performance()}
 
 
 def signed_request(config: dict, key: bytes, when: int | None = None):

@@ -1,0 +1,11 @@
+{
+  "remote_host": "74.208.40.187",
+  "remote_user": "sirus-tunnel",
+  "ssh_port": 22,
+  "reverse_port": 22122,
+  "local_target_port": 22,
+  "key_file": "/etc/sirus-node/tunnel_ed25519",
+  "known_hosts_file": "/etc/sirus-node/known_hosts",
+  "alive_interval": 15,
+  "alive_count": 3
+}

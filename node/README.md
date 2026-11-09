@@ -1,4 +1,6 @@
-# SirusSofts Gentoo compute-node agent (staging)
+# SirusSofts legacy Gentoo compute-node prototype (staging)
+
+**Superseded for new installations:** use the standalone [`gentoo-node/`](../gentoo-node/README.md) Python app and the independent [`ubuntu-worker/`](../ubuntu-worker/README.md) service. The normal delegation/heartbeat path is outbound signed HTTPS; an SSH tunnel is optional maintenance only.
 
 This agent discovers CPU, RAM, GPU vendor IDs, OS/init and capabilities, signs a
 heartbeat with per-node HMAC-SHA256 and sends it **outbound** over verified HTTPS.

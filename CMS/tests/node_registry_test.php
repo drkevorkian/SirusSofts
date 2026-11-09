@@ -42,6 +42,30 @@ try {
         $registry->acceptHeartbeat($body, hash_hmac('sha256', $body, $key), $resolve, $now+500);
         throw new RuntimeException('Stale heartbeat accepted');
     } catch (InvalidArgumentException $expected) {}
+    $data['nonce'] = bin2hex(random_bytes(16));
+    $data['metrics'] = [
+        'cpu_pct'=>34.1,'cpu_temp_c'=>56.2,'load_1'=>1.3,
+        'memory_used_bytes'=>1073741824,'disk_used_bytes'=>10737418240,
+        'disk_total_bytes'=>107374182400,'uptime_seconds'=>1500,
+        'gpus'=>[
+          ['vendor'=>'0x10de','name'=>'NVIDIA GPU','usage_pct'=>49.3,
+           'temp_c'=>61.0,'vram_used_bytes'=>536870912,'vram_total_bytes'=>2147483648],
+          ['vendor'=>'0x1002','name'=>'AMD GPU','usage_pct'=>10.0,
+           'temp_c'=>45.0,'vram_used_bytes'=>268435456,'vram_total_bytes'=>4294967296]
+        ]
+    ];
+    $telemetry=json_encode($data,JSON_THROW_ON_ERROR);
+    $registry->acceptHeartbeat($telemetry,hash_hmac('sha256',$telemetry,$key),$resolve,$now);
+    $node=$registry->getNode('gentoo-home',$now);
+    nodeCheck(abs($node['metrics']['cpu_pct']-34.1)<0.1,'Signed CPU usage retained');
+    nodeCheck(count($node['metrics']['gpus'])===2,'Both GPUs retained');
+    $bad=$data;
+    $bad['nonce']=bin2hex(random_bytes(16));$bad['metrics']['cpu_pct']=999;
+    $badBody=json_encode($bad,JSON_THROW_ON_ERROR);
+    try{
+        $registry->acceptHeartbeat($badBody,hash_hmac('sha256',$badBody,$key),$resolve,$now);
+        throw new RuntimeException('Out-of-range CPU usage accepted');
+    }catch(InvalidArgumentException $expected){}
     nodeCheck(count($registry->allNodes($now)) === 1, 'List recorded telemetry');
     nodeCheck(!isset($registry->allNodes($now)[0]['last_nonce']), 'Nonce excluded from admin telemetry');
     $registry->assignWorkload('job-example-0001','gentoo-home','example','compute');

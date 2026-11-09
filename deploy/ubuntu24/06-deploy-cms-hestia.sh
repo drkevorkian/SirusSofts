@@ -50,7 +50,7 @@ for guard_file in "$HTTP_GUARD" "$HTTPS_GUARD"; do
   [[ ! -e "$guard_file" && ! -L "$guard_file" ]] ||
     fail "An existing SirusSofts Nginx include requires manual review: $guard_file"
 done
-for name in index.php api.php node-heartbeat.php app assets bin .htaccess; do
+for name in index.php api.php node-heartbeat.php node-work.php app assets bin .htaccess; do
   [[ ! -e "$DOCROOT/$name" && ! -L "$DOCROOT/$name" ]] ||
     fail "Document root already contains $name; refusing overwrite"
 done
@@ -122,13 +122,13 @@ if [[ -e "$DOCROOT/index.html" ]]; then
   chown "$user:$(id -gn "$user")" "$PRIVATE/sirus-cms/original-index.html"
   chmod 0600 "$PRIVATE/sirus-cms/original-index.html"
 fi
-for name in index.php api.php node-heartbeat.php app assets bin .htaccess; do
+for name in index.php api.php node-heartbeat.php node-work.php app assets bin .htaccess; do
   cp -a -- "$SOURCE/$name" "$DOCROOT/$name"
   chown -R -- "$user:$(id -gn "$user")" "$DOCROOT/$name"
 done
 find "$DOCROOT/app" "$DOCROOT/bin" "$DOCROOT/assets" -type d -exec chmod 0755 {} +
 find "$DOCROOT/app" "$DOCROOT/bin" "$DOCROOT/assets" -type f -exec chmod 0644 {} +
-for f in index.php api.php node-heartbeat.php .htaccess; do chmod 0644 "$DOCROOT/$f"; done
+for f in index.php api.php node-heartbeat.php node-work.php .htaccess; do chmod 0644 "$DOCROOT/$f"; done
 php8.3 -l "$DOCROOT/index.php"
 # Initialize credentials interactively as Hestia's unprivileged site user.
 runuser -u "$user" -- php8.3 "$DOCROOT/bin/setup.php"
