@@ -51,7 +51,6 @@ try{
     // Stale lease recovered with a new token. Old token can't override new work.
     $waiting=$broker->enqueue('gentoo-home','health_snapshot',$now);
     $first=$make('claim');
-    $late=$make;
     $later=function($op,$payload,$when)use($broker,$key,$resolve){
         $body=json_encode(array_merge(['node_id'=>'gentoo-home','sent_at'=>$when,
               'nonce'=>bin2hex(random_bytes(16)),'op'=>$op],$payload),JSON_THROW_ON_ERROR);
@@ -72,6 +71,8 @@ try{
         'nonce'=>bin2hex(random_bytes(16)),'op'=>'claim'],JSON_THROW_ON_ERROR);
     try{$broker->request($bad,str_repeat('0',64),$resolve,$now);
         must(false,'Invalid signature must fail');}catch(RuntimeException $expected){}
+    must($broker->request($bad,hash_hmac('sha256',$bad,$key),$resolve,$now)['state']==='idle',
+        'First valid signed nonce accepted');
     try{$broker->request($bad,hash_hmac('sha256',$bad,$key),$resolve,$now);
         must(false,'Replay must fail');}catch(PDOException $expected){}
     echo "PASS: Ubuntu-queued Gentoo jobs, signed claim, execution reporting, retry, lease and node isolation.\n";
