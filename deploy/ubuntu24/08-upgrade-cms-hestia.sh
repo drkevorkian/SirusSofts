@@ -30,7 +30,7 @@ CONF="/home/$user/conf/web/$domain"
 PRIVATE="$ROOT/private/sirus-cms"
 DB="$PRIVATE/data/cms.sqlite3"
 GUARD="$HERE/sirus-cms-protect.nginx.conf"
-managed="index.php api.php node-heartbeat.php app assets bin .htaccess"
+managed="index.php api.php node-heartbeat.php node-work.php app assets bin .htaccess"
 [[ -x /usr/local/hestia/bin/v-list-web-domain ]] || fail 'Hestia missing'
 /usr/local/hestia/bin/v-list-web-domain "$user" "$domain" >/dev/null ||
   fail 'Expected Hestia primary site not present'
@@ -43,8 +43,11 @@ done
 for name in $managed; do
   [[ -e "$SOURCE/$name" && ! -L "$SOURCE/$name" ]] ||
     fail "Missing or linked source CMS path: $name"
-  [[ -e "$DOCROOT/$name" && ! -L "$DOCROOT/$name" ]] ||
-    fail "Missing or linked installed CMS path: $name"
+  if [[ -e "$DOCROOT/$name" || -L "$DOCROOT/$name" ]]; then
+    [[ ! -L "$DOCROOT/$name" ]] || fail "Linked installed CMS path: $name"
+  elif [[ "$name" != node-work.php ]]; then
+    fail "Missing installed CMS path: $name"
+  fi
 done
 for name in nginx.conf_siruscms nginx.ssl.conf_siruscms; do
   file="$CONF/$name"
@@ -68,7 +71,7 @@ live_code="$(curl --noproxy '*' --silent --show-error --max-time 12 \
 if [[ "$live_code" != 200 ]]; then
   fail "Existing CMS homepage does not return HTTPS 200 (got $live_code). Diagnose the live site before another upgrade."
 fi
-for name in index.php api.php node-heartbeat.php app assets bin .htaccess; do
+for name in index.php api.php node-heartbeat.php node-work.php app assets bin .htaccess; do
   if [[ "$name" == *php ]]; then php8.3 -l "$SOURCE/$name" >/dev/null; fi
 done
 while IFS= read -r -d '' source_file; do
@@ -80,12 +83,12 @@ if [[ "$mode" == --plan ]]; then
   echo "Installed code root: $DOCROOT"
   echo "Database preserved: $DB"
   echo 'The apply operation creates a consistent SQLite backup and private code rollback copy.'
-  echo 'Managed paths only: index.php api.php node-heartbeat.php app assets bin .htaccess'
+  echo 'Managed paths only: index.php api.php node-heartbeat.php node-work.php app assets bin .htaccess'
   echo 'Review source changes before --apply. No files were modified by --plan.'
   exit 0
 fi
 [[ -t 0 && -t 1 ]] || fail 'Interactive PuTTY/console session required'
-echo 'WARNING: This replaces the seven MANAGED CMS code paths, not any content in SQLite.'
+echo 'WARNING: This replaces the managed CMS code paths, not any content in SQLite.'
 echo 'Existing custom changes inside managed code/assets directories will be replaced.'
 read -r -p 'Type UPGRADE CMS to create a backup and replace website code: ' confirmation
 [[ "$confirmation" == 'UPGRADE CMS' ]] || fail 'Upgrade declined'
@@ -122,6 +125,8 @@ rollback_on_exit(){
         rm -rf -- "$DOCROOT/$name"
         mv -- "$release/previous/$name" "$DOCROOT/$name" ||
           echo "RECOVERY REQUIRED: $name could not be restored" >&2
+      elif [[ "$name" == node-work.php ]]; then
+        rm -f -- "$DOCROOT/node-work.php"
       fi
     done
     systemctl reload php8.3-fpm >/dev/null 2>&1 ||
@@ -132,7 +137,9 @@ rollback_on_exit(){
 }
 trap rollback_on_exit EXIT
 for name in $managed; do
-  mv -- "$DOCROOT/$name" "$release/previous/$name"
+  if [[ -e "$DOCROOT/$name" ]]; then
+    mv -- "$DOCROOT/$name" "$release/previous/$name"
+  fi
   mv -- "$release/stage/$name" "$DOCROOT/$name"
 done
 runuser -u "$user" -- php8.3 "$DOCROOT/bin/migrate-schema.php" ||
