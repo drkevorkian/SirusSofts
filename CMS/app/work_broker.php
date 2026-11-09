@@ -99,14 +99,14 @@ SQL);
         if(!is_string($id)||!self::nodeId($id) ||
            !is_int($ts)||abs($now-$ts)>120 ||
            !is_string($nonce)||!self::jobId($nonce) ||
-           !in_array($op,['claim','complete','status'],true))
+           !in_array($op,['claim','complete','status','history'],true))
             throw new InvalidArgumentException('Invalid signed worker identity.');
         $key=$resolveKey($id);
         if(!is_string($key)||strlen($key)!==32 ||
            !hash_equals(hash_hmac('sha256',$body,$key),$signature))
             throw new RuntimeException('Node authentication failed.');
         $requestId=$message['request_id']??null;
-        if($op==='claim' && count($message)!==4)
+        if(in_array($op,['claim','history'],true) && count($message)!==4)
             throw new InvalidArgumentException('Claim must not include task arguments.');
         if($op==='status' && (count($message)!==5 ||
             !is_string($requestId)||!self::jobId($requestId)))
@@ -131,6 +131,24 @@ SQL);
             $this->db->prepare('DELETE FROM work_nonces WHERE seen_at<?')->execute([$now-86400]);
             $this->db->prepare('INSERT INTO work_nonces(node_id,nonce,seen_at) VALUES(?,?,?)')
                      ->execute([$id,$nonce,$now]); // A duplicate nonce aborts and rolls back.
+            if($op==='history'){
+                $query=$this->db->prepare("SELECT request_id,kind,state,attempts,created_at,
+                    updated_at,result_json,error FROM work_jobs WHERE node_id=?
+                    ORDER BY created_at DESC,request_id DESC LIMIT 40");
+                $query->execute([$id]);
+                $jobs=[];
+                foreach($query->fetchAll() as $job){
+                    $decoded=json_decode((string)$job['result_json'],true);
+                    unset($job['result_json']);
+                    $job['result']=is_array($decoded)?$decoded:[];
+                    $job['created_at']=(int)$job['created_at'];
+                    $job['updated_at']=(int)$job['updated_at'];
+                    $job['attempts']=(int)$job['attempts'];
+                    $jobs[]=$job;
+                }
+                $this->db->commit();
+                return ['ok'=>true,'node_id'=>$id,'jobs'=>$jobs];
+            }
             $row=null;
             if($op==='claim'){
                 // Bounded lease means a disconnected Gentoo node can reclaim after restart.
