@@ -32,9 +32,14 @@ CREATE TABLE IF NOT EXISTS work_jobs (
     attempts INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    claimed_at INTEGER NOT NULL DEFAULT 0
+    claimed_at INTEGER NOT NULL DEFAULT 0,
+    lease_token TEXT NOT NULL DEFAULT ''
 )
 SQL);
+        $cols=$this->db->query('PRAGMA table_info(work_jobs)')->fetchAll(PDO::FETCH_ASSOC);
+        if(!in_array('lease_token',array_column($cols,'name'),true)){
+            $this->db->exec("ALTER TABLE work_jobs ADD COLUMN lease_token TEXT NOT NULL DEFAULT ''");
+        }
         $this->db->exec('CREATE INDEX IF NOT EXISTS work_pending ON work_jobs(state,created_at)');
         $this->db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS work_nonces (
@@ -46,72 +51,141 @@ CREATE TABLE IF NOT EXISTS work_nonces (
 SQL);
     }
 
-    /** Call ONLY after verifying a node's signature and timestamp. */
+    private static function nodeId(string $id): bool {
+        return (bool)preg_match('/^[a-z][a-z0-9-]{1,63}$/D',$id);
+    }
+    private static function jobId(string $id): bool {
+        return (bool)preg_match('/^[a-f0-9]{32}$/D',$id);
+    }
+    /** Called only after the authenticated CMS administrator authorizes work. */
+    public function enqueue(string $nodeId,string $kind,?int $now=null): string {
+        if(!self::nodeId($nodeId)||!in_array($kind,['health_snapshot','compute_selftest'],true))
+            throw new InvalidArgumentException('Unsupported node or Gentoo work type.');
+        $now??=time();
+        $this->db->exec('BEGIN IMMEDIATE');
+        try{
+            $st=$this->db->prepare("SELECT COUNT(*) FROM work_jobs WHERE node_id=?
+                                   AND state IN ('queued','running')");
+            $st->execute([$nodeId]);
+            if((int)$st->fetchColumn()>=32)
+                throw new InvalidArgumentException('Too many outstanding tasks for this node.');
+            $requestId=bin2hex(random_bytes(16));
+            $this->db->prepare("INSERT INTO work_jobs
+                (request_id,node_id,kind,state,created_at,updated_at)
+                VALUES(?,?,?,'queued',?,?)")
+                ->execute([$requestId,$nodeId,$kind,$now,$now]);
+            $this->db->commit();
+            return $requestId;
+        }catch(Throwable $e){
+            if($this->db->inTransaction())$this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /** Node-authenticated pull/ack only. Ubuntu never runs delegated work. */
     public function request(string $body,string $signature,callable $resolveKey,?int $now=null): array {
         $now??=time();
-        if(strlen($body)>4096 || $body==='' || !preg_match('/^[a-f0-9]{64}$/D',$signature))
+        if(strlen($body)>12000 || $body==='' || !preg_match('/^[a-f0-9]{64}$/D',$signature))
             throw new InvalidArgumentException('Invalid work request envelope.');
         $message=json_decode($body,true,12,JSON_THROW_ON_ERROR);
         if(!is_array($message) || array_is_list($message) ||
-           array_diff(array_keys($message),['node_id','sent_at','nonce','op','request_id','kind','payload']))
+           array_diff(array_keys($message),[
+               'node_id','sent_at','nonce','op','request_id','lease_token','state','result','error']))
             throw new InvalidArgumentException('Invalid work request attributes.');
         $id=$message['node_id']??null;
         $ts=$message['sent_at']??null;
         $nonce=$message['nonce']??null;
         $op=$message['op']??null;
-        $rid=$message['request_id']??null;
-        if(!is_string($id) || !preg_match('/^[a-z][a-z0-9-]{1,63}$/D',$id) ||
-           !is_int($ts) || abs($now-$ts)>120 ||
-           !is_string($nonce) || !preg_match('/^[a-f0-9]{32}$/D',$nonce) ||
-           !is_string($rid) || !preg_match('/^[a-f0-9]{32}$/D',$rid) ||
-           !in_array($op,['submit','status'],true))
-            throw new InvalidArgumentException('Invalid work request identity.');
+        if(!is_string($id)||!self::nodeId($id) ||
+           !is_int($ts)||abs($now-$ts)>120 ||
+           !is_string($nonce)||!self::jobId($nonce) ||
+           !in_array($op,['claim','complete','status'],true))
+            throw new InvalidArgumentException('Invalid signed worker identity.');
         $key=$resolveKey($id);
-        if(!is_string($key) || strlen($key)!==32 ||
+        if(!is_string($key)||strlen($key)!==32 ||
            !hash_equals(hash_hmac('sha256',$body,$key),$signature))
             throw new RuntimeException('Node authentication failed.');
-        $this->db->beginTransaction();
-        try {
-            $this->db->prepare('DELETE FROM work_nonces WHERE seen_at < ?')->execute([$now-86400]);
-            $st=$this->db->prepare('INSERT INTO work_nonces(node_id,nonce,seen_at) VALUES(?,?,?)');
-            $st->execute([$id,$nonce,$now]);
-            if($op==='submit'){
-                $kind=$message['kind']??null;
-                $payload=$message['payload']??null;
-                if(!in_array($kind,['health_snapshot','site_health'],true) ||
-                   !is_array($payload) || $payload!==[])
-                    throw new InvalidArgumentException('Only approved, parameter-free jobs can be submitted.');
-                $lookup=$this->db->prepare('SELECT * FROM work_jobs WHERE request_id=?');
-                $lookup->execute([$rid]);$prior=$lookup->fetch();
-                if($prior){
-                    if($prior['node_id']!==$id || $prior['kind']!==$kind)
-                        throw new InvalidArgumentException('Request ID already belongs to another job.');
-                    $row=$prior;
-                }else{
-                    $limit=$this->db->prepare("SELECT COUNT(*) FROM work_jobs
-                        WHERE node_id=? AND state IN ('queued','running')");
-                    $limit->execute([$id]);
-                    if((int)$limit->fetchColumn()>=32)
-                        throw new RuntimeException('Too many outstanding jobs for this node.');
-                    $this->db->prepare("INSERT INTO work_jobs(request_id,node_id,kind,state,created_at,updated_at)
-                        VALUES(?,?,?,'queued',?,?)")->execute([$rid,$id,$kind,$now,$now]);
-                    $row=['request_id'=>$rid,'node_id'=>$id,'kind'=>$kind,
-                          'state'=>'queued','result_json'=>'{}','error'=>''];
+        $requestId=$message['request_id']??null;
+        if($op==='claim' && count($message)!==4)
+            throw new InvalidArgumentException('Claim must not include task arguments.');
+        if($op==='status' && (count($message)!==5 ||
+            !is_string($requestId)||!self::jobId($requestId)))
+            throw new InvalidArgumentException('Invalid status request.');
+        if($op==='complete'){
+            $lease=$message['lease_token']??null;
+            $state=$message['state']??null;
+            $result=$message['result']??null;
+            $error=$message['error']??null;
+            if(count($message)!==9 || !is_string($requestId)||!self::jobId($requestId) ||
+               !is_string($lease)||!self::jobId($lease) ||
+               !in_array($state,['done','failed'],true) ||
+               !is_array($result)||array_is_list($result)&&$result!==[] ||
+               !is_string($error)||strlen($error)>200 ||
+               preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F]/',$error) ||
+               strlen(json_encode($result,JSON_THROW_ON_ERROR))>8192 ||
+               ($state==='done' && $error!==''))
+                throw new InvalidArgumentException('Invalid completion payload.');
+        }
+        $this->db->exec('BEGIN IMMEDIATE');
+        try{
+            $this->db->prepare('DELETE FROM work_nonces WHERE seen_at<?')->execute([$now-86400]);
+            $this->db->prepare('INSERT INTO work_nonces(node_id,nonce,seen_at) VALUES(?,?,?)')
+                     ->execute([$id,$nonce,$now]); // A duplicate nonce aborts and rolls back.
+            $row=null;
+            if($op==='claim'){
+                // Bounded lease means a disconnected Gentoo node can reclaim after restart.
+                $this->db->prepare("UPDATE work_jobs SET state='failed',
+                    error='Node lease expired after three attempts',updated_at=?
+                    WHERE node_id=? AND state='running' AND claimed_at<? AND attempts>=3")
+                    ->execute([$now,$id,$now-120]);
+                $this->db->prepare("UPDATE work_jobs SET state='queued',lease_token='',
+                    updated_at=? WHERE node_id=? AND state='running'
+                    AND claimed_at<? AND attempts<3")
+                    ->execute([$now,$id,$now-120]);
+                $st=$this->db->prepare("SELECT * FROM work_jobs WHERE node_id=? AND state='queued'
+                    ORDER BY created_at,request_id LIMIT 1");
+                $st->execute([$id]);$row=$st->fetch();
+                if($row){
+                    $lease=bin2hex(random_bytes(16));
+                    $this->db->prepare("UPDATE work_jobs SET state='running',
+                      attempts=attempts+1,claimed_at=?,updated_at=?,lease_token=?
+                      WHERE request_id=? AND node_id=? AND state='queued'")
+                      ->execute([$now,$now,$lease,$row['request_id'],$id]);
+                    $row['state']='running';
+                    $row['lease_token']=$lease;
                 }
             }else{
-                if(array_key_exists('kind',$message) || array_key_exists('payload',$message))
-                    throw new InvalidArgumentException('Status cannot submit a job.');
-                $lookup=$this->db->prepare('SELECT * FROM work_jobs WHERE request_id=? AND node_id=?');
-                $lookup->execute([$rid,$id]);$row=$lookup->fetch();
-                if(!$row)throw new InvalidArgumentException('Job not found.');
+                $st=$this->db->prepare('SELECT * FROM work_jobs WHERE node_id=? AND request_id=?');
+                $st->execute([$id,$requestId]);$row=$st->fetch();
+                if(!$row)throw new InvalidArgumentException('Assigned job not found.');
+                if($op==='complete'){
+                    if(!hash_equals((string)$row['lease_token'],$lease) ||
+                       (int)$row['claimed_at']+120 < $now ||
+                       $row['state']!=='running')
+                        throw new InvalidArgumentException('Stale, expired or incorrect lease.');
+                    $this->db->prepare("UPDATE work_jobs
+                      SET state=?,result_json=?,error=?,updated_at=?
+                      WHERE request_id=? AND node_id=? AND state='running'")
+                      ->execute([$state,json_encode($result,JSON_THROW_ON_ERROR),
+                                 $error,$now,$requestId,$id]);
+                    $row['state']=$state;
+                    $row['result_json']=json_encode($result,JSON_THROW_ON_ERROR);
+                    $row['error']=$error;
+                }
             }
             $this->db->commit();
-            $result=json_decode($row['result_json'],true);
-            return [
-                'ok'=>true,'request_id'=>$row['request_id'],'kind'=>$row['kind'],
-                'state'=>$row['state'],'result'=>is_array($result)?$result:[],
-                'error'=>$row['error']
-            ];
+            if(!$row){
+                return ['ok'=>true,'state'=>'idle','job'=>null,'poll_after'=>4];
+            }
+            $response=['ok'=>true,'request_id'=>$row['request_id'],
+                'kind'=>$row['kind'],'state'=>$row['state']];
+            if($op==='claim')$response['lease_token']=$row['lease_token'];
+            if($op!=='claim'){
+                $decoded=json_decode((string)$row['result_json'],true);
+                $response['result']=is_array($decoded)?$decoded:[];
+                $response['error']=$row['error'];
+            }
+            return $response;
         }catch(Throwable $e){
             if($this->db->inTransaction())$this->db->rollBack();
             throw $e;
