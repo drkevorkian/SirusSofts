@@ -42,6 +42,7 @@ jobs:
           php CMS/tests/operations_admin_test.php
           php CMS/tests/github_projects_test.php
           php CMS/tests/access_control_test.php
+          php CMS/tests/work_broker_test.php
           php CMS/tests/hosting_config_test.php
           php CMS/tests/storage_github_test.php
       - name: Gentoo agent unit tests
@@ -55,6 +56,14 @@ jobs:
           python3 -m unittest discover -s deploy/tests -p 'test_github_cms_import.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_github_source_browser.py' -v
           python3 deploy/ubuntu24/github-source-browser.py --check
+          python3 -m unittest discover -s gentoo-node/tests -p 'test_*.py' -v
+          python3 -m unittest discover -s ubuntu-worker/tests -p 'test_*.py' -v
+          python3 ubuntu-worker/worker.py --check
+          bash gentoo-node/install-openrc.sh --check
+          bash ubuntu-worker/install.sh --check
+          bash -n gentoo-node/install-openrc.sh ubuntu-worker/install.sh
+          php -l CMS/node-work.php
+          php -l CMS/app/work_broker.php
           python3 deploy/ubuntu24/github-cms-import.py --check
           bash deploy/ubuntu24/09-install-github-import.sh --check
       - name: Ubuntu installer syntax and read-only preflight
