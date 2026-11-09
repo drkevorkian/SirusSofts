@@ -20,7 +20,7 @@ import time
 import urllib.parse
 import urllib.request
 
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 NODE_RE = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 
 
@@ -76,15 +76,25 @@ def memory_bytes() -> int:
     raise RuntimeError("Cannot read MemTotal")
 
 
-def gpu_vendors(directory: Path = Path("/sys/class/drm")) -> list[str]:
+def gpu_vendors(directory: Path = Path("/sys/class/drm"),
+                pci_root: Path = Path("/sys/bus/pci/devices")) -> list[str]:
+    """Discover actual display adapters, including cards without a DRM device."""
     found = set()
+    for entry in pci_root.glob("*"):
+        try:
+            vendor = (entry / "vendor").read_text(encoding="ascii").strip().lower()
+            class_code = int((entry / "class").read_text(encoding="ascii").strip(), 16)
+            if class_code >> 16 == 0x03 and vendor in ("0x1002", "0x10de", "0x8086"):
+                found.add(vendor)
+        except (OSError, ValueError, UnicodeError):
+            continue
     for entry in directory.glob("card[0-9]*/device/vendor"):
         try:
-            value = entry.read_text(encoding="ascii").strip().lower()
+            vendor = entry.read_text(encoding="ascii").strip().lower()
         except (OSError, UnicodeError):
             continue
-        if re.fullmatch(r"0x[0-9a-f]{4}", value):
-            found.add(value)
+        if vendor in ("0x1002", "0x10de", "0x8086"):
+            found.add(vendor)
     return sorted(found)[:16]
 
 
@@ -299,55 +309,92 @@ def pci_model(device: Path) -> str | None:
     return None
 
 
-def gpu_devices(drm_root: Path = Path("/sys/class/drm")) -> list[dict]:
-    """Read DRM/sysfs for Intel and AMD; pair NVIDIA with SMI or native NVML."""
-    devices = []
-    for vendor_file in sorted(drm_root.glob("card[0-9]*/device/vendor")):
-        try:
-            vendor = vendor_file.read_text(encoding="ascii").strip().lower()
-        except (OSError, UnicodeError):
-            continue
-        if vendor not in ("0x1002", "0x10de", "0x8086"):
-            continue
-        device = vendor_file.parent
-        sample = {
-            "vendor": vendor,
-            "name": {"0x1002": "AMD GPU", "0x10de": "NVIDIA GPU",
-                     "0x8086": "Intel GPU"}[vendor],
-            "usage_pct": None, "temp_c": None,
-            "vram_used_bytes": None, "vram_total_bytes": None
-        }
+def gpu_devices(drm_root: Path = Path("/sys/class/drm"),
+                pci_root: Path = Path("/sys/bus/pci/devices")) -> list[dict]:
+    """Discover GPUs by PCI class 0x03, not only DRM cards.
+
+    KDE's hardware inventory can see a display adapter with no working DRM
+    driver. Our former collector omitted such a card entirely. Inventory
+    comes from PCI; load/temperature/VRAM still require driver interfaces.
+    """
+    devices: list[dict] = []
+    seen_slots: set[str] = set()
+    vendor_names = {"0x1002": "AMD GPU", "0x10de": "NVIDIA GPU",
+                    "0x8086": "Intel GPU"}
+    slot_pattern = re.compile(r"[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]")
+
+    def collect(device: Path, vendor: str) -> dict:
+        sample = {"vendor": vendor, "name": vendor_names[vendor],
+                  "usage_pct": None, "temp_c": None,
+                  "vram_used_bytes": None, "vram_total_bytes": None}
         try:
             model = pci_model(device)
             if model:
                 sample["name"] = model
+            elif (device / "device").is_file():
+                # A device identifier, not a guessed GPU marketing model.
+                device_id = (device / "device").read_text(encoding="ascii").strip()
+                if re.fullmatch(r"0x[0-9a-fA-F]{4}", device_id):
+                    sample["name"] += " (" + device_id.lower() + ")"
             busy = device / "gpu_busy_percent"
-            if busy.exists():
+            if busy.is_file():
                 value = float(busy.read_text().strip())
                 if 0 <= value <= 100:
                     sample["usage_pct"] = round(value, 1)
             for hwmon in (device / "hwmon").glob("hwmon*"):
                 value = hwmon / "temp1_input"
-                if value.exists():
+                if value.is_file():
                     temperature = int(value.read_text().strip()) / 1000
                     if -20 <= temperature <= 140:
                         sample["temp_c"] = round(temperature, 1)
-                    break
-            for name, field in (("mem_info_vram_used", "vram_used_bytes"),
-                                ("mem_info_vram_total", "vram_total_bytes")):
-                value = device / name
-                if value.exists():
+                        break
+            for filename, field in (("mem_info_vram_used", "vram_used_bytes"),
+                                    ("mem_info_vram_total", "vram_total_bytes")):
+                value = device / filename
+                if value.is_file():
                     sample[field] = max(0, int(value.read_text().strip()))
-        except (OSError, ValueError):
+        except (OSError, ValueError, UnicodeError):
             pass
-        devices.append(sample)
+        return sample
+
+    # PCI is canonical: the RX 590 must be listed even if no cardN DRM
+    # interface was created for it.
+    for device in sorted(pci_root.glob("*")):
+        slot = device.name
+        if not slot_pattern.fullmatch(slot):
+            continue
+        try:
+            vendor = (device / "vendor").read_text(encoding="ascii").strip().lower()
+            class_code = int((device / "class").read_text(encoding="ascii").strip(), 16)
+        except (OSError, ValueError, UnicodeError):
+            continue
+        if class_code >> 16 != 0x03 or vendor not in vendor_names:
+            continue
+        seen_slots.add(slot.lower())
+        devices.append(collect(device, vendor))
+
+    # Keep supporting drivers that expose DRM but not standard PCI sysfs.
+    for vendor_file in sorted(drm_root.glob("card[0-9]*/device/vendor")):
+        device = vendor_file.parent
+        try:
+            vendor = vendor_file.read_text(encoding="ascii").strip().lower()
+            slot = device.resolve(strict=True).name.lower()
+        except (OSError, UnicodeError):
+            continue
+        if vendor not in vendor_names or slot in seen_slots:
+            continue
+        seen_slots.add(slot)
+        devices.append(collect(device, vendor))
+
+    # NVIDIA driver data enriches the PCI inventory but cannot replace it.
     nvidia = nvidia_smi_samples() or nvml_samples()
     detected = [gpu for gpu in devices if gpu["vendor"] == "0x10de"]
     for index, source in enumerate(nvidia):
         if index < len(detected):
-            detected[index].update({field: value for field, value in source.items()
-                                    if value is not None and
-                                    (field != "name" or value != "NVIDIA GPU")})
+            detected[index].update({
+                field: value for field, value in source.items()
+                if value is not None and (field != "name" or value != "NVIDIA GPU")
+            })
         else:
             devices.append(source)
     return devices[:16]
