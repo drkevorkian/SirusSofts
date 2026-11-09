@@ -188,6 +188,10 @@ function cms_operations_page(PDO $db): void
               <progress max="100" value="<?=cms_esc((string)$device['usage_pct'])?>">GPU load</progress>
             <?php endif;?>
             <small>Temperature: <?=isset($device['temp_c'])?cms_esc(number_format((float)$device['temp_c'],1)).' °C':'Unavailable'?></small>
+            <?php if(($device['vendor']??'')==='0x10de' &&
+              ($device['usage_pct']??null)===null && ($device['temp_c']??null)===null):?>
+              <small class="muted">NVIDIA card detected; driver telemetry is unavailable to the Gentoo node. Check nvidia-smi or NVML.</small>
+            <?php endif;?>
             <small>VRAM: <?=isset($device['vram_used_bytes'])?cms_esc(cms_node_size((int)$device['vram_used_bytes'])):'N/A'?>
               / <?=isset($device['vram_total_bytes'])?cms_esc(cms_node_size((int)$device['vram_total_bytes'])):'N/A'?></small>
           </div>
