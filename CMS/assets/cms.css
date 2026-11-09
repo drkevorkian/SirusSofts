@@ -210,3 +210,144 @@ code{color:#98d2ff;overflow-wrap:anywhere;font-size:12px}
 .source-content{white-space:pre;overflow:auto;font:13px/1.6 ui-monospace,Consolas,monospace;
  background:var(--bg-deep);border:1px solid var(--stroke);border-radius:10px;padding:18px;max-height:72vh}
 .source-content code{white-space:pre}
+
+
+/* Full-site theme palettes. Midnight preserves the original SirusSofts look. */
+html[data-theme="obsidian"]{
+  --bg:#08090d;--bg-deep:#05060a;--panel:#171b25;--panel-alt:#202635;
+  --stroke:#333f52;--stroke-soft:#253144;--text:#f3f5fc;--muted:#b6c2d3;
+}
+html[data-theme="blizzard"]{
+  --bg:#071724;--bg-deep:#04111d;--panel:#123049;--panel-alt:#1c405d;
+  --stroke:#43718e;--stroke-soft:#274f69;--text:#f2fbff;--muted:#b7d8e9;
+}
+html[data-theme="aurora"]{
+  --bg:#061b20;--bg-deep:#051117;--panel:#113039;--panel-alt:#19414b;
+  --stroke:#386e72;--stroke-soft:#255259;--text:#eafff9;--muted:#b6d8d0;
+}
+html[data-theme="amethyst"]{
+  --bg:#151020;--bg-deep:#0d0a17;--panel:#2a2140;--panel-alt:#382d52;
+  --stroke:#615179;--stroke-soft:#44395e;--text:#f4edff;--muted:#c8bada;
+}
+html[data-theme="forest"]{
+  --bg:#0a1915;--bg-deep:#06120e;--panel:#153328;--panel-alt:#214236;
+  --stroke:#426a57;--stroke-soft:#2f5040;--text:#effdf4;--muted:#bad7c7;
+}
+html[data-theme="ember"]{
+  --bg:#1a1110;--bg-deep:#100b0b;--panel:#392322;--panel-alt:#4a302c;
+  --stroke:#775449;--stroke-soft:#593b35;--text:#fff1e7;--muted:#ddbcab;
+}
+html[data-theme="slate"]{
+  --bg:#121920;--bg-deep:#0c1219;--panel:#222e3a;--panel-alt:#2b3a49;
+  --stroke:#465a6d;--stroke-soft:#34475a;--text:#ecf2f7;--muted:#b6c5d0;
+}
+html[data-theme="ghost"]{
+  color-scheme:light;--bg:#f6f8fc;--bg-deep:#ecf2f9;--panel:#ffffff;--panel-alt:#eef4fa;
+  --stroke:#b8cadd;--stroke-soft:#d5e0ed;--text:#1b3147;--muted:#536b80;
+}
+html[data-theme="parchment"]{
+  color-scheme:light;--bg:#fcf8ef;--bg-deep:#f5eee2;--panel:#fffdfa;--panel-alt:#f6eade;
+  --stroke:#cfbda8;--stroke-soft:#e5d9ca;--text:#342a25;--muted:#685b52;
+}
+/* Accents remain independently selectable, including legacy blue/cyan/violet. */
+html[data-accent="emerald"]{--accent:#45d59f;--accent-soft:rgba(69,213,159,.15)}
+html[data-accent="amber"]{--accent:#f7ba5b;--accent-soft:rgba(247,186,91,.17)}
+html[data-accent="rose"]{--accent:#f18cb7;--accent-soft:rgba(241,140,183,.15)}
+html[data-accent="red"]{--accent:#f4838e;--accent-soft:rgba(244,131,142,.16)}
+html[data-accent="silver"]{--accent:#b3c6df;--accent-soft:rgba(179,198,223,.17)}
+
+/* Convert the common hardcoded blue surfaces into palette-aware components. */
+html[data-theme]:not([data-theme="midnight"]) .topbar{
+  background:var(--panel);border-bottom-color:var(--stroke-soft)}
+html[data-theme]:not([data-theme="midnight"]) .topnav a{color:var(--muted)}
+html[data-theme]:not([data-theme="midnight"]) .topnav a:hover{
+  color:var(--text);background:var(--panel-alt)}
+html[data-theme]:not([data-theme="midnight"]) .topnav .nav-admin{
+  color:var(--accent);border-color:var(--stroke)}
+html[data-theme]:not([data-theme="midnight"]) .project-card,
+html[data-theme]:not([data-theme="midnight"]) .content-panel,
+html[data-theme]:not([data-theme="midnight"]) .panel,
+html[data-theme]:not([data-theme="midnight"]) .admin-panel{
+  background:linear-gradient(150deg,var(--panel-alt),var(--panel))}
+html[data-theme]:not([data-theme="midnight"]) .statement{
+  background:var(--panel);border-color:var(--stroke)}
+html[data-theme]:not([data-theme="midnight"]) .admin-sidebar,
+html[data-theme]:not([data-theme="midnight"]) .address-panel{
+  background:var(--panel);border-color:var(--stroke)}
+html[data-theme]:not([data-theme="midnight"]) .admin-sidebar a,
+html[data-theme]:not([data-theme="midnight"]) .sidebar-logout,
+html[data-theme]:not([data-theme="midnight"]) label{color:var(--text)}
+html[data-theme]:not([data-theme="midnight"]) .admin-sidebar a:hover,
+html[data-theme]:not([data-theme="midnight"]) .sidebar-logout:hover{
+  background:var(--panel-alt);color:var(--accent)}
+html[data-theme]:not([data-theme="midnight"]) input,
+html[data-theme]:not([data-theme="midnight"]) select,
+html[data-theme]:not([data-theme="midnight"]) textarea,
+html[data-theme]:not([data-theme="midnight"]) .nav-toggle{
+  background:var(--bg-deep);border-color:var(--stroke);color:var(--text)}
+html[data-theme]:not([data-theme="midnight"]) .btn:not(.primary):not(.danger){
+  background:var(--panel-alt);border-color:var(--stroke);color:var(--text)}
+html[data-theme]:not([data-theme="midnight"]) .btn:not(.primary):not(.danger):hover{
+  border-color:var(--accent);color:var(--accent)}
+html[data-theme]:not([data-theme="midnight"]) td,
+html[data-theme]:not([data-theme="midnight"]) .content-panel{color:var(--text)}
+html[data-theme]:not([data-theme="midnight"]) th{color:var(--muted)}
+html[data-theme]:not([data-theme="midnight"]) th,
+html[data-theme]:not([data-theme="midnight"]) td{border-color:var(--stroke-soft)}
+html[data-theme]:not([data-theme="midnight"]) code,
+html[data-theme]:not([data-theme="midnight"]) .url-tag,
+html[data-theme]:not([data-theme="midnight"]) .project-arrow,
+html[data-theme]:not([data-theme="midnight"]) .site-footer a{color:var(--accent)}
+html[data-theme]:not([data-theme="midnight"]) .project-icon,
+html[data-theme]:not([data-theme="midnight"]) .detail-symbol{
+  background:var(--panel-alt);border-color:var(--stroke);color:var(--accent)}
+html[data-theme]:not([data-theme="midnight"]) .site-footer{
+  background:var(--bg-deep);border-color:var(--stroke-soft);color:var(--muted)}
+html[data-theme]:not([data-theme="midnight"]) .notice,
+html[data-theme]:not([data-theme="midnight"]) .url-tag{
+  background:var(--panel-alt);border-color:var(--stroke);color:var(--text)}
+html[data-theme]:not([data-theme="midnight"]) .topnav.is-open{background:var(--panel)}
+html[data-theme]:not([data-theme="midnight"]) .source-content{
+  background:var(--bg-deep);color:var(--text)}
+html[data-theme]:not([data-theme="midnight"]) .hero h1{
+  background:linear-gradient(125deg,var(--text),var(--muted));
+  background-clip:text;-webkit-background-clip:text}
+html[data-theme="ghost"] body,html[data-theme="parchment"] body{
+  background:var(--bg);color:var(--text)}
+html[data-theme="ghost"] .hero h1,html[data-theme="parchment"] .hero h1{
+  background:none;background-clip:border-box;-webkit-background-clip:border-box;color:var(--text)}
+html[data-theme="ghost"] .nav-toggle,html[data-theme="parchment"] .nav-toggle{
+  color:var(--text)}
+html[data-theme="ghost"] .project-card:hover,
+html[data-theme="parchment"] .project-card:hover{
+  box-shadow:0 12px 32px rgba(20,38,55,.14)}
+
+/* Admin theme chooser: keyboard-accessible radio cards with miniature previews. */
+.theme-picker{padding:0;border:0;margin:25px 0 18px;min-width:0}
+.theme-picker legend{font-weight:750;font-size:16px;color:var(--text)}
+.theme-picker p{margin:6px 0 14px}
+.theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px}
+.theme-choice{display:flex;flex-direction:column;gap:9px;margin:0;cursor:pointer;
+  padding:11px;border:1px solid var(--stroke);border-radius:12px;
+  background:var(--panel);color:var(--text);min-width:0}
+.theme-choice:has(input:checked){outline:2px solid var(--accent);outline-offset:1px}
+.theme-choice:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.theme-choice input[type=radio]{width:16px;height:16px;margin:0;accent-color:var(--accent)}
+.theme-name{font-size:12px;font-weight:650;line-height:1.3}
+.theme-chip{display:block;height:57px;padding:10px;border:1px solid var(--sw-stroke);
+  background:var(--sw-bg);border-radius:8px}
+.theme-chip-panel{display:flex;align-items:center;justify-content:flex-end;
+  width:100%;height:100%;padding:8px;border:1px solid var(--sw-stroke);
+  background:var(--sw-panel);border-radius:5px}
+.theme-chip-accent{width:31px;height:7px;background:var(--sw-accent);border-radius:8px}
+.theme-choice[data-theme-choice="midnight"]{--sw-bg:#07121f;--sw-panel:#10243a;--sw-stroke:#284963;--sw-accent:#6db9ff}
+.theme-choice[data-theme-choice="obsidian"]{--sw-bg:#08090d;--sw-panel:#171b25;--sw-stroke:#333f52;--sw-accent:#bbc9db}
+.theme-choice[data-theme-choice="blizzard"]{--sw-bg:#071724;--sw-panel:#123049;--sw-stroke:#43718e;--sw-accent:#b0e3ff}
+.theme-choice[data-theme-choice="aurora"]{--sw-bg:#061b20;--sw-panel:#113039;--sw-stroke:#386e72;--sw-accent:#69e2c5}
+.theme-choice[data-theme-choice="amethyst"]{--sw-bg:#151020;--sw-panel:#2a2140;--sw-stroke:#615179;--sw-accent:#ba9dff}
+.theme-choice[data-theme-choice="forest"]{--sw-bg:#0a1915;--sw-panel:#153328;--sw-stroke:#426a57;--sw-accent:#6adba1}
+.theme-choice[data-theme-choice="ember"]{--sw-bg:#1a1110;--sw-panel:#392322;--sw-stroke:#775449;--sw-accent:#ffa56a}
+.theme-choice[data-theme-choice="slate"]{--sw-bg:#121920;--sw-panel:#222e3a;--sw-stroke:#465a6d;--sw-accent:#b8cadd}
+.theme-choice[data-theme-choice="ghost"]{--sw-bg:#f6f8fc;--sw-panel:#ffffff;--sw-stroke:#b8cadd;--sw-accent:#3e88c8}
+.theme-choice[data-theme-choice="parchment"]{--sw-bg:#fcf8ef;--sw-panel:#fffdfa;--sw-stroke:#cfbda8;--sw-accent:#c77b44}
+
