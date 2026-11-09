@@ -369,3 +369,29 @@ html:is([data-theme="ghost"],[data-theme="parchment"]) .site-footer a{color:var(
 html:is([data-theme="ghost"],[data-theme="parchment"]) .identity-copy small,
 html:is([data-theme="ghost"],[data-theme="parchment"]) .topnav a{color:var(--muted)}
 
+
+
+/* Gentoo node monitoring uses the same palette as the chosen CMS theme. */
+.node-heading{display:flex;justify-content:space-between;align-items:flex-start;
+  gap:16px;flex-wrap:wrap}
+.node-heading h2{margin:0 0 4px}
+.node-heading p{margin:0;color:var(--muted)}
+.node-state{display:inline-flex;padding:7px 12px;border-radius:99px;
+  border:1px solid var(--stroke);font-size:12px;font-weight:750}
+.node-state.is-online{color:#54da9f;background:rgba(40,154,100,.12);
+  border-color:rgba(46,183,123,.4)}
+.node-state.is-offline{color:#e3ad75;background:rgba(188,117,47,.14);
+  border-color:rgba(188,117,47,.35)}
+html:is([data-theme="ghost"],[data-theme="parchment"]) .node-state.is-online{color:#176949}
+html:is([data-theme="ghost"],[data-theme="parchment"]) .node-state.is-offline{color:#99570d}
+.node-metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+  gap:13px;margin:19px 0 25px}
+.node-metric{display:flex;flex-direction:column;gap:7px;min-width:0;
+  background:var(--panel-alt);border:1px solid var(--stroke);
+  padding:15px;border-radius:12px}
+.node-metric>span{color:var(--muted);font-size:12px}
+.node-metric>strong{font-size:18px;letter-spacing:-.4px;color:var(--text);overflow-wrap:anywhere}
+.node-metric>small{color:var(--muted);font-size:12px;line-height:1.5}
+.node-metric progress{width:100%;height:8px;accent-color:var(--accent)}
+.node-stats h3{font-size:18px;margin:27px 0 9px;color:var(--text)}
+
