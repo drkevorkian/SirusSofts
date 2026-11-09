@@ -17,9 +17,9 @@ $database=$base.'/work.sqlite3';
 if(!is_dir($keyDir) || !is_dir($base) || !is_writable($base)){
     http_response_code(503);exit('{"ok":false,"error":"Work broker not configured"}');
 }
-$raw=file_get_contents('php://input',false,null,0,4097);
+$raw=file_get_contents('php://input',false,null,0,12001);
 try {
-    if(!is_string($raw) || strlen($raw)>4096)
+    if(!is_string($raw) || strlen($raw)>12000)
         throw new InvalidArgumentException('Invalid job envelope size.');
     $broker=new SirusWorkBroker($database);
     $result=$broker->request(
@@ -30,7 +30,7 @@ try {
                 return '';
             return (string)file_get_contents($path);
         });
-    http_response_code($result['state']==='queued'?202:200);
+    http_response_code(200);
     echo json_encode($result,JSON_THROW_ON_ERROR);
 }catch(Throwable $e){
     error_log('Sirus work request rejected: '.get_class($e));

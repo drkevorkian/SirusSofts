@@ -66,6 +66,9 @@ function cms_admin_post(PDO $db,string $path): void {
     if(in_array($action,['vhost_preview','vhost_apply','vhost_rollback','vhost_settings'],true)&&$path==='/admin/hosting'){
         cms_vhost_post($db,$action);
     }
+    if($path==='/admin/infrastructure' && $action==='enqueue_gentoo_job'){
+        cms_operations_post($db,$action);
+    }
     if($action==='github_import_request' && $path==='/admin/github'){
         $db->exec('INSERT OR IGNORE INTO cms_github_sync_state(id) VALUES (1)');
         $db->prepare('UPDATE cms_github_sync_state

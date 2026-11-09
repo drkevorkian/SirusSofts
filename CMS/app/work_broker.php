@@ -196,7 +196,7 @@ SQL);
     public function recent(int $limit=30): array {
         $limit=max(1,min(100,$limit));
         return $this->db->query("SELECT request_id,node_id,kind,state,created_at,updated_at,
-                                 attempts FROM work_jobs ORDER BY created_at DESC LIMIT ".$limit)
+                                 attempts,result_json,error FROM work_jobs ORDER BY created_at DESC LIMIT ".$limit)
                         ->fetchAll();
     }
 }
