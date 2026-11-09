@@ -66,6 +66,31 @@ function cms_operations_snapshot(): array
     return $snapshot;
 }
 
+/** Enqueue Gentoo-only work from an authenticated administrator, never PHP. */
+function cms_operations_post(PDO $db,string $action): never {
+    cms_need_admin();
+    if($action!=='enqueue_gentoo_job')
+        throw new InvalidArgumentException('Unsupported infrastructure operation.');
+    $nodeId=(string)($_POST['node_id']??'');
+    $kind=(string)($_POST['kind']??'');
+    if(!preg_match('/^[a-z][a-z0-9-]{1,63}$/D',$nodeId) ||
+       !in_array($kind,['health_snapshot','compute_selftest'],true))
+        throw new InvalidArgumentException('Choose a valid connected node and approved task.');
+    $nodeDir=cms_private_directory().'/nodes';
+    $nodeDb=$nodeDir.'/registry.sqlite3';
+    if(!is_file($nodeDb)||is_link($nodeDb))
+        throw new InvalidArgumentException('No registered Gentoo node has connected.');
+    $registry=new SirusNodeRegistry($nodeDb);
+    $node=$registry->getNode($nodeId);
+    if(!$node || $node['health']!=='online')
+        throw new InvalidArgumentException('The selected Gentoo node is offline. Wait for a fresh signed heartbeat.');
+    $broker=new SirusWorkBroker($nodeDir.'/work.sqlite3');
+    $id=$broker->enqueue($nodeId,$kind);
+    cms_audit($db,'enqueue-gentoo-work',$nodeId.':'.$kind.':'.$id);
+    cms_flash('Work queued for Gentoo: '.$id.'. Gentoo will claim it on its next authenticated poll.');
+    cms_go('/admin/infrastructure');
+}
+
 function cms_node_size(int $bytes): string {
     return number_format(max(0,$bytes)/1073741824,1).' GiB';
 }
@@ -173,13 +198,40 @@ function cms_operations_page(PDO $db): void
     <?php endforeach;?>
         <div class="admin-panel">
       <h2>Gentoo → Ubuntu delegated work</h2>
-      <p>Gentoo signs HTTPS requests; this website brokers job state while the
-      dedicated Python worker on Ubuntu executes only preapproved read-only
-      tasks. No website-originated shell commands are supported.</p>
+      <p>Ubuntu hosts the website and queues work. The separate Gentoo Python
+      node polls the CMS over authenticated HTTPS, executes approved tasks
+      on Gentoo, and returns results. PHP/Ubuntu does not execute these jobs.</p>
+      <?php $flash=cms_take_flash();if($flash):?>
+        <p class="flash-message"><?=cms_esc($flash['message'])?></p>
+      <?php endif;?>
+      <form method="post" action="/admin/infrastructure">
+        <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+        <input type="hidden" name="action" value="enqueue_gentoo_job">
+        <label>Worker node
+          <select name="node_id" required>
+            <?php foreach($snapshot['nodes'] as $node):
+              if($node['health']!=='online')continue;?>
+              <option value="<?=cms_esc($node['node_id'])?>"><?=cms_esc($node['node_id'])?></option>
+            <?php endforeach;?>
+          </select>
+        </label>
+        <label>Approved Gentoo task
+          <select name="kind">
+            <option value="health_snapshot">Gentoo hardware health snapshot</option>
+            <option value="compute_selftest">Gentoo bounded CPU computation self-test</option>
+          </select>
+        </label>
+        <button type="submit" class="btn primary"
+           <?=!array_filter($snapshot['nodes'],static fn($n)=>$n['health']==='online')?'disabled':''?>>
+           Delegate work to Gentoo
+        </button>
+      </form>
+      <p class="muted small">Only authenticated administrators may enqueue.
+      A node must have reported within the last three minutes.</p>
       <p>Private work queue: <strong><?=cms_esc($snapshot['work_state'])?></strong></p>
       <div class="table-scroll"><table><thead><tr>
         <th>Request ID</th><th>Node</th><th>Kind</th>
-        <th>Status</th><th>Attempts</th><th>Submitted (UTC)</th>
+        <th>Status</th><th>Attempts</th><th>Submitted (UTC)</th><th>Result</th>
       </tr></thead><tbody>
         <?php foreach($snapshot['work_jobs'] as $job):?>
         <tr><td><code><?=cms_esc($job['request_id'])?></code></td>
@@ -188,6 +240,12 @@ function cms_operations_page(PDO $db): void
             <td><?=cms_esc($job['state'])?></td>
             <td><?=(int)$job['attempts']?></td>
             <td><?=cms_esc(gmdate('Y-m-d H:i:s',(int)$job['created_at']))?></td>
+            <td><?php if(in_array($job['state'],['done','failed'],true)):?>
+              <details><summary>View <?=cms_esc($job['state'])?></summary>
+                <pre class="source-content"><code><?=cms_esc((string)$job['result_json'])?></code></pre>
+                <?php if($job['error']):?><p><?=cms_esc($job['error'])?></p><?php endif;?>
+              </details>
+            <?php else:?>Awaiting Gentoo<?php endif;?></td>
         </tr>
         <?php endforeach;?>
       </tbody></table></div>
