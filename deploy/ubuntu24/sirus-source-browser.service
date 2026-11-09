@@ -26,3 +26,6 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 MemoryMax=192M
 LimitNOFILE=128
 TimeoutStartSec=15
+
+[Install]
+WantedBy=multi-user.target
