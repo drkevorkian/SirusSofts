@@ -11,7 +11,6 @@ if [[ "$mode" == --check ]]; then echo 'PASS standalone Gentoo node syntax';exit
 [[ "$(id -u)" -eq 0 ]] || fail 'Root required for OpenRC installation'
 [[ -f /etc/gentoo-release ]] || fail 'This application requires Gentoo'
 command -v rc-service >/dev/null || fail 'OpenRC missing'
-command -v ssh >/dev/null || fail 'OpenSSH client missing'
 if [[ "$mode" == --plan ]]; then
   echo 'Gentoo node agent communicates outbound HTTPS to sirussofts.com.'
   echo 'Installs non-login sirusnode, a private HMAC key and OpenRC unit.'
