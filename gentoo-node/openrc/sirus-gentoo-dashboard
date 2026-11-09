@@ -1,0 +1,11 @@
+#!/sbin/openrc-run
+name="SirusSofts authenticated Gentoo dashboard"
+supervisor=supervise-daemon
+command="/usr/bin/python3"
+command_args="/opt/sirus-gentoo-node/dashboard.py"
+command_user="sirusnode:sirusnode"
+respawn_delay=5
+respawn_max=0
+depend() {
+    need net
+}
