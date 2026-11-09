@@ -69,6 +69,8 @@
       document.title = parsed.title || document.title;
       if (parsed.documentElement.dataset.accent)
         document.documentElement.dataset.accent = parsed.documentElement.dataset.accent;
+      if (parsed.documentElement.dataset.theme)
+        document.documentElement.dataset.theme = parsed.documentElement.dataset.theme;
       const oldNav = document.querySelector("#primaryNav");
       const newNav = parsed.querySelector("#primaryNav");
       if (oldNav && newNav) oldNav.replaceWith(document.importNode(newNav, true));
@@ -85,6 +87,18 @@
       if (pending === controller) pending = null;
     }
   }
+
+  // Local preview of theme and accent. Nothing publishes until Save settings.
+  document.addEventListener("change", event => {
+    const theme = event.target.closest("[data-preview-theme]");
+    const accent = event.target.closest("[data-preview-accent]");
+    if (theme && theme.checked) {
+      document.documentElement.dataset.theme = theme.value;
+    }
+    if (accent) {
+      document.documentElement.dataset.accent = accent.value;
+    }
+  });
 
   document.addEventListener("click", event => {
     const up = event.target.closest("[data-project-up]");
