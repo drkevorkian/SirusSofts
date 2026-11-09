@@ -155,3 +155,38 @@ There are no raw shell, Git or arbitrary-script task payloads.
 The read-only jobs are designed to be repeatable if a network failure
 causes a retry. For state-changing work in the future, use stronger
 idempotency/reconciliation rules before enabling it.
+
+## NVIDIA GPU information (worker 0.4.1)
+
+This revision improves NVIDIA identification and performance telemetry
+without requiring Python packages or Git. It first tries `nvidia-smi`,
+then loads the native NVIDIA **NVML** driver library directly through
+Python `ctypes`; it also uses `lspci` to identify card models if
+the driver cannot expose a name. AMD and Intel GPU sysfs monitoring
+continues unchanged. For multiple NVIDIA cards, NVML enumerates all
+accessible devices.
+
+If the dashboard recognizes PCI vendor `0x10de` but lacks utilization,
+temperature or VRAM readings even after updating, run on Gentoo:
+
+```bash
+command -v nvidia-smi || true
+nvidia-smi --query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total --format=csv,noheader,nounits
+lspci -nn | grep -Ei 'VGA|3D|NVIDIA'
+ls -l /dev/nvidiactl /dev/nvidia0 2>/dev/null || true
+su -s /bin/sh sirusnode -c 'python3 /opt/sirus-gentoo-node/client.py --probe'
+```
+
+Do not install NVIDIA proprietary drivers blindly. Native NVML metrics
+are available only when the correct supported NVIDIA driver/library is
+loaded and accessible to the unprivileged `sirusnode` account. Legacy
+cards using Nouveau may be enumerable by PCI but lack the monitoring
+interfaces used by NVIDIA's proprietary driver.
+
+For Gentoo installations originally set up using the standalone
+ChatGPT-provided shell installer (no Git checkout), use the updated
+self-contained `SirusSofts-Gentoo-GPU-Upgrade.sh --upgrade` attachment.
+It backups the old Python worker, preserves its existing key and
+configuration, replaces only the worker code, and restarts OpenRC.
+The installer is not required on Ubuntu; upgrade the CMS separately
+using the reviewed Hestia code updater.

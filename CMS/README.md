@@ -353,3 +353,19 @@ There is **no remote code execution, arbitrary command forwarding,
 package installation or deployment automation** in the initial version.
 Additional execution capabilities require separately reviewed, bounded,
 role-restricted worker handlers.
+
+## Full-site theme gallery (0.5.0-alpha)
+
+Administrators may choose among **ten independent website palettes** in
+`/admin/settings`: original Midnight Blue, Obsidian Black, Blizzard Ice,
+Aurora Teal, Amethyst, Evergreen, Ember, Graphite Slate, Ghost White,
+and Warm Paper. The site also offers eight independent accent colors
+(Blue, Cyan, Violet, Emerald, Amber, Rose, Crimson, Silver).
+Themes are presented as radio cards with miniature swatches. Changing
+theme/accent previews the selection locally, and pressing **Save site
+settings** publishes it for all visitors and the admin dashboard.
+The choice is stored in the existing private CMS SQLite settings table;
+the Hestia CMS updater preserves it. Existing installations default to
+the original Midnight Blue until an administrator selects another theme.
+All theme and accent IDs are strictly allowlisted; users cannot inject
+arbitrary stylesheet URLs or CSS rules.
