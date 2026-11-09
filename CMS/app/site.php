@@ -35,11 +35,13 @@ function cms_layout_start(PDO $db,string $title,bool $admin=false): void {
     $site=cms_setting($db,'site_name');
     $full=$title===$site?$site:$title.' · '.$site;
     $color=cms_setting($db,'accent');
-    if(!in_array($color,['blue','cyan','violet'],true))$color='blue';
+    if(!array_key_exists($color,cms_accent_options()))$color='blue';
+    $theme=cms_setting($db,'theme');
+    if(!array_key_exists($theme,cms_theme_options()))$theme='midnight';
     // Links on a CMS-hosted project subdomain return to the main public site.
     $home=cms_project_host_slug(cms_request_host())===null?'':'https://'.cms_root_domain();
     ?><!doctype html>
-<html lang="en" data-accent="<?=cms_esc($color)?>">
+<html lang="en" data-theme="<?=cms_esc($theme)?>" data-accent="<?=cms_esc($color)?>">
 <head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="<?=cms_esc(cms_setting($db,'tagline'))?>">

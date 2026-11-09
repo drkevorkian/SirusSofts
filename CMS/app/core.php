@@ -157,6 +157,33 @@ SQL);
     $db->exec('CREATE INDEX IF NOT EXISTS cms_github_project_link ON cms_github_repositories(project_id)');
     $db->exec('CREATE INDEX IF NOT EXISTS cms_projects_status ON cms_projects(state,sort_order)');
 }
+/** Public, allowlisted presentation themes. No user-supplied stylesheets. */
+function cms_theme_options(): array {
+    return [
+        'midnight'=>'Midnight Blue (original)',
+        'obsidian'=>'Obsidian Black',
+        'blizzard'=>'Blizzard Ice',
+        'aurora'=>'Aurora Teal',
+        'amethyst'=>'Amethyst',
+        'forest'=>'Evergreen',
+        'ember'=>'Ember',
+        'slate'=>'Graphite Slate',
+        'ghost'=>'Ghost White',
+        'parchment'=>'Warm Paper'
+    ];
+}
+function cms_accent_options(): array {
+    return [
+        'blue'=>'Blizzard Blue',
+        'cyan'=>'Cyan',
+        'violet'=>'Violet',
+        'emerald'=>'Emerald',
+        'amber'=>'Amber',
+        'rose'=>'Rose',
+        'red'=>'Crimson',
+        'silver'=>'Silver'
+    ];
+}
 function cms_defaults(): array {
     return [
         'site_name'=>'SirusSofts',
@@ -165,7 +192,8 @@ function cms_defaults(): array {
         'hero_body'=>'Explore independent software, connected systems and original projects from SirusSofts.',
         'about'=>'SirusSofts is a home for independently developed software, connected systems, tools and experiments.',
         'footer'=>'SirusSofts · Built with curiosity.',
-        'accent'=>'blue'
+        'accent'=>'blue',
+        'theme'=>'midnight'
     ];
 }
 function cms_setting(PDO $db,string $key): string {
