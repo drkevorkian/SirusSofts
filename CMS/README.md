@@ -308,3 +308,48 @@ being invited into GitHub itself. Do not create viewer accounts with
 passwords you would not trust to protect the repository source.
 
 The authentication and authorization rules protect the CMS source browser; this is not a GitHub membership invite or a full replacement for GitHub account access. Users with source grants can read the permitted repository files via the CMS interface. Keep repository credentials out of any PHP scripts and use GitHub's normal access controls when actual cloning, pushing or contributing is needed.
+
+## v0.5.0-alpha: Gentoo/Ubuntu distributed work broker
+
+The system now separates three independently deployable parts:
+
+- [`gentoo-node/`](../gentoo-node/README.md): outbound Gentoo Python
+  heartbeat, telemetry, signed job submission, status polling and OpenRC.
+- `CMS/node-work.php` + `CMS/app/work_broker.php`: authenticated website
+  mailbox, replay-resistant HMAC-SHA256 job ingress, idempotent queue and
+  per-node job status. **The website does not execute jobs.**
+- [`ubuntu-worker/`](../ubuntu-worker/README.md): restricted background
+  Python worker under `sirusweb` with explicit read-only job types and
+  systemd autostart.
+
+`/admin/infrastructure` displays recent Gentoo heartbeat metrics and
+Ubuntu-delegated job progress. The website is an intermediary; Gentoo
+connects outbound to `sirussofts.com` over TLS. No SSH tunnel is necessary
+for job requests or health telemetry.
+
+**Do not use the legacy `node/` staging agent for the new deployment.**
+It remains for compatibility and experimental SSH maintenance. The new
+standalone Gentoo app is in `gentoo-node/` by design.
+
+### Deployment boundary
+
+1. On Ubuntu update to a **reviewed, green feature-branch commit**.
+2. Upgrade the already-running Hestia CMS with `08-upgrade-cms-hestia.sh`
+   (`--plan` then `--apply`) and enter `UPGRADE CMS` **at the actual
+   interactive prompt**. Never paste the next commands into that prompt.
+   This upgrade safely adds the previously absent `node-work.php` file.
+3. Run the HTTPS routing audit `07-audit-cms-routing.sh --live`.
+4. Install the private systemd Ubuntu worker with
+   `bash ubuntu-worker/install.sh --plan` and `--install`.
+5. Install `gentoo-node/` via its OpenRC installer on the actual Gentoo
+   host, securely transfer the node's 32-byte HMAC key to Ubuntu
+   `private/sirus-cms/nodes/keys/gentoo-home.key`, and test `--once`.
+6. Test delegation from Gentoo with `--delegate health_snapshot --wait`,
+   then start/enable its OpenRC daemon.
+
+Check both corresponding README files for precise commands. The first
+two task kinds are read-only `health_snapshot` and `site_health`.
+There is **no remote code execution, arbitrary command forwarding,
+package installation or deployment automation** in the initial version.
+Additional execution capabilities require separately reviewed, bounded,
+role-restricted worker handlers.
