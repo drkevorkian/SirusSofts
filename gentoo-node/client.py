@@ -4,6 +4,9 @@ from __future__ import annotations
 import argparse
 import subprocess
 import shutil
+import ctypes
+import ctypes.util
+import shlex
 import hashlib
 import hmac
 import json
@@ -17,7 +20,7 @@ import time
 import urllib.parse
 import urllib.request
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 NODE_RE = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 
 
@@ -156,7 +159,148 @@ def cpu_temperature() -> float | None:
     return None
 
 
+
+class _NVMLUtilization(ctypes.Structure):
+    _fields_ = [("gpu", ctypes.c_uint), ("memory", ctypes.c_uint)]
+
+
+class _NVMLMemory(ctypes.Structure):
+    _fields_ = [("total", ctypes.c_ulonglong),
+                ("free", ctypes.c_ulonglong), ("used", ctypes.c_ulonglong)]
+
+
+def nvml_samples() -> list[dict]:
+    """Query NVIDIA's native monitoring library without nvidia-smi or extra pip deps.
+    The proprietary driver and NVML must be loaded and readable by sirusnode.
+    """
+    try:
+        library = ctypes.util.find_library("nvidia-ml") or "libnvidia-ml.so.1"
+        nvml = ctypes.CDLL(library)
+    except (OSError, ValueError):
+        return []
+    try:
+        nvml.nvmlInit_v2.restype = ctypes.c_int
+        if nvml.nvmlInit_v2() != 0:
+            return []
+        try:
+            nvml.nvmlDeviceGetCount_v2.argtypes = [ctypes.POINTER(ctypes.c_uint)]
+            nvml.nvmlDeviceGetCount_v2.restype = ctypes.c_int
+            count = ctypes.c_uint(0)
+            if nvml.nvmlDeviceGetCount_v2(ctypes.byref(count)) != 0:
+                return []
+            nvml.nvmlDeviceGetHandleByIndex_v2.argtypes = [
+                ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p)]
+            nvml.nvmlDeviceGetHandleByIndex_v2.restype = ctypes.c_int
+            nvml.nvmlDeviceGetName.argtypes = [
+                ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint]
+            nvml.nvmlDeviceGetName.restype = ctypes.c_int
+            nvml.nvmlDeviceGetUtilizationRates.argtypes = [
+                ctypes.c_void_p, ctypes.POINTER(_NVMLUtilization)]
+            nvml.nvmlDeviceGetUtilizationRates.restype = ctypes.c_int
+            nvml.nvmlDeviceGetTemperature.argtypes = [
+                ctypes.c_void_p, ctypes.c_uint, ctypes.POINTER(ctypes.c_uint)]
+            nvml.nvmlDeviceGetTemperature.restype = ctypes.c_int
+            nvml.nvmlDeviceGetMemoryInfo.argtypes = [
+                ctypes.c_void_p, ctypes.POINTER(_NVMLMemory)]
+            nvml.nvmlDeviceGetMemoryInfo.restype = ctypes.c_int
+            readings = []
+            for index in range(min(int(count.value), 16)):
+                handle = ctypes.c_void_p()
+                if nvml.nvmlDeviceGetHandleByIndex_v2(
+                        index, ctypes.byref(handle)) != 0:
+                    continue
+                sample = {"vendor": "0x10de", "name": "NVIDIA GPU",
+                          "usage_pct": None, "temp_c": None,
+                          "vram_used_bytes": None, "vram_total_bytes": None}
+                name = ctypes.create_string_buffer(128)
+                if nvml.nvmlDeviceGetName(handle, name, len(name)) == 0:
+                    sample["name"] = name.value.decode("utf8", "replace")[:80]
+                util = _NVMLUtilization()
+                if nvml.nvmlDeviceGetUtilizationRates(handle, ctypes.byref(util)) == 0:
+                    if 0 <= util.gpu <= 100:
+                        sample["usage_pct"] = float(util.gpu)
+                temp = ctypes.c_uint()
+                if nvml.nvmlDeviceGetTemperature(handle, 0, ctypes.byref(temp)) == 0:
+                    if 0 <= temp.value <= 140:
+                        sample["temp_c"] = float(temp.value)
+                memory = _NVMLMemory()
+                if nvml.nvmlDeviceGetMemoryInfo(handle, ctypes.byref(memory)) == 0:
+                    sample["vram_used_bytes"] = int(memory.used)
+                    sample["vram_total_bytes"] = int(memory.total)
+                readings.append(sample)
+            return readings
+        finally:
+            nvml.nvmlShutdown()
+    except (OSError, AttributeError, TypeError, ValueError):
+        return []
+
+
+def nvidia_smi_samples() -> list[dict]:
+    """Prefer the vendor tool when available; no shell and no root privileges."""
+    binary = shutil.which("nvidia-smi")
+    if not binary:
+        for candidate in ("/usr/bin/nvidia-smi", "/usr/local/bin/nvidia-smi",
+                          "/opt/bin/nvidia-smi"):
+            if Path(candidate).is_file() and os.access(candidate, os.X_OK):
+                binary = candidate
+                break
+    if not binary:
+        return []
+    try:
+        query = subprocess.run([
+            binary, "--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total",
+            "--format=csv,noheader,nounits"
+        ], capture_output=True, text=True, timeout=4, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    readings = []
+    for line in query.stdout.splitlines()[:16]:
+        values = [v.strip() for v in line.split(",")]
+        if len(values) != 5:
+            continue
+        sample = {"vendor": "0x10de", "name": values[0][:80] or "NVIDIA GPU",
+                  "usage_pct": None, "temp_c": None,
+                  "vram_used_bytes": None, "vram_total_bytes": None}
+        for field, raw, low, high in (
+            ("usage_pct", values[1], 0, 100),
+            ("temp_c", values[2], -20, 140),
+        ):
+            try:
+                value = float(raw)
+                if low <= value <= high:
+                    sample[field] = round(value, 1)
+            except ValueError:
+                continue
+        for field, raw in (("vram_used_bytes", values[3]),
+                           ("vram_total_bytes", values[4])):
+            try:
+                sample[field] = max(0, int(float(raw) * 1048576))
+            except ValueError:
+                continue
+        readings.append(sample)
+    return readings
+
+
+def pci_model(device: Path) -> str | None:
+    """Fallback identification by PCI slot if NVIDIA monitoring is unavailable."""
+    if not shutil.which("lspci"):
+        return None
+    try:
+        slot = device.resolve(strict=True).name
+        if not re.fullmatch(r"[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]", slot):
+            return None
+        result = subprocess.run(["lspci", "-s", slot, "-mm"],
+                                capture_output=True, text=True, timeout=3, check=True)
+        fields = shlex.split(result.stdout.strip())
+        if len(fields) >= 4:
+            return fields[3][:80] or None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return None
+
+
 def gpu_devices() -> list[dict]:
+    """Read DRM/sysfs for Intel and AMD; pair NVIDIA with SMI or native NVML."""
     devices = []
     for vendor_file in sorted(Path("/sys/class/drm").glob("card[0-9]*/device/vendor")):
         try:
@@ -166,56 +310,46 @@ def gpu_devices() -> list[dict]:
         if vendor not in ("0x1002", "0x10de", "0x8086"):
             continue
         device = vendor_file.parent
-        gpu = {"vendor": vendor, "name": {"0x1002":"AMD GPU","0x10de":"NVIDIA GPU",
-                                       "0x8086":"Intel GPU"}[vendor],
-               "usage_pct": None, "temp_c": None, "vram_used_bytes": None,
-               "vram_total_bytes": None}
+        sample = {
+            "vendor": vendor,
+            "name": {"0x1002": "AMD GPU", "0x10de": "NVIDIA GPU",
+                     "0x8086": "Intel GPU"}[vendor],
+            "usage_pct": None, "temp_c": None,
+            "vram_used_bytes": None, "vram_total_bytes": None
+        }
         try:
+            model = pci_model(device)
+            if model:
+                sample["name"] = model
             busy = device / "gpu_busy_percent"
             if busy.exists():
                 value = float(busy.read_text().strip())
-                if 0 <= value <= 100: gpu["usage_pct"] = round(value, 1)
+                if 0 <= value <= 100:
+                    sample["usage_pct"] = round(value, 1)
             for hwmon in (device / "hwmon").glob("hwmon*"):
-                file = hwmon / "temp1_input"
-                if file.exists():
-                    temp = int(file.read_text().strip()) / 1000
-                    if -20 <= temp <= 140:gpu["temp_c"] = round(temp, 1)
+                value = hwmon / "temp1_input"
+                if value.exists():
+                    temperature = int(value.read_text().strip()) / 1000
+                    if -20 <= temperature <= 140:
+                        sample["temp_c"] = round(temperature, 1)
                     break
-            for name, field in (("mem_info_vram_used","vram_used_bytes"),
-                                ("mem_info_vram_total","vram_total_bytes")):
-                file = device / name
-                if file.exists():gpu[field] = max(0,int(file.read_text().strip()))
+            for name, field in (("mem_info_vram_used", "vram_used_bytes"),
+                                ("mem_info_vram_total", "vram_total_bytes")):
+                value = device / name
+                if value.exists():
+                    sample[field] = max(0, int(value.read_text().strip()))
         except (OSError, ValueError):
             pass
-        devices.append(gpu)
-    if shutil.which("nvidia-smi"):
-        try:
-            result=subprocess.run([
-                "nvidia-smi", "--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total",
-                "--format=csv,noheader,nounits"
-            ],capture_output=True,text=True,timeout=3,check=True)
-            nvidia = [item for item in devices if item["vendor"]=="0x10de"]
-            for position,line in enumerate(result.stdout.splitlines()[:8]):
-                fields=[value.strip() for value in line.split(",")]
-                if len(fields)!=5:continue
-                if position<len(nvidia):
-                    gpu=nvidia[position]
-                else:
-                    gpu={"vendor":"0x10de","name":"NVIDIA GPU","usage_pct":None,
-                         "temp_c":None,"vram_used_bytes":None,"vram_total_bytes":None}
-                    devices.append(gpu)
-                gpu["name"]=fields[0][:80]
-                for key,raw in (("usage_pct",fields[1]),("temp_c",fields[2])):
-                    try:
-                        value=float(raw)
-                        if (0<=value<=100 if key=="usage_pct" else -20<=value<=140):
-                            gpu[key]=round(value,1)
-                    except ValueError:pass
-                for key,raw in (("vram_used_bytes",fields[3]),("vram_total_bytes",fields[4])):
-                    try:gpu[key]=max(0,int(float(raw)*1048576))
-                    except ValueError:pass
-        except (OSError,subprocess.SubprocessError):
-            pass
+        devices.append(sample)
+    nvidia = nvidia_smi_samples() or nvml_samples()
+    detected = [gpu for gpu in devices if gpu["vendor"] == "0x10de"]
+    for index, source in enumerate(nvidia):
+        if index < len(detected):
+            detected[index].update({field: value for field, value in source.items()
+                                    if value is not None and
+                                    (field != "name" or value != "NVIDIA GPU")})
+        else:
+            devices.append(source)
     return devices[:16]
 
 
