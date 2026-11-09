@@ -1,5 +1,47 @@
 # SirusSofts development recovery checkpoint
 
+## Current work: separate GentooNode app and Ubuntu Python work delegation (2026-11-08)
+
+User clarified that Python is primarily for **persistent node communication,
+job delegation and notifications**, NOT just maintaining an SSH tunnel.
+`sirussofts.com` is the web authentication/job relay; a separate worker
+executes approved jobs on Ubuntu. Gentoo must have its OWN application directory
+in the main SirusSofts repo.
+
+Implementation on `feature/cms-vhost-distributed-nodes`:
+- `gentoo-node/`: standalone Python client with hardware telemetry,
+  signed HTTPS heartbeat, `--delegate` and `--status`/`--wait`, OpenRC
+  service, private key installer, README and tests.
+- `ubuntu-worker/`: allowlisted Python worker, Hestia-compatible root
+  installer, restricted sirusweb systemd service, README/tests.
+- `CMS/app/work_broker.php` and `CMS/node-work.php`: HMAC-SHA256 signed,
+  timestamp/nonce/replay-checked, per-node private SQLite mailbox.
+  Idempotent requests; only health_snapshot/site_health jobs with no arguments.
+  PHP never executes user-submitted programs or commands.
+- `CMS/app/node_registry.php`, `CMS/app/operations.php`: signed CPU/GPU,
+  memory/disk, temperature, uptime telemetry and admin work status display.
+- `08-upgrade-cms-hestia.sh` can now add the new `node-work.php` entry
+  safely to the existing CMS; preserves consistent SQLite backup/rollback.
+- `sirus-source-browser.service` has corrected [Install] configuration
+  and reviewed `10-install-source-browser.sh --fix-autostart` path.
+- `CMS/app/core.php` version 0.5.0-alpha; CI includes PHP broker, Python
+  worker/Gentoo client, and previous Hestia security tests.
+
+**Operator's last verified state:** The previous `08 --apply` for v0.4 was
+DECLINED because shell commands were pasted into the `UPGRADE CMS`
+confirmation input. A subsequent `07 --live` passed for the existing site,
+NOT for v0.4. The separate source browser service was started successfully
+but had a static unit; the new fix addresses reboot persistence. Do not
+assume that v0.4 or v0.5 website files are live. User must pull a TESTED new
+commit, then type exactly `UPGRADE CMS` alone at the interactive prompt,
+then run routing audit. Next install Ubuntu worker, securely enroll a unique
+binary 32-byte key from Gentoo, then start the Gentoo OpenRC agent.
+
+The legacy `node/` agent and optional SSH supervisor are not the
+new dedicated app. Do not tell user to install the legacy node for this task.
+
+---
+
 ## Live rollout update — .com is PRIMARY (2026-11-08)
 
 Operator asked to use **sirussofts.com** now; defer `.org` completely.

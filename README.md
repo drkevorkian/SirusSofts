@@ -1,7 +1,19 @@
 # SirusSofts — Main website and CMS
 
-**Current VPS target: WIPED, CLEAN Ubuntu 24.04 LTS, no Plesk. This code is
-STAGED in GitHub only; nothing has been executed on the server.**
+**Live VPS:** Ubuntu 24.04 / HestiaCP hosts `sirussofts.com` as `sirusweb`.
+The main CMS, GitHub importer and private source-browser daemon have been
+installed and independently checked by the operator. The most recent v0.4 CMS
+upgrade was **declined at its interactive prompt**, so the user-management UI
+and newer node features are not yet deployed. Changes in this GitHub feature
+branch must still be reviewed, tested and installed separately.
+
+**New development architecture (v0.5.0-alpha, feature branch only):**
+[`gentoo-node/`](gentoo-node/README.md) is the standalone outbound Python
+Gentoo/OpenRC client; [`ubuntu-worker/`](ubuntu-worker/README.md) is the
+independent restricted background executor. `CMS/node-work.php` is an
+authenticated broker, never an executor. No SSH tunnel is required for normal
+telemetry or task delegation. The first allowed Ubuntu jobs are
+`health_snapshot` and `site_health`; no arbitrary commands are accepted.
 
 **Start here in PuTTY on Windows:** [Step-by-step SSH installation and public GitHub clone](deploy/ubuntu24/PUTTY-SSH-QUICKSTART.md).
 The detailed technical reference is [Clean Ubuntu 24.04 + HestiaCP deployment runbook](deploy/ubuntu24/README.md). Hestia owns Nginx,
