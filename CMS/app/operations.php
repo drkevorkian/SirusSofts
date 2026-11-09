@@ -21,7 +21,10 @@ function cms_operations_snapshot(): array
         'work_jobs' => [],
     ];
     $storageFile = getenv('SIRUS_STORAGE_REGISTRY_FILE');
-    $nodeFile = getenv('SIRUS_NODE_REGISTRY_FILE') ?: cms_private_directory().'/nodes/registry.sqlite3';
+    $nodeDir='';
+    try {$nodeDir=cms_private_directory().'/nodes';}
+    catch(Throwable $error){$nodeDir='';} // Unit tests and non-Hestia staging environments.
+    $nodeFile = getenv('SIRUS_NODE_REGISTRY_FILE') ?: ($nodeDir!==''?$nodeDir.'/registry.sqlite3':'');
     foreach (['storage' => $storageFile, 'nodes' => $nodeFile] as $name => $path) {
         if (!is_string($path) || $path === '') { continue; }
         if (!str_starts_with($path, '/') || str_contains($path, "\0") ||
@@ -49,7 +52,7 @@ function cms_operations_snapshot(): array
             $snapshot[$name . '_state'] = 'Registry could not be read';
         }
     }
-    $workFile=cms_private_directory().'/nodes/work.sqlite3';
+    $workFile=$nodeDir!==''?$nodeDir.'/work.sqlite3':'';
     if(is_file($workFile) && !is_link($workFile)){
         try{
             $broker=new SirusWorkBroker($workFile);
