@@ -86,6 +86,8 @@ UPGRADE CMS in its interactive prompt. This preserves CMS SQLite,
 themes, accounts, projects and cPoint. Run the established
 07-audit-cms-routing.sh --live afterward.
 
+For a first-run **bootstrap** error about an unknown ED25519 host key, see [SSH-HOST-KEY-RECOVERY.md](SSH-HOST-KEY-RECOVERY.md). The bootstrap login and the persistent tunnel have **separate** trust stores.
+
 ## Pin Ubuntu SSH host key and start the reverse tunnel
 
 On the Ubuntu root terminal, obtain the actual server fingerprint:
