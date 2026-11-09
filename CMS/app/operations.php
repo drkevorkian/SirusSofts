@@ -3,6 +3,7 @@ declare(strict_types=1);
 if (!defined('SIRUS_CMS_BOOTSTRAPPED')) { http_response_code(404); exit; }
 require_once __DIR__ . '/storage_registry.php';
 require_once __DIR__ . '/node_registry.php';
+require_once __DIR__ . '/work_broker.php';
 
 /**
  * Read-only CMS infrastructure overview. Registry paths are chosen by the
@@ -16,6 +17,8 @@ function cms_operations_snapshot(): array
         'storage' => [],
         'nodes_state' => 'Not configured',
         'nodes' => [],
+        'work_state' => 'Not configured',
+        'work_jobs' => [],
     ];
     $storageFile = getenv('SIRUS_STORAGE_REGISTRY_FILE');
     $nodeFile = getenv('SIRUS_NODE_REGISTRY_FILE') ?: cms_private_directory().'/nodes/registry.sqlite3';
@@ -44,6 +47,17 @@ function cms_operations_snapshot(): array
         } catch (Throwable $error) {
             error_log('Sirus infrastructure registry read failure: ' . get_class($error));
             $snapshot[$name . '_state'] = 'Registry could not be read';
+        }
+    }
+    $workFile=cms_private_directory().'/nodes/work.sqlite3';
+    if(is_file($workFile) && !is_link($workFile)){
+        try{
+            $broker=new SirusWorkBroker($workFile);
+            $snapshot['work_jobs']=$broker->recent(30);
+            $snapshot['work_state']='Available';
+        }catch(Throwable $error){
+            error_log('Sirus work queue admin read failed: '.get_class($error));
+            $snapshot['work_state']='Unavailable';
         }
     }
     return $snapshot;
@@ -155,6 +169,28 @@ function cms_operations_page(PDO $db): void
     </section>
     <?php endforeach;?>
         <div class="admin-panel">
+      <h2>Gentoo → Ubuntu delegated work</h2>
+      <p>Gentoo signs HTTPS requests; this website brokers job state while the
+      dedicated Python worker on Ubuntu executes only preapproved read-only
+      tasks. No website-originated shell commands are supported.</p>
+      <p>Private work queue: <strong><?=cms_esc($snapshot['work_state'])?></strong></p>
+      <div class="table-scroll"><table><thead><tr>
+        <th>Request ID</th><th>Node</th><th>Kind</th>
+        <th>Status</th><th>Attempts</th><th>Submitted (UTC)</th>
+      </tr></thead><tbody>
+        <?php foreach($snapshot['work_jobs'] as $job):?>
+        <tr><td><code><?=cms_esc($job['request_id'])?></code></td>
+            <td><?=cms_esc($job['node_id'])?></td>
+            <td><?=cms_esc($job['kind'])?></td>
+            <td><?=cms_esc($job['state'])?></td>
+            <td><?=(int)$job['attempts']?></td>
+            <td><?=cms_esc(gmdate('Y-m-d H:i:s',(int)$job['created_at']))?></td>
+        </tr>
+        <?php endforeach;?>
+      </tbody></table></div>
+      <?php if(!$snapshot['work_jobs']):?><p>No delegated work recorded yet.</p><?php endif;?>
+    </div>
+    <div class="admin-panel">
       <h2>Project database registry</h2>
       <p>Database credentials are never stored in this registry. Changing a
       backend or migrating data is not yet exposed through the website;
