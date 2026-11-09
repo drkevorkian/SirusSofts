@@ -174,15 +174,17 @@ function cms_admin_post(PDO $db,string $path): void {
     }
     if($action==='save_settings'){
         $limits=['site_name'=>80,'tagline'=>140,'hero_title'=>160,'hero_body'=>2000,
-                 'about'=>30000,'footer'=>200,'accent'=>10];
+                 'about'=>30000,'footer'=>200,'accent'=>10,'theme'=>20];
         $db->beginTransaction();
         try{
             $st=$db->prepare('INSERT INTO cms_settings(name,value) VALUES(?,?)
                 ON CONFLICT(name) DO UPDATE SET value=excluded.value');
             foreach($limits as $key=>$limit){
                 $value=cms_text($_POST[$key]??'',$limit,$key,$key==='site_name');
-                if($key==='accent'&&!in_array($value,['blue','cyan','violet'],true))
+                if($key==='accent'&&!array_key_exists($value,cms_accent_options()))
                     throw new InvalidArgumentException('Choose a supported accent color.');
+                if($key==='theme'&&!array_key_exists($value,cms_theme_options()))
+                    throw new InvalidArgumentException('Choose a supported website theme.');
                 $st->execute([$key,$value]);
             }
             cms_audit($db,'update-settings','site');
@@ -447,10 +449,31 @@ function cms_admin_run(PDO $db,string $path): never {
                 <?php endif;?>
               </label>
             <?php endforeach;?>
-            <label>Accent color<select name="accent">
-            <?php foreach(['blue'=>'Blizzard blue','cyan'=>'Cyan','violet'=>'Violet'] as $key=>$name):?>
-            <option value="<?=$key?>" <?=cms_setting($db,'accent')===$key?'selected':''?>><?=cms_esc($name)?></option>
-            <?php endforeach;?></select></label>
+            <fieldset class="theme-picker" aria-label="Website appearance">
+              <legend>Website theme</legend>
+              <p>Choose a full background and interface palette. Preview it immediately;
+                save your settings to publish the choice.</p>
+              <div class="theme-grid">
+                <?php foreach(cms_theme_options() as $key=>$name):?>
+                  <label class="theme-choice" data-theme-choice="<?=cms_esc($key)?>">
+                    <input type="radio" name="theme" value="<?=cms_esc($key)?>" data-preview-theme
+                      <?=cms_setting($db,'theme')===$key?'checked':''?> required>
+                    <span class="theme-chip" aria-hidden="true">
+                      <span class="theme-chip-panel"><span class="theme-chip-accent"></span></span>
+                    </span>
+                    <span class="theme-name"><?=cms_esc($name)?></span>
+                  </label>
+                <?php endforeach;?>
+              </div>
+            </fieldset>
+            <label>Accent color
+              <select name="accent" data-preview-accent>
+                <?php foreach(cms_accent_options() as $key=>$name):?>
+                  <option value="<?=cms_esc($key)?>" <?=cms_setting($db,'accent')===$key?'selected':''?>><?=cms_esc($name)?></option>
+                <?php endforeach;?>
+              </select>
+            </label>
+            <p class="muted small">Themes and accents are site-wide; the selection also applies to the public Projects directory and administrator dashboard.</p>
             <button class="btn primary" type="submit">Save site settings</button>
           </form>
         </div><?php
