@@ -70,7 +70,7 @@ SQL);
         if(!is_string($key) || strlen($key)!==32 ||
            !hash_equals(hash_hmac('sha256',$body,$key),$signature))
             throw new RuntimeException('Node authentication failed.');
-        $this->db->exec('BEGIN IMMEDIATE');
+        $this->db->beginTransaction();
         try {
             $this->db->prepare('DELETE FROM work_nonces WHERE seen_at < ?')->execute([$now-86400]);
             $st=$this->db->prepare('INSERT INTO work_nonces(node_id,nonce,seen_at) VALUES(?,?,?)');
