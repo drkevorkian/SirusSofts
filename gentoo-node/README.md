@@ -1,3 +1,10 @@
+## Persistent Gentoo web and keepalive (new)
+
+See [WEB-GATEWAY.md](WEB-GATEWAY.md) for the new authenticated Gentoo dashboard,
+24-hour hardware history, prior task results, resilient SSH reverse tunnel,
+Hestia deployment, and separate WorldCom Native app hosting. The new tunnel
+uses a separate SSH key and **does not change the existing node heartbeat key**.
+
 # SirusSofts Gentoo Node — the WORKER (Python + OpenRC)
 
 **Direction matters:** Ubuntu runs **sirussofts.com** and its CMS. Gentoo
