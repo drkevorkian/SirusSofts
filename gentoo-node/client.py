@@ -339,7 +339,7 @@ def watch(config: dict, key: bytes, request_id: str, interval=4,
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="/etc/sirus-node/config.json")
+    parser.add_argument("--config", default="/etc/sirus-gentoo-node/config.json")
     commands = parser.add_mutually_exclusive_group()
     commands.add_argument("--once", action="store_true")
     commands.add_argument("--probe", action="store_true", help="Hardware report without network")
