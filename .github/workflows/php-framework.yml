@@ -65,8 +65,10 @@ jobs:
           python3 -m unittest discover -s ubuntu-worker/tests -p 'test_*.py' -v
           python3 ubuntu-worker/worker.py --check
           bash gentoo-node/install-openrc.sh --check
+          bash gentoo-node/install-web-gateway.sh --check
+          bash deploy/ubuntu24/11-install-gentoo-gateway.sh --check
           bash ubuntu-worker/install.sh --check
-          bash -n gentoo-node/install-openrc.sh ubuntu-worker/install.sh
+          bash -n gentoo-node/install-openrc.sh gentoo-node/install-web-gateway.sh ubuntu-worker/install.sh
           php -l CMS/node-work.php
           php -l CMS/app/work_broker.php
           python3 deploy/ubuntu24/github-cms-import.py --check
