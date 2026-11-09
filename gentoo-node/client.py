@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SirusSofts outbound Gentoo/OpenRC heartbeat. No remote command executor."""
+"""Persistent Gentoo worker: heartbeat, claim Ubuntu CMS jobs, execute locally, report results."""
 from __future__ import annotations
 import argparse
 import subprocess
@@ -17,7 +17,7 @@ import time
 import urllib.parse
 import urllib.request
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 NODE_RE = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 
 
@@ -277,114 +277,170 @@ def send_once(config: dict, key: bytes) -> dict:
 
 
 REQUEST_ID = re.compile(r"^[0-9a-f]{32}$")
-JOB_KINDS = ("health_snapshot", "site_health")
-
+JOB_KINDS = ("health_snapshot", "compute_selftest")
+POLL_SECONDS = 4
 
 def signed_job_request(config: dict, key: bytes, operation: str,
-                       request_id: str, kind: str | None = None):
-    if not REQUEST_ID.fullmatch(request_id):
+                       request_id: str | None = None, *,
+                       lease_token: str | None = None, state: str | None = None,
+                       result: dict | None = None, error: str = ""):
+    if operation not in ("claim", "complete", "status"):
+        raise ValueError("Unknown Gentoo worker operation")
+    if operation != "claim" and (
+        not isinstance(request_id, str) or not REQUEST_ID.fullmatch(request_id)):
         raise ValueError("Job ID must be 32 lowercase hexadecimal characters")
-    if operation not in ("submit", "status"):
-        raise ValueError("Unknown work operation")
-    if operation == "submit" and kind not in JOB_KINDS:
-        raise ValueError("Unsupported job kind")
     message = {
         "node_id": config["node_id"], "sent_at": int(time.time()),
-        "nonce": secrets.token_hex(16), "op": operation, "request_id": request_id
+        "nonce": secrets.token_hex(16), "op": operation
     }
-    if operation == "submit":
-        message["kind"] = kind
-        message["payload"] = {}
-    raw = json.dumps(message, separators=(",", ":")).encode("utf8")
-    signature = hmac.new(key, raw, hashlib.sha256).hexdigest()
+    if operation != "claim":
+        message["request_id"] = request_id
+    if operation == "complete":
+        if not isinstance(lease_token, str) or not REQUEST_ID.fullmatch(lease_token):
+            raise ValueError("Missing secure job lease")
+        if state not in ("done", "failed") or not isinstance(result, dict):
+            raise ValueError("Invalid work result state")
+        if len(error.encode("utf8")) > 200 or (state == "done" and error):
+            raise ValueError("Invalid work error")
+        message.update({"lease_token": lease_token, "state": state,
+                        "result": result, "error": error})
+    encoded = json.dumps(message, separators=(",", ":"), allow_nan=False).encode("utf8")
+    if len(encoded) > 12000:
+        raise ValueError("Result message exceeds broker request limit")
+    signature = hmac.new(key, encoded, hashlib.sha256).hexdigest()
     return urllib.request.Request(
-        config["work_url"], data=raw, method="POST",
+        config["work_url"], data=encoded, method="POST",
         headers={"Content-Type": "application/json", "X-Sirus-Node-Signature": signature,
-                 "User-Agent": "SirusGentooNode/" + VERSION})
+                 "User-Agent": "SirusGentooWorker/" + VERSION})
 
 
 def work_request(config: dict, key: bytes, operation: str,
-                 request_id: str, kind: str | None = None) -> dict:
-    request = signed_job_request(config, key, operation, request_id, kind)
-    # urllib verifies system CA trust and the destination hostname.
+                 request_id: str | None = None, **kwargs) -> dict:
+    request = signed_job_request(config, key, operation, request_id, **kwargs)
     with urllib.request.urlopen(request, timeout=15) as response:
-        if response.status not in (200, 202):
-            raise RuntimeError("Work broker returned HTTP " + str(response.status))
+        if response.status != 200:
+            raise RuntimeError("Coordinator returned HTTP " + str(response.status))
         raw = response.read(16385)
         if len(raw) > 16384:
-            raise RuntimeError("Oversized work broker reply")
-    result = json.loads(raw)
-    if not isinstance(result, dict) or result.get("ok") is not True or (
-        result.get("request_id") != request_id):
-        raise RuntimeError("Invalid job status received")
-    return result
+            raise RuntimeError("Oversized coordinator response")
+    reply = json.loads(raw)
+    if not isinstance(reply, dict) or reply.get("ok") is not True:
+        raise RuntimeError("Coordinator rejected signed worker request")
+    if operation != "claim" and reply.get("request_id") != request_id:
+        raise RuntimeError("Coordinator returned incorrect task ID")
+    if operation == "claim" and reply.get("state") not in ("idle", "running"):
+        raise RuntimeError("Unexpected worker queue response")
+    return reply
 
 
-def watch(config: dict, key: bytes, request_id: str, interval=4,
-          timeout_seconds=120) -> int:
-    expires = time.monotonic() + timeout_seconds
-    last_state = None
-    while time.monotonic() <= expires:
-        state = work_request(config, key, "status", request_id)
-        if state.get("state") != last_state:
-            print(json.dumps(state, indent=2), flush=True)
-            last_state = state.get("state")
-        if state.get("state") in ("done", "failed"):
-            return 0 if state["state"] == "done" else 1
-        time.sleep(interval)
-    print("Job still pending; use --status " + request_id + " to check again.",
-          file=sys.stderr)
-    return 2
+def execute_job(kind: str) -> dict:
+    """Explicit fixed, bounded Gentoo work types. No arbitrary shell/code inputs."""
+    if kind == "health_snapshot":
+        return {
+            "node": "gentoo", "cpu_threads": max(1, os.cpu_count() or 1),
+            "ram_bytes": memory_bytes(), "metrics": performance()
+        }
+    if kind == "compute_selftest":
+        start = time.monotonic()
+        digest = b"SirusSofts-Gentoo-Compute-Selftest-v1"
+        for _ in range(50000):
+            digest = hashlib.sha256(digest).digest()
+        elapsed = round(max(0, (time.monotonic() - start) * 1000), 1)
+        return {"iterations": 50000, "sha256": digest.hex(),
+                "elapsed_ms": elapsed, "executor": "gentoo"}
+    raise ValueError("Unsupported Gentoo job type")
+
+
+def poll_once(config: dict, key: bytes) -> dict:
+    """Claim at most one job, execute on Gentoo, return result to Ubuntu CMS."""
+    task = work_request(config, key, "claim")
+    if task["state"] == "idle":
+        return task
+    request_id = task.get("request_id")
+    lease_token = task.get("lease_token")
+    kind = task.get("kind")
+    if not isinstance(request_id, str) or not REQUEST_ID.fullmatch(request_id):
+        raise RuntimeError("Coordinator returned invalid job ID")
+    if not isinstance(lease_token, str) or not REQUEST_ID.fullmatch(lease_token):
+        raise RuntimeError("Coordinator returned invalid lease")
+    if kind not in JOB_KINDS:
+        # Fail safely; do not attempt any code or unrecognized task.
+        result, state, error = {}, "failed", "Unsupported Gentoo task"
+    else:
+        try:
+            result, state, error = execute_job(kind), "done", ""
+        except Exception as problem:
+            print("Gentoo worker failed job " + request_id + ": " +
+                  type(problem).__name__, file=sys.stderr, flush=True)
+            result, state, error = {}, "failed", "Gentoo task failed"
+    # A lost completion response should NOT cause the task to be re-executed
+    # within this process. Retry only the same result/lease using fresh nonces.
+    for attempt in range(3):
+        try:
+            return work_request(config, key, "complete", request_id,
+                                lease_token=lease_token, state=state,
+                                result=result, error=error)
+        except (OSError, TimeoutError, RuntimeError) as problem:
+            if attempt == 2:
+                raise
+            time.sleep(2 * (attempt + 1))
+    raise RuntimeError("Unable to return Gentoo work result")
+
+
+def run_service(config: dict, key: bytes, *, once: bool = False) -> int:
+    """Persistent outbound heartbeat + 4-second queue polling with reconnect."""
+    backoff = 4
+    next_heartbeat = 0.0
+    while True:
+        now = time.monotonic()
+        try:
+            if now >= next_heartbeat:
+                heartbeat = send_once(config, key)
+                print("Gentoo heartbeat accepted:", heartbeat.get("node_id"), flush=True)
+                next_heartbeat = time.monotonic() + config["period_seconds"]
+            task = poll_once(config, key)
+            if task["state"] != "idle":
+                print("Gentoo job:", task.get("request_id"),
+                      task.get("state"), flush=True)
+            backoff = 4
+        except (OSError, TimeoutError, RuntimeError, ValueError) as problem:
+            print("Gentoo connection/job error: " + type(problem).__name__,
+                  file=sys.stderr, flush=True)
+            if once:
+                return 1
+            # Keep trying when the network drops; do not lose the HMAC key.
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 60)
+        if once:
+            return 0
+        time.sleep(POLL_SECONDS)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="/etc/sirus-gentoo-node/config.json")
     commands = parser.add_mutually_exclusive_group()
-    commands.add_argument("--once", action="store_true")
-    commands.add_argument("--probe", action="store_true", help="Hardware report without network")
-    commands.add_argument("--delegate", choices=JOB_KINDS, metavar="JOB_KIND",
-                          help="Delegate one fixed read-only job to Ubuntu")
+    commands.add_argument("--once", action="store_true",
+                          help="Send heartbeat and check one delegated Gentoo job")
+    commands.add_argument("--probe", action="store_true",
+                          help="Display Gentoo hardware without network")
     commands.add_argument("--status", metavar="REQUEST_ID",
-                          help="Check a submitted Ubuntu job")
-    parser.add_argument("--wait", action="store_true",
-                        help="Wait up to two minutes for a delegated job result")
+                          help="Check assigned Gentoo job ID")
     args = parser.parse_args(argv)
     if args.probe:
         print(json.dumps(telemetry("probe-node"), indent=2))
         return 0
-    config = validate_config(json.loads(Path(args.config).read_text(encoding="utf-8")))
+    config = validate_config(json.loads(Path(args.config).read_text(encoding="utf8")))
     key = load_key(config["key_file"])
-    if args.delegate is not None:
-        request_id = secrets.token_hex(16)
-        reply = work_request(config,key,"submit",request_id,args.delegate)
-        print(json.dumps(reply,indent=2))
-        return watch(config,key,request_id) if args.wait else 0
-    if args.status is not None:
-        if args.wait:return watch(config,key,args.status)
+    if args.status:
         print(json.dumps(work_request(config,key,"status",args.status),indent=2))
         return 0
-    if args.wait:
-        raise ValueError("--wait requires --delegate or --status")
-    delay = config["period_seconds"]
-    while True:
-        try:
-            result = send_once(config, key)
-            print("Heartbeat accepted:", result.get("node_id"), flush=True)
-            delay = config["period_seconds"]
-        except Exception as error:
-            print("Heartbeat error:", type(error).__name__, str(error), file=sys.stderr, flush=True)
-            if args.once:
-                return 1
-            delay = min(max(delay * 2, 30), 300)
-        if args.once:
-            return 0
-        time.sleep(delay)
+    return run_service(config,key,once=args.once)
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError,RuntimeError,ValueError,TimeoutError) as error:
-        print("FAIL Gentoo node: " + str(error),file=sys.stderr)
+    except (OSError,RuntimeError,ValueError,TimeoutError) as problem:
+        print("FAIL Gentoo node: " + str(problem),file=sys.stderr)
         raise SystemExit(1)
