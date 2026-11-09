@@ -7,7 +7,16 @@ mode="--check"; if [[ $# -gt 0 ]]; then mode="$1"; shift; fi
   fail 'Usage: ubuntu-worker/install.sh --check|--plan|--install'
 HERE="$(cd "$(dirname "$0")" && pwd)"
 python3 "$HERE/worker.py" --check
-if [[ "$mode" == --check ]]; then exit 0; fi
+if [[ "$mode" == --check ]]; then
+  echo 'PASS legacy Ubuntu worker is deprecated; Gentoo now executes queued work'
+  exit 0
+fi
+if [[ "$mode" == --plan ]]; then
+  echo 'DEPRECATED: Ubuntu is the CMS coordinator, not a compute worker.'
+  echo 'DO NOT install sirus-ubuntu-worker.service. Use gentoo-node/ on Gentoo.'
+  exit 0
+fi
+fail 'Ubuntu work executor was retired: all queued work must run on Gentoo'
 [[ "$(id -u)" == 0 ]] || fail 'Root required for service config'
 id sirusweb >/dev/null || fail 'Expected Hestia website user missing'
 WEB=/home/sirusweb/web/sirussofts.com

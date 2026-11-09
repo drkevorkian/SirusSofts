@@ -111,7 +111,7 @@ function cms_operations_page(PDO $db): void
       <p>Gentoo/OpenRC and future compute nodes send independently signed, outbound
       HTTPS heartbeats to the Ubuntu coordinator. Last-seen data is considered online
       only within three minutes; readings from disconnected nodes are historical.
-      This panel does not expose remote shell or execute workloads.</p>
+      Ubuntu only brokers work; approved task execution happens on Gentoo.</p>
       <p>Private node registry: <strong><?=cms_esc($snapshot['nodes_state'])?></strong></p>
       <?php if(!$snapshot['nodes']):?>
         <p class="empty-state">No Gentoo node has reported yet. Install the outbound
