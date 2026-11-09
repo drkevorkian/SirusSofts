@@ -62,7 +62,7 @@ SQL);
         if(!self::nodeId($nodeId)||!in_array($kind,['health_snapshot','compute_selftest'],true))
             throw new InvalidArgumentException('Unsupported node or Gentoo work type.');
         $now??=time();
-        $this->db->exec('BEGIN IMMEDIATE');
+        $this->db->beginTransaction();
         try{
             $st=$this->db->prepare("SELECT COUNT(*) FROM work_jobs WHERE node_id=?
                                    AND state IN ('queued','running')");
@@ -126,7 +126,7 @@ SQL);
                ($state==='done' && $error!==''))
                 throw new InvalidArgumentException('Invalid completion payload.');
         }
-        $this->db->exec('BEGIN IMMEDIATE');
+        $this->db->beginTransaction();
         try{
             $this->db->prepare('DELETE FROM work_nonces WHERE seen_at<?')->execute([$now-86400]);
             $this->db->prepare('INSERT INTO work_nonces(node_id,nonce,seen_at) VALUES(?,?,?)')
