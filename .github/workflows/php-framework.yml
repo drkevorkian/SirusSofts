@@ -98,5 +98,6 @@ jobs:
             sudo apt-get install -y --no-install-recommends nginx
           fi
           python3 -m unittest discover -s deploy/tests -p 'test_nginx_config.py' -v
+          python3 -m unittest discover -s deploy/tests -p 'test_gentoo_gateway_nginx.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_nginx_proxy_e2e.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_hestia_nginx_guard.py' -v

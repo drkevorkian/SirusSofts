@@ -44,6 +44,9 @@ class GentooNginxTemplates(unittest.TestCase):
                     }
                     for placeholder,value in substitutions.items():
                         raw=raw.replace(placeholder,value)
+                    raw=raw.replace(
+                        "error_log /var/log/nginx/domains/gentoo.sirussofts.com.error.log error;",
+                        f"error_log {root}/nginx-error.log error;")
                     self.assertNotIn("%proxy_",raw)
                     self.assertNotIn("%domain",raw)
                     if ssl:
