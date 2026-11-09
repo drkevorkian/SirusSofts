@@ -34,8 +34,8 @@ class GentooNginxTemplates(unittest.TestCase):
                         "%proxy_ssl_port%":"19443",
                         "%home%":str(root),
                         "%user%":"example",
-                        "%domain%":"gentoo.sirussofts.com",
-                        "%domain_idn%":"gentoo.sirussofts.com",
+                        "%domain%":"gentoo.sirussofts.com" if kind=="dashboard" else "worldcom.sirussofts.com",
+                        "%domain_idn%":"gentoo.sirussofts.com" if kind=="dashboard" else "worldcom.sirussofts.com",
                         "%alias_idn%":"",
                         "%web_system%":"nginx",
                         "%docroot%":str(root),
@@ -45,7 +45,7 @@ class GentooNginxTemplates(unittest.TestCase):
                     for placeholder,value in substitutions.items():
                         raw=raw.replace(placeholder,value)
                     raw=raw.replace(
-                        "error_log /var/log/nginx/domains/gentoo.sirussofts.com.error.log error;",
+                        "error_log /var/log/nginx/domains/"+substitutions["%domain%"]+".error.log error;",
                         f"error_log {root}/nginx-error.log error;")
                     self.assertNotIn("%proxy_",raw)
                     self.assertNotIn("%domain",raw)
@@ -59,7 +59,7 @@ class GentooNginxTemplates(unittest.TestCase):
                 "worker_processes 1;\n"
                 f"pid {root}/nginx.pid;\n"
                 "events {worker_connections 128;}\n"
-                "http {\n"+ "\n".join(cases)+"\n}\n")
+                f"http {{ access_log {root}/nginx-access.log;\n"+ "\n".join(cases)+"\n}\n")
             result=subprocess.run(["nginx","-t","-p",str(root),
                                    "-c",str(root/"nginx.conf")],
                                   capture_output=True,text=True,timeout=12)
