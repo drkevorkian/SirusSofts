@@ -351,3 +351,21 @@ html[data-theme="parchment"] .project-card:hover{
 .theme-choice[data-theme-choice="ghost"]{--sw-bg:#f6f8fc;--sw-panel:#ffffff;--sw-stroke:#b8cadd;--sw-accent:#3e88c8}
 .theme-choice[data-theme-choice="parchment"]{--sw-bg:#fcf8ef;--sw-panel:#fffdfa;--sw-stroke:#cfbda8;--sw-accent:#c77b44}
 
+
+
+/* On light palettes, use dark enough accents for text and interactive controls. */
+html:is([data-theme="ghost"],[data-theme="parchment"])[data-accent="blue"]{--accent:#1767a6;--accent-soft:rgba(23,103,166,.12)}
+html:is([data-theme="ghost"],[data-theme="parchment"])[data-accent="cyan"]{--accent:#08727d;--accent-soft:rgba(8,114,125,.12)}
+html:is([data-theme="ghost"],[data-theme="parchment"])[data-accent="violet"]{--accent:#6542ac;--accent-soft:rgba(101,66,172,.12)}
+html:is([data-theme="ghost"],[data-theme="parchment"])[data-accent="emerald"]{--accent:#176d51;--accent-soft:rgba(23,109,81,.12)}
+html:is([data-theme="ghost"],[data-theme="parchment"])[data-accent="amber"]{--accent:#90540d;--accent-soft:rgba(144,84,13,.12)}
+html:is([data-theme="ghost"],[data-theme="parchment"])[data-accent="rose"]{--accent:#9f315c;--accent-soft:rgba(159,49,92,.12)}
+html:is([data-theme="ghost"],[data-theme="parchment"])[data-accent="red"]{--accent:#af303d;--accent-soft:rgba(175,48,61,.12)}
+html:is([data-theme="ghost"],[data-theme="parchment"])[data-accent="silver"]{--accent:#42576a;--accent-soft:rgba(66,87,106,.12)}
+html:is([data-theme="ghost"],[data-theme="parchment"]) .content-panel,
+html:is([data-theme="ghost"],[data-theme="parchment"]) .project-card{color:var(--text)}
+html:is([data-theme="ghost"],[data-theme="parchment"]) .site-footer,
+html:is([data-theme="ghost"],[data-theme="parchment"]) .site-footer a{color:var(--muted)}
+html:is([data-theme="ghost"],[data-theme="parchment"]) .identity-copy small,
+html:is([data-theme="ghost"],[data-theme="parchment"]) .topnav a{color:var(--muted)}
+
