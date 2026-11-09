@@ -36,6 +36,7 @@ jobs:
         run: |
           php -d zend.assertions=1 -d assert.exception=1 CMS/tests/storage_registry_test.php
           php CMS/tests/smoke.php
+          php CMS/tests/theme_test.php
       - name: Storage, backup, and migration tests
         run: |
           php CMS/tests/storage_adapter_test.php

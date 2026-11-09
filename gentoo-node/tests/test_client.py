@@ -104,4 +104,41 @@ class DelegationTests(unittest.TestCase):
              patch.object(client,"execute_job",side_effect=AssertionError):
             self.assertEqual(client.poll_once(cfg,b"Z"*32)["state"],"idle")
 
+    def test_nvidia_nvml_fallback_populates_card_model_usage_temp_and_vram(self):
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            drm=Path(folder)
+            vendor=drm/"card0"/"device"/"vendor"
+            vendor.parent.mkdir(parents=True)
+            vendor.write_text("0x10de\n")
+            nvml=[{"vendor":"0x10de","name":"NVIDIA GeForce RTX",
+                   "usage_pct":8.0,"temp_c":41.0,
+                   "vram_used_bytes":1048576,"vram_total_bytes":8589934592}]
+            with patch.object(client,"nvidia_smi_samples",return_value=[]), \
+                 patch.object(client,"nvml_samples",return_value=nvml), \
+                 patch.object(client,"pci_model",return_value=None):
+                result=client.gpu_devices(drm)
+            self.assertEqual(len(result),1)
+            self.assertEqual(result[0]["name"],"NVIDIA GeForce RTX")
+            self.assertEqual(result[0]["usage_pct"],8.0)
+            self.assertEqual(result[0]["temp_c"],41.0)
+            self.assertEqual(result[0]["vram_total_bytes"],8589934592)
+
+    def test_nvidia_sysfs_detection_survives_missing_driver_tools(self):
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            drm=Path(folder)
+            vendor=drm/"card0"/"device"/"vendor"
+            vendor.parent.mkdir(parents=True)
+            vendor.write_text("0x10de\n")
+            with patch.object(client,"nvidia_smi_samples",return_value=[]), \
+                 patch.object(client,"nvml_samples",return_value=[]), \
+                 patch.object(client,"pci_model",return_value=None):
+                result=client.gpu_devices(drm)
+            self.assertEqual(result[0]["vendor"],"0x10de")
+            self.assertIsNone(result[0]["usage_pct"])
+            self.assertIsNone(result[0]["temp_c"])
+
 if __name__=="__main__":unittest.main()

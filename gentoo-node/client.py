@@ -299,10 +299,10 @@ def pci_model(device: Path) -> str | None:
     return None
 
 
-def gpu_devices() -> list[dict]:
+def gpu_devices(drm_root: Path = Path("/sys/class/drm")) -> list[dict]:
     """Read DRM/sysfs for Intel and AMD; pair NVIDIA with SMI or native NVML."""
     devices = []
-    for vendor_file in sorted(Path("/sys/class/drm").glob("card[0-9]*/device/vendor")):
+    for vendor_file in sorted(drm_root.glob("card[0-9]*/device/vendor")):
         try:
             vendor = vendor_file.read_text(encoding="ascii").strip().lower()
         except (OSError, UnicodeError):
