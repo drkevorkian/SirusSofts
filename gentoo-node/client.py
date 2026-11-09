@@ -501,8 +501,10 @@ def work_request(config: dict, key: bytes, operation: str,
     with urllib.request.urlopen(request, timeout=15) as response:
         if response.status != 200:
             raise RuntimeError("Coordinator returned HTTP " + str(response.status))
-        raw = response.read(16385)
-        if len(raw) > 16384:
+        # Task history may contain up to 40 bounded 8 KiB result payloads.
+        max_response = 524288 if operation == "history" else 16384
+        raw = response.read(max_response + 1)
+        if len(raw) > max_response:
             raise RuntimeError("Oversized coordinator response")
     reply = json.loads(raw)
     if not isinstance(reply, dict) or reply.get("ok") is not True:
