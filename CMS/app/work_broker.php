@@ -159,18 +159,26 @@ SQL);
                 $st->execute([$id,$requestId]);$row=$st->fetch();
                 if(!$row)throw new InvalidArgumentException('Assigned job not found.');
                 if($op==='complete'){
-                    if(!hash_equals((string)$row['lease_token'],$lease) ||
-                       (int)$row['claimed_at']+120 < $now ||
-                       $row['state']!=='running')
-                        throw new InvalidArgumentException('Stale, expired or incorrect lease.');
-                    $this->db->prepare("UPDATE work_jobs
-                      SET state=?,result_json=?,error=?,updated_at=?
-                      WHERE request_id=? AND node_id=? AND state='running'")
-                      ->execute([$state,json_encode($result,JSON_THROW_ON_ERROR),
-                                 $error,$now,$requestId,$id]);
-                    $row['state']=$state;
-                    $row['result_json']=json_encode($result,JSON_THROW_ON_ERROR);
-                    $row['error']=$error;
+                    $resultJson=json_encode($result,JSON_THROW_ON_ERROR);
+                    if(!hash_equals((string)$row['lease_token'],$lease))
+                        throw new InvalidArgumentException('Incorrect job lease.');
+                    if(in_array($row['state'],['done','failed'],true)){
+                        // Completion may have succeeded while the HTTPS reply was lost.
+                        // The identical lease and immutable result may be acknowledged again.
+                        if($row['state']!==$state ||
+                           $row['result_json']!==$resultJson || $row['error']!==$error)
+                            throw new InvalidArgumentException('Conflicting job completion.');
+                    }else{
+                        if((int)$row['claimed_at']+120 < $now || $row['state']!=='running')
+                            throw new InvalidArgumentException('Stale or expired job lease.');
+                        $this->db->prepare("UPDATE work_jobs
+                          SET state=?,result_json=?,error=?,updated_at=?
+                          WHERE request_id=? AND node_id=? AND state='running'")
+                          ->execute([$state,$resultJson,$error,$now,$requestId,$id]);
+                        $row['state']=$state;
+                        $row['result_json']=$resultJson;
+                        $row['error']=$error;
+                    }
                 }
             }
             $this->db->commit();
