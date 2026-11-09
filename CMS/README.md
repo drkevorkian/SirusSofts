@@ -369,3 +369,14 @@ the Hestia CMS updater preserves it. Existing installations default to
 the original Midnight Blue until an administrator selects another theme.
 All theme and accent IDs are strictly allowlisted; users cannot inject
 arbitrary stylesheet URLs or CSS rules.
+
+## Gentoo compute-web gateway (0.6.0-alpha)
+
+The Ubuntu CMS now supports authenticated, node-scoped read-only task history
+for the Gentoo dashboard. Ubuntu remains the authoritative job queue and
+public TLS frontend; the Gentoo web service executes separately behind two
+localhost-only outbound SSH reverse forwards. The new domain templates are
+installed with deploy/ubuntu24/11-install-gentoo-gateway.sh and deliberately
+cannot silently replace the original CMS or cPoint hosting. The operator
+must separately provision DNS and TLS before activating the subdomain.
+See [the Gentoo deployment guide](../gentoo-node/WEB-GATEWAY.md).

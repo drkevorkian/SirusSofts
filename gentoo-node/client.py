@@ -20,7 +20,7 @@ import time
 import urllib.parse
 import urllib.request
 
-VERSION = "0.4.2"
+VERSION = "0.5.0"
 NODE_RE = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 
 
@@ -465,16 +465,16 @@ def signed_job_request(config: dict, key: bytes, operation: str,
                        request_id: str | None = None, *,
                        lease_token: str | None = None, state: str | None = None,
                        result: dict | None = None, error: str = ""):
-    if operation not in ("claim", "complete", "status"):
+    if operation not in ("claim", "complete", "status", "history"):
         raise ValueError("Unknown Gentoo worker operation")
-    if operation != "claim" and (
+    if operation in ("complete", "status") and (
         not isinstance(request_id, str) or not REQUEST_ID.fullmatch(request_id)):
         raise ValueError("Job ID must be 32 lowercase hexadecimal characters")
     message = {
         "node_id": config["node_id"], "sent_at": int(time.time()),
         "nonce": secrets.token_hex(16), "op": operation
     }
-    if operation != "claim":
+    if operation in ("complete", "status"):
         message["request_id"] = request_id
     if operation == "complete":
         if not isinstance(lease_token, str) or not REQUEST_ID.fullmatch(lease_token):
@@ -501,16 +501,22 @@ def work_request(config: dict, key: bytes, operation: str,
     with urllib.request.urlopen(request, timeout=15) as response:
         if response.status != 200:
             raise RuntimeError("Coordinator returned HTTP " + str(response.status))
-        raw = response.read(16385)
-        if len(raw) > 16384:
+        # Task history may contain up to 40 bounded 8 KiB result payloads.
+        max_response = 524288 if operation == "history" else 16384
+        raw = response.read(max_response + 1)
+        if len(raw) > max_response:
             raise RuntimeError("Oversized coordinator response")
     reply = json.loads(raw)
     if not isinstance(reply, dict) or reply.get("ok") is not True:
         raise RuntimeError("Coordinator rejected signed worker request")
-    if operation != "claim" and reply.get("request_id") != request_id:
+    if operation in ("complete", "status") and reply.get("request_id") != request_id:
         raise RuntimeError("Coordinator returned incorrect task ID")
     if operation == "claim" and reply.get("state") not in ("idle", "running"):
         raise RuntimeError("Unexpected worker queue response")
+    if operation == "history" and (reply.get("node_id") != config["node_id"] or
+                                   not isinstance(reply.get("jobs"), list) or
+                                   len(reply["jobs"]) > 40):
+        raise RuntimeError("Unexpected signed work history response")
     return reply
 
 
