@@ -118,7 +118,7 @@ class DelegationTests(unittest.TestCase):
             with patch.object(client,"nvidia_smi_samples",return_value=[]), \
                  patch.object(client,"nvml_samples",return_value=nvml), \
                  patch.object(client,"pci_model",return_value=None):
-                result=client.gpu_devices(drm)
+                result=client.gpu_devices(drm, drm / 'empty-pci')
             self.assertEqual(len(result),1)
             self.assertEqual(result[0]["name"],"NVIDIA GeForce RTX")
             self.assertEqual(result[0]["usage_pct"],8.0)
@@ -136,9 +136,79 @@ class DelegationTests(unittest.TestCase):
             with patch.object(client,"nvidia_smi_samples",return_value=[]), \
                  patch.object(client,"nvml_samples",return_value=[]), \
                  patch.object(client,"pci_model",return_value=None):
-                result=client.gpu_devices(drm)
+                result=client.gpu_devices(drm, drm / 'empty-pci')
             self.assertEqual(result[0]["vendor"],"0x10de")
             self.assertIsNone(result[0]["usage_pct"])
             self.assertIsNone(result[0]["temp_c"])
+
+
+    def test_pci_inventory_detects_amd_without_drm_and_nvidia_with_drm(self):
+        """KDE can see both PCI GPUs even when the AMD DRM card is missing."""
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            pci = base / "sys-bus-pci"
+            drm = base / "drm"
+            amd = pci / "0000:08:00.0"
+            nvidia = pci / "0000:09:00.0"
+            audio = pci / "0000:08:00.1"
+            for location, vendor, klass, device_id in (
+                (amd, "0x1002", "0x030000", "0x67df"),
+                (nvidia, "0x10de", "0x030000", "0x2184"),
+                (audio, "0x1002", "0x040300", "0xaaf0"),
+            ):
+                location.mkdir(parents=True)
+                (location / "vendor").write_text(vendor + "\n")
+                (location / "class").write_text(klass + "\n")
+                (location / "device").write_text(device_id + "\n")
+            # NVIDIA is also listed through DRM, but must not be duplicated.
+            card = drm / "card0"
+            card.mkdir(parents=True)
+            (card / "device").symlink_to(nvidia, target_is_directory=True)
+            amd_hwmon = amd / "hwmon" / "hwmon0"
+            amd_hwmon.mkdir(parents=True)
+            (amd_hwmon / "temp1_input").write_text("41000\n")
+            (amd / "gpu_busy_percent").write_text("19\n")
+            nvidia_sample = [{"vendor":"0x10de", "name":"GeForce GTX 1660",
+                "usage_pct":None, "temp_c":None, "vram_used_bytes":None,
+                "vram_total_bytes":None}]
+            names = {"0000:08:00.0": "Ellesmere [Radeon RX 590 series]",
+                     "0000:09:00.0": "TU116 [GeForce GTX 1660]"}
+            with patch.object(client,"pci_model",
+                              side_effect=lambda device: names.get(device.name)), \
+                 patch.object(client,"nvidia_smi_samples",
+                              return_value=nvidia_sample):
+                result = client.gpu_devices(drm, pci)
+                vendors = client.gpu_vendors(drm, pci)
+            self.assertEqual(len(result), 2)
+            self.assertEqual(vendors, ["0x1002", "0x10de"])
+            self.assertEqual([item["vendor"] for item in result],
+                             ["0x1002", "0x10de"])
+            self.assertIn("Radeon RX 590", result[0]["name"])
+            self.assertEqual(result[0]["temp_c"], 41.0)
+            self.assertEqual(result[0]["usage_pct"], 19.0)
+            self.assertEqual(result[1]["name"], "GeForce GTX 1660")
+
+    def test_pci_only_gpu_no_driver_never_fabricates_performance(self):
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            pci = root / "pci"
+            card = pci / "0000:08:00.0"
+            card.mkdir(parents=True)
+            (card / "vendor").write_text("0x1002\n")
+            (card / "class").write_text("0x030000\n")
+            (card / "device").write_text("0x67df\n")
+            with patch.object(client,"pci_model",return_value=None), \
+                 patch.object(client,"nvidia_smi_samples",return_value=[]), \
+                 patch.object(client,"nvml_samples",return_value=[]):
+                result = client.gpu_devices(root / "no-drm", pci)
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0]["name"], "AMD GPU (0x67df)")
+            self.assertIsNone(result[0]["usage_pct"])
+            self.assertIsNone(result[0]["temp_c"])
+            self.assertIsNone(result[0]["vram_total_bytes"])
 
 if __name__=="__main__":unittest.main()
