@@ -36,6 +36,11 @@ try{
         must(false,'Conflicting completion must not be accepted');
     }catch(InvalidArgumentException $expected){}
     must(count($broker->recent())===1,'No duplicate job created on retries');
+    $history=$make('history');
+    must($history['node_id']==='gentoo-home','History is scoped to the authenticated Gentoo node');
+    must(count($history['jobs'])===1,'History returns the node job');
+    must($history['jobs'][0]['result']['executor']==='gentoo','History contains completed result');
+    must(!array_key_exists('lease_token',$history['jobs'][0]),'History never exposes lease secrets');
     try{
         $make('submit',['request_id'=>bin2hex(random_bytes(16)),
                         'kind'=>'site_health','payload'=>new stdClass()]);
@@ -44,6 +49,7 @@ try{
     try{$broker->enqueue('gentoo-home','shell',$now);must(false,'Cannot enqueue shell');}
     catch(InvalidArgumentException $expected){}
     $otherId=$broker->enqueue('gentoo-other','health_snapshot',$now);
+    must(count($make('history')['jobs'])===1,'History does not leak other node assignments');
     try{$make('status',['request_id'=>$otherId]);must(false,'Cross-node result leak');}
     catch(InvalidArgumentException $expected){}
     $second=$make('claim');
