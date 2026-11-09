@@ -61,7 +61,7 @@ def ssh_command(cfg:dict) -> list[str]:
        "-o","TCPKeepAlive=yes","-o","ConnectTimeout=10",
        "-o","ConnectionAttempts=1","-o","ForwardAgent=no",
        "-o","ForwardX11=no","-o","RequestTTY=no",
-       "-o","ControlMaster=no","-o","ClearAllForwardings=yes",
+       "-o","ControlMaster=no",
        "-i",cfg["identity"],"-p",str(cfg["ssh_port"]),
        "-l",cfg["user"],
        "-R","127.0.0.1:18480:127.0.0.1:18080",
