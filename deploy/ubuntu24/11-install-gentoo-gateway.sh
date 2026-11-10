@@ -90,7 +90,6 @@ Match User sirus-tunnel
     AllowAgentForwarding no
     AllowStreamLocalForwarding no
     PermitTTY no
-    PermitUserEnvironment no
     ForceCommand /bin/false
 SSH
 fi
