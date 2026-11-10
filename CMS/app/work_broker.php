@@ -59,7 +59,7 @@ SQL);
     }
     /** Called only after the authenticated CMS administrator authorizes work. */
     public function enqueue(string $nodeId,string $kind,?int $now=null): string {
-        if(!self::nodeId($nodeId)||!in_array($kind,['health_snapshot','compute_selftest'],true))
+        if(!self::nodeId($nodeId)||!in_array($kind,['health_snapshot','compute_selftest','package_update_check'],true))
             throw new InvalidArgumentException('Unsupported node or Gentoo work type.');
         $now??=time();
         $this->db->beginTransaction();
