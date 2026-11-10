@@ -38,6 +38,35 @@ class GatewayTests(unittest.TestCase):
         self.assertNotIn("<img onerror=alert(1)>",html)
         self.assertIn("Previous tasks",html)
 
+    def test_coordinator_failure_messages_are_safe_and_actionable(self):
+        from urllib.error import HTTPError, URLError
+        cases = {
+            401: "HMAC key",
+            404: "node-work.php",
+            405: "HTTPS",
+            503: "not configured",
+        }
+        for status, phrase in cases.items():
+            with self.subTest(status=status):
+                error = HTTPError("https://private.example/secret", status,
+                                  "failure", {}, None)
+                msg = dashboard.history_error_message(error)
+                self.assertIn(phrase, msg)
+                self.assertNotIn("private.example", msg)
+        self.assertIn("Could not reach", dashboard.history_error_message(
+            URLError("secret: server offline")))
+
+    def test_missing_driver_counters_are_explained_but_not_invented(self):
+        self.assertIn("NVIDIA telemetry", dashboard.gpu_telemetry_note({
+            "vendor":"0x10de", "usage_pct":None, "temp_c":None,
+            "vram_used_bytes":None, "vram_total_bytes":None}))
+        self.assertIn("DRM or hwmon", dashboard.gpu_telemetry_note({
+            "vendor":"0x1002", "usage_pct":None, "temp_c":None,
+            "vram_used_bytes":None, "vram_total_bytes":None}))
+        self.assertEqual("", dashboard.gpu_telemetry_note({
+            "vendor":"0x1002", "usage_pct":None, "temp_c":42.0,
+            "vram_used_bytes":None, "vram_total_bytes":None}))
+
     def test_bounded_cpu_samples_store_24h_history(self):
         with tempfile.TemporaryDirectory() as directory:
             db=str(Path(directory)/"samples.sqlite")

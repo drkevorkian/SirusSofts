@@ -12,6 +12,9 @@ import json
 import os
 from pathlib import Path
 import secrets
+import ssl
+import socket
+from urllib.error import HTTPError, URLError
 import sqlite3
 import threading
 import time
@@ -99,6 +102,45 @@ def date_utc(value):
         return "N/A"
 
 
+def history_error_message(error: Exception) -> str:
+    """Explain broker failures after authentication; never expose URLs or credentials."""
+    if isinstance(error, HTTPError):
+        if error.code == 401:
+            return ("Ubuntu rejected signed task history (HTTP 401). "
+                    "Check the node HMAC key/enrollment and CMS work broker.")
+        if error.code == 404:
+            return ("Ubuntu task-history endpoint is missing (HTTP 404). "
+                    "Check that the CMS node-work.php upgrade is deployed.")
+        if error.code == 405:
+            return ("Ubuntu rejected the task-history POST (HTTP 405). "
+                    "Check HTTPS and the CMS work endpoint routing.")
+        if error.code == 503:
+            return ("Ubuntu work broker is not configured (HTTP 503). "
+                    "Check its private nodes/keys directory and database permissions.")
+        return f"Ubuntu work broker returned HTTP {error.code}; check server logs."
+    if isinstance(error, (ssl.SSLError, ssl.CertificateError)):
+        return "Could not verify the Ubuntu HTTPS certificate; check trust and system clock."
+    if isinstance(error, (URLError, TimeoutError, socket.timeout, ConnectionError)):
+        return "Could not reach the Ubuntu HTTPS work broker; check DNS, TLS and routing."
+    if isinstance(error, (ValueError, KeyError, PermissionError)):
+        return "Task history could not be validated; check node configuration and HMAC key."
+    return "Coordinator history is temporarily unavailable; check Gentoo dashboard logs."
+
+
+def gpu_telemetry_note(gpu: dict) -> str:
+    """Display why an inventoried GPU may have no driver-backed readings."""
+    if any(gpu.get(k) is not None for k in
+           ("usage_pct", "temp_c", "vram_used_bytes", "vram_total_bytes")):
+        return ""
+    if gpu.get("vendor") == "0x10de":
+        return ("Detected by PCI; NVIDIA telemetry requires a loaded compatible "
+                "driver and readable NVML/nvidia-smi.")
+    if gpu.get("vendor") == "0x1002":
+        return ("Detected by PCI; AMD utilization/temperature require readable "
+                "DRM or hwmon driver interfaces.")
+    return "Detected by PCI, but performance counters are unavailable."
+
+
 def page(m: dict, hardware: dict, jobs: list, graph: str, sync: str) -> bytes:
     e=lambda value:escape(str(value),quote=True)
     gpu_rows=""
@@ -107,7 +149,9 @@ def page(m: dict, hardware: dict, jobs: list, graph: str, sync: str) -> bytes:
             continue
         pct="N/A" if gpu.get("usage_pct") is None else f'{gpu["usage_pct"]}%'
         temperature="N/A" if gpu.get("temp_c") is None else f'{gpu["temp_c"]} °C'
-        gpu_rows+=("<tr><td>"+e(gpu.get("name","GPU"))+"</td><td>"+e(pct)+
+        detail=gpu_telemetry_note(gpu)
+        label=e(gpu.get("name","GPU"))+(("<small>"+e(detail)+"</small>") if detail else "")
+        gpu_rows+=("<tr><td>"+label+"</td><td>"+e(pct)+
                    "</td><td>"+e(temperature)+"</td><td>"+
                    e(bytes_gib(gpu.get("vram_used_bytes")))+" / "+
                    e(bytes_gib(gpu.get("vram_total_bytes")))+"</td></tr>")
@@ -217,7 +261,9 @@ class Handler(BaseHTTPRequestHandler):
             jobs=client.work_request(config,key,"history").get("jobs",[])
             sync="Latest 40 signed, node-scoped jobs from Ubuntu."
         except Exception as error:
-            print("Task history temporarily unavailable:",type(error).__name__,flush=True)
+            sync=history_error_message(error)
+            print("Task history request failed:",type(error).__name__,
+                  getattr(error,"code",""),flush=True)
         self.send(200,page(m,hardware,jobs,chart(self.server.db),sync),
                   "text/html; charset=utf-8")
 

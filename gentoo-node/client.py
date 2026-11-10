@@ -341,13 +341,30 @@ def gpu_devices(drm_root: Path = Path("/sys/class/drm"),
                 value = float(busy.read_text().strip())
                 if 0 <= value <= 100:
                     sample["usage_pct"] = round(value, 1)
-            for hwmon in (device / "hwmon").glob("hwmon*"):
+            # Drivers may export hwmon either under the PCI device or
+            # through /sys/class/hwmon. Match the physical PCI device to
+            # avoid using a CPU/motherboard sensor as the GPU temperature.
+            sensors = list((device / "hwmon").glob("hwmon*"))
+            try:
+                physical = device.resolve(strict=True)
+                for sensor in Path("/sys/class/hwmon").glob("hwmon*"):
+                    sensor_device = sensor / "device"
+                    try:
+                        if sensor_device.resolve(strict=True) == physical:
+                            sensors.append(sensor)
+                    except OSError:
+                        continue
+            except OSError:
+                pass
+            for hwmon in sensors:
                 value = hwmon / "temp1_input"
-                if value.is_file():
+                try:
                     temperature = int(value.read_text().strip()) / 1000
                     if -20 <= temperature <= 140:
                         sample["temp_c"] = round(temperature, 1)
                         break
+                except (OSError, ValueError):
+                    continue
             for filename, field in (("mem_info_vram_used", "vram_used_bytes"),
                                     ("mem_info_vram_total", "vram_total_bytes")):
                 value = device / filename
