@@ -68,6 +68,13 @@ class WorkTests(unittest.TestCase):
         self.assertEqual(info["upgrade_count"],1)
         self.assertEqual(command.call_args.args[0][:2],["/usr/bin/apt-get","-s"])
 
+    def test_reviewed_worker_installer_is_available(self):
+        script=(FILE.parent/"install.sh").read_text()
+        self.assertIn("ENABLE UBUNTU UPDATE CHECKS",script)
+        self.assertIn("systemctl enable --now sirus-ubuntu-worker.service",script)
+        self.assertIn("Existing CMS node broker/keys not configured",script)
+        self.assertNotIn("Ubuntu work executor was retired",script)
+
     def test_no_redirect_to_other_hostname(self):
         self.assertIsNone(worker.NoRedirect().redirect_request(None,None,302,"redirect",{},"http://bad/"))
 

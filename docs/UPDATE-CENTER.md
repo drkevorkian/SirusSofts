@@ -36,9 +36,12 @@ Ubuntu:
 1. Review the Git diff against the installed source and run the guarded
    `deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com`
    before using its reviewed `--apply` pathway.
-2. Update the separately deployed `ubuntu-worker/worker.py` under its
-   restricted service account. Inspect the installed worker service and
-   retain a rollback copy. The site upgrade **does not** update this service.
+2. Run `bash ubuntu-worker/install.sh --check` and then
+   `bash ubuntu-worker/install.sh --plan`. With a verified private work broker,
+   use interactive `bash ubuntu-worker/install.sh --install` to install or
+   upgrade the restricted `sirus-ubuntu-worker` service. This makes a backup
+   of any existing worker executable. The CMS site upgrade **does not**
+   update this separate service.
 3. Check `node-work.php`, the private work DB and worker service are
    installed. No arbitrary shell commands should be accepted.
 
