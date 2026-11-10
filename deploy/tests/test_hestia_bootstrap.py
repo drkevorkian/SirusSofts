@@ -67,6 +67,17 @@ class UbuntuHestiaBootstrapTests(unittest.TestCase):
         guide = (UBUNTU / "PUTTY-SSH-QUICKSTART.md").read_text()
         self.assertIn("08-upgrade-cms-hestia.sh --apply", guide)
 
+    def test_gateway_sshd_match_uses_supported_restrictions(self):
+        script = (UBUNTU / "11-install-gentoo-gateway.sh").read_text()
+        block = script.split("Match User sirus-tunnel", 1)[1].split("\nSSH\n", 1)[0]
+        self.assertIn("AllowTcpForwarding remote", block)
+        self.assertIn("PermitListen 127.0.0.1:18480 127.0.0.1:18481", block)
+        self.assertIn("GatewayPorts no", block)
+        self.assertIn("PasswordAuthentication no", block)
+        self.assertNotIn("PermitUserEnvironment", block)
+        self.assertIn("/usr/sbin/sshd -t", script)
+        self.assertIn("trap restore EXIT", script)
+
     def test_installer_requires_interactive_hash_and_hestia_ownership(self):
         install = (UBUNTU / "02-install-hestia.sh").read_text()
         self.assertIn("sha256sum", install)
