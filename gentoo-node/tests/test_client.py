@@ -106,7 +106,7 @@ class DelegationTests(unittest.TestCase):
 
     def test_portage_update_check_never_installs(self):
         from types import SimpleNamespace
-        with patch.object(client.shutil,"which",return_value="/usr/bin/emerge"), \\
+        with patch.object(client.shutil,"which",return_value="/usr/bin/emerge") as which, \
              patch.object(client.subprocess,"run",return_value=SimpleNamespace(
                  returncode=0, stdout="[ebuild  U ] sys-apps/foo-2\\n", stderr="")) as run:
             data=client.execute_job("package_update_check")
