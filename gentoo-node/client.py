@@ -475,7 +475,7 @@ def send_once(config: dict, key: bytes) -> dict:
 
 
 REQUEST_ID = re.compile(r"^[0-9a-f]{32}$")
-JOB_KINDS = ("health_snapshot", "compute_selftest")
+JOB_KINDS = ("health_snapshot", "compute_selftest", "package_update_check")
 POLL_SECONDS = 4
 
 def signed_job_request(config: dict, key: bytes, operation: str,
@@ -537,6 +537,29 @@ def work_request(config: dict, key: bytes, operation: str,
     return reply
 
 
+def package_update_check() -> dict:
+    """Portage dry-run only. Does not sync overlays, modify world or install."""
+    binary = shutil.which("emerge")
+    if not binary:
+        return {"system": "gentoo", "available": False, "reason": "Portage emerge unavailable"}
+    try:
+        run = subprocess.run(
+            [binary, "--pretend", "--update", "--deep", "--newuse", "@world"],
+            capture_output=True, text=True, timeout=45, check=False,
+            env={**os.environ, "LC_ALL": "C"},
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {"system": "gentoo", "available": False, "reason": "Portage preview unavailable"}
+    if run.returncode:
+        return {"system": "gentoo", "available": False, "reason": "Portage preview failed",
+                "exit_code": run.returncode}
+    lines = [line.strip() for line in run.stdout.splitlines()
+             if line.lstrip().startswith("[ebuild")]
+    return {"system": "gentoo", "available": True, "upgrade_count": len(lines),
+            "package_preview": [line[:180] for line in lines[:25]],
+            "truncated": len(lines) > 25, "simulation_only": True}
+
+
 def execute_job(kind: str) -> dict:
     """Explicit fixed, bounded Gentoo work types. No arbitrary shell/code inputs."""
     if kind == "health_snapshot":
@@ -544,6 +567,8 @@ def execute_job(kind: str) -> dict:
             "node": "gentoo", "cpu_threads": max(1, os.cpu_count() or 1),
             "ram_bytes": memory_bytes(), "metrics": performance()
         }
+    if kind == "package_update_check":
+        return package_update_check()
     if kind == "compute_selftest":
         start = time.monotonic()
         digest = b"SirusSofts-Gentoo-Compute-Selftest-v1"
