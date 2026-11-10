@@ -279,3 +279,100 @@ function cms_operations_page(PDO $db): void
     <?php
     cms_admin_shell_end($db);
 }
+
+/**
+ * Update Center phase 1: signed, fixed-command, read-only package previews.
+ * The web process never runs apt/emerge and cannot install packages.
+ */
+function cms_updates_post(PDO $db, string $action): never {
+    cms_need_admin();
+    if($action!=='check_package_updates')
+        throw new InvalidArgumentException('Unsupported Update Center operation.');
+    $nodeId=(string)($_POST['node_id']??'');
+    if(!in_array($nodeId,['ubuntu-primary','gentoo-home'],true))
+        throw new InvalidArgumentException('Select an approved host.');
+    $dir=cms_private_directory().'/nodes';
+    if(!is_dir($dir) || !is_file($dir.'/work.sqlite3') ||
+       is_link($dir.'/work.sqlite3'))
+        throw new InvalidArgumentException('Private work broker is not configured.');
+    if($nodeId==='gentoo-home'){
+        $registryPath=$dir.'/registry.sqlite3';
+        if(!is_file($registryPath) || is_link($registryPath))
+            throw new InvalidArgumentException('Gentoo registry unavailable.');
+        $node=(new SirusNodeRegistry($registryPath))->getNode($nodeId);
+        if(!$node || $node['health']!=='online' || $node['os']!=='gentoo')
+            throw new InvalidArgumentException('Gentoo must have a fresh authenticated heartbeat.');
+    }
+    $broker=new SirusWorkBroker($dir.'/work.sqlite3');
+    $id=$broker->enqueue($nodeId,'package_update_check');
+    cms_audit($db,'preview-host-updates',$nodeId.':'.$id);
+    cms_flash('Read-only update check queued for '.$nodeId.'. No packages were changed.');
+    cms_go('/admin/updates');
+}
+
+function cms_updates_page(PDO $db): void {
+    cms_need_admin();
+    $snapshot=cms_operations_snapshot();
+    $gentooOnline=false;
+    foreach($snapshot['nodes'] as $node) {
+        if(($node['node_id']??'')==='gentoo-home' && ($node['os']??'')==='gentoo' &&
+           ($node['health']??'')==='online')$gentooOnline=true;
+    }
+    cms_admin_shell_start($db,'Update Center');
+    ?>
+    <div class="admin-panel">
+      <h2>Ubuntu and Gentoo updates</h2>
+      <p>Phase 1: read-only update previews. These jobs are queued through the
+      existing private broker. Ubuntu performs an APT simulation; Gentoo
+      performs an emerge pretend run. No package installations, syncs,
+      reboots or service restarts can be initiated here.</p>
+      <p>Work broker: <strong><?=cms_esc($snapshot['work_state'])?></strong></p>
+      <?php $flash=cms_take_flash();if($flash):?>
+        <p class="flash-message"><?=cms_esc($flash['message'])?></p>
+      <?php endif;?>
+      <?php foreach(['ubuntu-primary'=>'Ubuntu public gateway',
+                     'gentoo-home'=>'Gentoo compute node'] as $id=>$label):?>
+        <form method="post" action="/admin/updates">
+          <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+          <input type="hidden" name="action" value="check_package_updates">
+          <input type="hidden" name="node_id" value="<?=cms_esc($id)?>">
+          <p><strong><?=cms_esc($label)?></strong>
+            <?php if($id==='gentoo-home'&&!$gentooOnline):?>
+              <span class="muted">— no recent authenticated heartbeat</span>
+            <?php endif;?>
+          </p>
+          <button type="submit" class="btn primary"
+            <?=($snapshot['work_state']!=='Available' ||
+              ($id==='gentoo-home'&&!$gentooOnline))?'disabled':''?>>
+            Check available updates
+          </button>
+        </form>
+      <?php endforeach;?>
+    </div>
+    <div class="admin-panel">
+      <h2>Recent update checks</h2>
+      <div class="table-scroll"><table><thead><tr>
+        <th>Host</th><th>Status</th><th>Time (UTC)</th><th>Preview</th>
+      </tr></thead><tbody>
+        <?php foreach($snapshot['work_jobs'] as $job):
+          if(($job['kind']??'')!=='package_update_check')continue;?>
+          <tr><td><?=cms_esc($job['node_id'])?></td>
+            <td><?=cms_esc($job['state'])?></td>
+            <td><?=cms_esc(gmdate('Y-m-d H:i:s',(int)$job['updated_at']))?></td>
+            <td><details><summary>View result</summary>
+              <pre class="source-content"><code><?=cms_esc((string)$job['result_json'])?></code></pre>
+              <?php if($job['error']):?><p><?=cms_esc($job['error'])?></p><?php endif;?>
+            </details></td>
+          </tr>
+        <?php endforeach;?>
+      </tbody></table></div>
+    </div>
+    <div class="admin-panel">
+      <h2>Applying updates</h2>
+      <p>Not enabled yet. Installation will require a separate, restricted
+      privileged executor per host, rollback/backup checks, disk-space gates,
+      an explicit confirmation, and a post-update health check. Web PHP
+      must never receive unrestricted sudo or shell access.</p>
+    </div>
+    <?php cms_admin_shell_end($db);
+}
