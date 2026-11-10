@@ -66,6 +66,9 @@ function cms_admin_post(PDO $db,string $path): void {
     if(in_array($action,['vhost_preview','vhost_apply','vhost_rollback','vhost_settings'],true)&&$path==='/admin/hosting'){
         cms_vhost_post($db,$action);
     }
+    if($path==='/admin/updates' && $action==='check_package_updates'){
+        cms_updates_post($db,$action);
+    }
     if($path==='/admin/infrastructure' && $action==='enqueue_gentoo_job'){
         cms_operations_post($db,$action);
     }
@@ -219,6 +222,7 @@ function cms_admin_shell_start(PDO $db,string $title): void {
         <?php foreach([
            '/admin'=>'Overview','/admin/projects'=>'Projects','/admin/pages'=>'Content pages',
            '/admin/hosting'=>'Virtual hosts','/admin/infrastructure'=>'Infrastructure',
+           '/admin/updates'=>'Update Center',
            '/admin/github'=>'GitHub projects','/admin/users'=>'Users & source access',
            '/admin/source'=>'Source browser','/admin/settings'=>'Site settings','/admin/security'=>'Security',
            '/admin/activity'=>'Activity log'
@@ -342,6 +346,7 @@ function cms_admin_run(PDO $db,string $path): never {
     if($path==='/admin/users'){cms_users_page($db,$error);exit;}
     if($path==='/admin/hosting'){cms_vhost_page($db,$error);exit;}
     if($path==='/admin/infrastructure'){cms_operations_page($db);exit;}
+    if($path==='/admin/updates'){cms_updates_page($db);exit;}
     if($path==='/admin/github'){cms_github_projects_page($db);exit;}
     if($path==='/admin/projects/new'){cms_admin_project_editor($db,null);exit;}
     if(preg_match('#^/admin/projects/([1-9][0-9]*)$#D',$path,$mt)){
