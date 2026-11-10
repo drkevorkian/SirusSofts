@@ -104,6 +104,19 @@ class DelegationTests(unittest.TestCase):
              patch.object(client,"execute_job",side_effect=AssertionError):
             self.assertEqual(client.poll_once(cfg,b"Z"*32)["state"],"idle")
 
+    def test_portage_update_check_never_installs(self):
+        from types import SimpleNamespace
+        with patch.object(client.shutil,"which",return_value="/usr/bin/emerge") as which, \
+             patch.object(client.subprocess,"run",return_value=SimpleNamespace(
+                 returncode=0, stdout="[ebuild  U ] sys-apps/foo-2\\n", stderr="")) as run:
+            data=client.execute_job("package_update_check")
+        self.assertTrue(data["simulation_only"])
+        self.assertEqual(data["upgrade_count"],1)
+        command=run.call_args.args[0]
+        self.assertIn("--pretend",command)
+        self.assertNotIn("--ask",command)
+        self.assertNotIn("--sync",command)
+
     def test_nvidia_nvml_fallback_populates_card_model_usage_temp_and_vram(self):
         import tempfile
         from unittest.mock import patch

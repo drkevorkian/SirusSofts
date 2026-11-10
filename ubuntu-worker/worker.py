@@ -4,6 +4,7 @@ import argparse
 import datetime
 import json
 import os
+import subprocess
 from pathlib import Path
 import signal
 import sqlite3
@@ -55,11 +56,34 @@ def site_health():
         return {"target": "sirussofts.com", "reachable": False, "http_status": 0}
     return {"target": "sirussofts.com", "reachable": code == 200, "http_status": code}
 
+def package_update_check():
+    """Read-only APT simulation, no locks or installation triggered."""
+    try:
+        run = subprocess.run(
+            ["/usr/bin/apt-get", "-s", "upgrade"],
+            capture_output=True, text=True, timeout=35, check=False,
+            env={"PATH":"/usr/bin:/bin", "LC_ALL":"C", "DEBIAN_FRONTEND":"noninteractive"},
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {"system":"ubuntu", "available":False, "reason":"APT simulation unavailable"}
+    if run.returncode:
+        return {"system":"ubuntu", "available":False, "reason":"APT simulation failed",
+                "exit_code":run.returncode}
+    lines = run.stdout.splitlines()
+    installs = [line for line in lines if line.startswith("Inst ")]
+    kept = [line for line in lines if line.startswith("Conf ")]
+    return {"system":"ubuntu", "available":True, "upgrade_count":len(installs),
+            "package_preview":[line[5:180] for line in installs[:25]],
+            "truncated":len(installs)>25, "simulation_only":True}
+
+
 def execute(kind):
     if kind == "health_snapshot":
         return health_snapshot()
     if kind == "site_health":
         return site_health()
+    if kind == "package_update_check":
+        return package_update_check()
     raise ValueError("Unsupported work type")
 
 def ensure_schema(db):
@@ -86,14 +110,14 @@ def claim(db, now):
     db.execute("BEGIN IMMEDIATE")
     try:
         db.execute("""UPDATE work_jobs SET state='queued',updated_at=?
-                      WHERE state='running' AND claimed_at<? AND attempts<3""",
+                      WHERE node_id='ubuntu-primary' AND state='running' AND claimed_at<? AND attempts<3""",
                    (now, now-90))
         db.execute("""UPDATE work_jobs SET state='failed',
                        error='Worker timed out repeatedly',updated_at=?
-                      WHERE state='running' AND claimed_at<? AND attempts>=3""",
+                      WHERE node_id='ubuntu-primary' AND state='running' AND claimed_at<? AND attempts>=3""",
                    (now, now-90))
         item = db.execute("""SELECT request_id,node_id,kind FROM work_jobs
-                             WHERE state='queued' ORDER BY created_at,request_id LIMIT 1""").fetchone()
+                             WHERE node_id='ubuntu-primary' AND state='queued' ORDER BY created_at,request_id LIMIT 1""").fetchone()
         if not item:
             db.commit()
             return None
