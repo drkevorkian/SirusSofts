@@ -271,6 +271,15 @@ assigns jobs and stores the authoritative task history.
 <div class="card"><small>Uptime</small><strong id="live-uptime">{int(m.get("uptime_seconds",0))//3600}h</strong></div>
 </div>
 <section><h2>CPU utilization · last 24 hours</h2><div id="live-cpu-chart">{graph}</div></section>
+<section><h2>Running Gentoo services</h2>
+<p class="muted">Live OpenRC inventory from Gentoo, not a remote-command interface.</p>
+<div id="live-services">{e(", ".join(m.get("services",[])[:48]) or "Collecting service inventory")}</div>
+<h2>Locally hosted application health</h2>
+<div id="live-apps">{e(", ".join(
+    str(item.get("name","app")) + ": " +
+    ("healthy" if item.get("healthy") else "unavailable")
+    for item in m.get("applications",[])[:8] if isinstance(item,dict)
+) or "Collecting application status")}</div></section>
 <section><h2>Graphics hardware</h2><div class="wrap"><table>
 <thead><tr><th>GPU</th><th>Usage</th><th>Temperature</th><th>VRAM</th></tr></thead>
 <tbody id="live-gpu-rows">{gpu_rows or '<tr><td colspan="4">No GPUs found</td></tr>'}</tbody>
