@@ -172,19 +172,33 @@ async def serve(reader, writer, *, root=ROOT, key=KEY):
         await send_frame(writer, json.dumps({"type": "ready", "version": 1}))
         previous = None
         deadline = time.monotonic() + 600
-        while time.monotonic() < deadline:
-            try:
-                state = snapshot(root)
-                serialized = json.dumps({"type": "snapshot", **state}, separators=(",", ":"))
-                if serialized != previous:
-                    await asyncio.wait_for(send_frame(writer, serialized), 5)
-                    previous = serialized
-            except (OSError, sqlite3.Error):
-                # Don't publish a partial or stale snapshot on DB outages.
-                await asyncio.wait_for(send_frame(writer,
-                    '{"type":"degraded","reason":"Event database unavailable"}'), 5)
-            await asyncio.sleep(2)
-        await send_frame(writer, b"", opcode=8)
+        frame_task = asyncio.create_task(recv_frame(reader))
+        try:
+            while time.monotonic() < deadline:
+                try:
+                    state = snapshot(root)
+                    serialized = json.dumps({"type": "snapshot", **state}, separators=(",", ":"))
+                    if serialized != previous:
+                        await asyncio.wait_for(send_frame(writer, serialized), 5)
+                        previous = serialized
+                except (OSError, sqlite3.Error):
+                    # Don't publish a partial or stale snapshot on DB outages.
+                    await asyncio.wait_for(send_frame(writer,
+                        '{"type":"degraded","reason":"Event database unavailable"}'), 5)
+                done, _ = await asyncio.wait({frame_task}, timeout=2)
+                if frame_task in done:
+                    opcode, message = frame_task.result()
+                    if opcode == 8:
+                        break
+                    if opcode == 9:
+                        await send_frame(writer, message, opcode=10)
+                    elif opcode != 10:
+                        # Post-auth client messages are never commands.
+                        break
+                    frame_task = asyncio.create_task(recv_frame(reader))
+            await send_frame(writer, b"", opcode=8)
+        finally:
+            frame_task.cancel()
     except (asyncio.IncompleteReadError, ConnectionError, BrokenPipeError,
             asyncio.TimeoutError, ValueError, OSError):
         pass
