@@ -310,7 +310,9 @@ class Handler(BaseHTTPRequestHandler):
         uri=urlsplit(self.path).path
         if uri=="/healthz":
             return self.send(200,b"OK\n","text/plain; charset=utf-8")
-        if uri not in ("/","/dashboard"):
+        if uri=="/live":
+            return dashboard_live.stream(self)
+        if uri not in ("/","/dashboard","/live-token","/dashboard_live.js"):
             return self.send(404,b"Not found","text/plain; charset=utf-8")
         auth=self.headers.get("Authorization","")
         try:
@@ -322,20 +324,26 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Invalid")
         except (ValueError,UnicodeError):
             return self.send(401,b"Authentication required","text/plain; charset=utf-8",True)
-        config=self.server.config
-        m=client.performance()
-        hardware={"node_id":config["node_id"],"ram_bytes":client.memory_bytes(),
-                  "cpu_threads":max(1,os.cpu_count() or 1)}
-        jobs,sync=[],"Coordinator history is temporarily unavailable."
-        try:
-            key=client.load_key(config["key_file"])
-            jobs=client.work_request(config,key,"history").get("jobs",[])
-            sync="Latest 40 signed, node-scoped jobs from Ubuntu."
-        except Exception as error:
-            sync=history_error_message(error)
-            print("Task history request failed:",type(error).__name__,
-                  getattr(error,"code",""),flush=True)
-        self.send(200,page(m,hardware,jobs,chart(self.server.db),sync),
+        if uri=="/live-token":
+            if self.headers.get("Host","").lower() not in dashboard_live.ALLOWED_HOSTS:
+                return self.send(403,b"Invalid dashboard host","text/plain; charset=utf-8")
+            data=json.dumps({"token":dashboard_live.new_token(self.server.secret)},
+                            separators=(",",":")).encode()
+            return self.send(200,data,"application/json; charset=utf-8")
+        if uri=="/dashboard_live.js":
+            path=Path(__file__).with_name("dashboard_live.js")
+            if path.is_symlink() or not path.is_file() or path.stat().st_size>65536:
+                return self.send(503,b"Dashboard client asset unavailable",
+                                 "text/plain; charset=utf-8")
+            return self.send(200,path.read_bytes(),"text/javascript; charset=utf-8")
+        snapshot=self.server.live_state.wait(-1,0)[1]
+        m=snapshot.get("metrics",{})
+        hardware=snapshot.get("hardware") or {
+            "node_id":self.server.config["node_id"],
+            "ram_bytes":client.memory_bytes(),
+            "cpu_threads":max(1,os.cpu_count() or 1)}
+        self.send(200,page(m,hardware,snapshot.get("jobs",[]),
+                           chart(self.server.db),snapshot.get("sync","Collecting live data.")),
                   "text/html; charset=utf-8")
 
 
@@ -363,7 +371,10 @@ def main(argv=None):
     threading.Thread(target=sample_loop,args=(str(db_path),stop),daemon=True).start()
     server=ThreadingHTTPServer((HOST,PORT),Handler)
     server.config,server.secret,server.db=config,secret,str(db_path)
-    print("Gentoo dashboard started on loopback-only port",PORT,flush=True)
+    server.live_state=dashboard_live.LiveState()
+    server.live_slots=threading.BoundedSemaphore(dashboard_live.MAX_CONNECTIONS)
+    threading.Thread(target=live_loop,args=(server,stop),daemon=True).start()
+    print("Gentoo dashboard WebSocket listening on loopback-only port",PORT,flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
