@@ -68,18 +68,18 @@ class LiveDashboardTests(unittest.TestCase):
         t.start()
         try:
             port=server.server_port
-            http=http.client.HTTPConnection("127.0.0.1",port,timeout=5)
-            http.request("GET","/live-token",headers={"Host":"sirussofts.com"})
-            denied=http.getresponse()
+            connection=http.client.HTTPConnection("127.0.0.1",port,timeout=5)
+            connection.request("GET","/live-token",headers={"Host":"sirussofts.com"})
+            denied=connection.getresponse()
             self.assertEqual(denied.status,401)
             denied.read()
             auth=base64.b64encode(b"admin:example-test-password").decode()
-            http.request("GET","/live-token",headers={
+            connection.request("GET","/live-token",headers={
                 "Host":"sirussofts.com","Authorization":"Basic "+auth})
-            response=http.getresponse()
+            response=connection.getresponse()
             self.assertEqual(response.status,200)
             token=json.loads(response.read())["token"]
-            http.close()
+            connection.close()
             with socket.create_connection(("127.0.0.1",port),timeout=5) as conn:
                 conn.settimeout(5)
                 key=base64.b64encode(os.urandom(16)).decode()
