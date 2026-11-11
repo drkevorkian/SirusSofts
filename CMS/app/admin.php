@@ -93,7 +93,7 @@ function cms_admin_post(PDO $db,string $path): void {
     if($path==='/admin/live-token' && $action==='live_token'){
         cms_live_token($db);
     }
-    if($path==='/admin/updates' && $action==='check_package_updates'){
+    if($path==='/admin/updates' && in_array($action,['check_package_updates','check_source_updates'],true)){
         cms_updates_post($db,$action);
     }
     if($path==='/admin/infrastructure' && $action==='enqueue_gentoo_job'){
