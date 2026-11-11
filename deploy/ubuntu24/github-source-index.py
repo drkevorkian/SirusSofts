@@ -55,25 +55,56 @@ def api_json(path, token):
 
 
 def refresh(token, reader=api_json, *, now=None):
+    """Index up to three pinned release candidates without installing code.
+
+    Older commits lacking required framework components are excluded rather
+    than publishing an incomplete installable manifest.
+    """
     now = int(time.time()) if now is None else int(now)
-    # Resolve SHA first, then request each file pinned to that immutable SHA.
     commit = reader("/commits/" + quote(BRANCH, safe=""), token)
-    sha = commit.get("sha") if isinstance(commit, dict) else None
-    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+    head = commit.get("sha") if isinstance(commit, dict) else None
+    if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{40}", head):
         raise RuntimeError("GitHub branch did not return a valid commit")
-    entries = []
-    for platform, paths in SOURCES.items():
-        for path in paths:
-            result = reader("/contents/" + quote(path, safe="/") + "?ref=" + sha, token)
-            if not isinstance(result, dict) or result.get("type") != "file" or result.get("encoding") != "base64":
-                raise RuntimeError("Missing or unsupported source artifact")
-            raw = base64.b64decode(result["content"], validate=False)
-            if len(raw) > 2_000_000:
-                raise RuntimeError("Source file exceeds fixed limit")
-            entries.append({"platform": platform, "path": path,
-                            "sha256": hashlib.sha256(raw).hexdigest()})
+    raw_recent = reader("/commits?sha=" + quote(BRANCH, safe="") + "&per_page=3", token)
+    recent = raw_recent if isinstance(raw_recent, list) else []
+    revisions = [(head, "Approved branch HEAD")]
+    for item in recent[:3]:
+        sha = item.get("sha") if isinstance(item, dict) else None
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+            continue
+        if any(previous == sha for previous, _ in revisions):
+            continue
+        message = item.get("commit", {}).get("message", "") if isinstance(item.get("commit"), dict) else ""
+        message = message.splitlines()[0][:160] if isinstance(message, str) and message.strip() else "Previous revision"
+        revisions.append((sha, message))
+        if len(revisions) >= 3:
+            break
+    candidates = []
+    for sha, message in revisions:
+        entries = []
+        try:
+            for platform, paths in SOURCES.items():
+                for path in paths:
+                    result = reader("/contents/" + quote(path, safe="/") + "?ref=" + sha, token)
+                    if (not isinstance(result, dict) or result.get("type") != "file"
+                            or result.get("encoding") != "base64"):
+                        raise RuntimeError("Missing or unsupported source artifact")
+                    raw = base64.b64decode(result["content"], validate=False)
+                    if len(raw) > 2_000_000:
+                        raise RuntimeError("Source file exceeds fixed limit")
+                    entries.append({"platform": platform, "path": path,
+                                    "sha256": hashlib.sha256(raw).hexdigest()})
+        except (RuntimeError, ValueError, KeyError, TypeError):
+            if sha == head:
+                raise
+            # Older framework revisions may not contain the live socket yet.
+            continue
+        candidates.append({"commit": sha, "message": message, "files": entries})
+    if not candidates or candidates[0]["commit"] != head:
+        raise RuntimeError("Approved branch HEAD could not be indexed")
     return {"repository": REPO, "branch": BRANCH,
-            "commit": sha, "checked_at": now, "files": entries}
+            "commit": head, "checked_at": now, "files": candidates[0]["files"],
+            "candidates": candidates}
 
 
 def write_index(index, path=TARGET):
