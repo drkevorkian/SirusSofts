@@ -134,6 +134,20 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(result["state"],"rolled_back")
         self.assertEqual(self.src.read_bytes(),self.previous)
 
+    def test_interrupted_release_can_be_restored_without_original_staging(self):
+        rel=self.load()
+        service.apply(rel,backup_root=self.backups,run=FakeCommand())
+        journal=self.backups/self.ident/"journal.json"
+        data=json.loads(journal.read_text())
+        data["state"]="installed_unverified"
+        journal.write_text(json.dumps(data))
+        for item in self.stage.iterdir(): item.unlink()
+        recovered=service.release_from_backup("gentoo-home",self.ident,
+                                               backup_root=self.backups)
+        result=service.rollback(recovered,backup_root=self.backups,run=FakeCommand())
+        self.assertEqual(result["state"],"rolled_back")
+        self.assertEqual(self.src.read_bytes(),self.previous)
+
     def test_failed_restart_automatically_rolls_back(self):
         rel=self.load()
         commands=FakeCommand(bad_at=2)
