@@ -261,6 +261,7 @@ function cms_admin_shell_start(PDO $db,string $title): void {
         </form>
       </aside><div class="admin-work">
         <div data-live-status role="status" aria-live="polite" class="muted small">Live updates: connecting</div>
+        <div data-live-notifications role="status" aria-live="polite"></div>
         <input type="hidden" data-live-csrf value="<?=cms_esc(cms_csrf())?>">
 
 <?php
