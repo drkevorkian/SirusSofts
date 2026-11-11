@@ -53,6 +53,11 @@ function cms_release_schema(PDO $db): void {
     )");
     $db->exec('CREATE INDEX IF NOT EXISTS cms_source_deploy_pending
                ON cms_source_deploy_requests(host,state,created_at)');
+    $db->exec("CREATE TABLE IF NOT EXISTS cms_source_controller_health (
+        host TEXT PRIMARY KEY CHECK(host='ubuntu-primary'),
+        last_seen INTEGER NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('ready','stopped'))
+    )");
 }
 
 function cms_release_index(?int $now=null): array {
@@ -264,6 +269,12 @@ function cms_release_request_deployment(PDO $db,string $action,string $id,
         if(!is_string($current) || !hash_equals($plan['baseline_sha256'],$current))
             throw new InvalidArgumentException('Installed component has changed since approval.');
     }
+    $heartbeat=$db->prepare("SELECT last_seen FROM cms_source_controller_health
+                               WHERE host='ubuntu-primary' AND state='ready'");
+    $heartbeat->execute();
+    $lastSeen=$heartbeat->fetchColumn();
+    if($lastSeen===false || $now-(int)$lastSeen>30 || $now<(int)$lastSeen-10)
+        throw new InvalidArgumentException('Ubuntu deployment controller is offline; request not queued.');
     $db->beginTransaction();
     try{
         $blocked=$db->prepare("SELECT COUNT(*) FROM cms_source_deploy_requests
