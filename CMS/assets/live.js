@@ -68,7 +68,7 @@
       field.value = value;
       form.appendChild(field);
     }
-    if (action === "approve_source_release") {
+    if (["approve_source_release","request_source_deploy","request_source_rollback"].includes(action)) {
       const pass = element("input");
       pass.type = "password";
       pass.name = "password";
@@ -79,12 +79,16 @@
       const confirm = element("input");
       confirm.type = "text";
       confirm.name = "confirm";
-      confirm.placeholder = "APPROVE " + String(plan.commit_sha).slice(0, 12);
+      const verb = action === "approve_source_release" ? "APPROVE " :
+        action === "request_source_deploy" ? "DEPLOY " : "ROLLBACK ";
+      confirm.placeholder = verb + String(plan.commit_sha).slice(0, 12);
       confirm.required = true;
       form.appendChild(confirm);
     }
     const button = element("button",
-      action === "approve_source_release" ? "Approve revision" : "Cancel plan");
+      action === "approve_source_release" ? "Approve revision" :
+      action === "request_source_deploy" ? "Install approved source" :
+      action === "request_source_rollback" ? "Roll back source" : "Cancel plan");
     button.type = "submit";
     button.className = "btn subtle";
     form.appendChild(button);
@@ -95,7 +99,8 @@
     const mount = document.querySelector("[data-live-release-plans]");
     if (!mount) { lastPlansSignature = null; return; }
     const plans = Array.isArray(snapshot.release_plans) ? snapshot.release_plans : [];
-    const signature = JSON.stringify(plans);
+    const requests = Array.isArray(snapshot.deployment_requests) ? snapshot.deployment_requests : [];
+    const signature = JSON.stringify([plans,requests]);
     if (signature === lastPlansSignature && mount.querySelector("table")) return;
     lastPlansSignature = signature;
     const csrf = document.querySelector("[data-live-csrf]")?.value || "";
@@ -117,8 +122,34 @@
         actions.appendChild(releaseForm(plan, "approve_source_release", csrf));
       if (plan.state === "planned" || plan.state === "approved")
         actions.appendChild(releaseForm(plan, "cancel_source_release", csrf));
-      if (plan.state === "approved")
-        actions.prepend(element("p", "Approved; not installed"));
+      if (plan.state === "approved") {
+        const history = requests.filter(req => req.plan_id === plan.id);
+        const active = history.find(req => req.state === "queued" || req.state === "running");
+        const applied = history.some(req => req.action === "apply" && req.state === "done");
+        const rolledBack = history.some(req => req.action === "rollback" && req.state === "done");
+        const recent = history[0];
+        if (active) {
+          actions.prepend(element("p", String(active.action) + ": " + String(active.state)));
+        } else if (recent?.state === "interrupted") {
+          actions.prepend(element("p", "Interrupted: manual recovery required"));
+        } else if (recent?.state === "failed") {
+          actions.prepend(element("p", "Failed: " + String(recent.error || "inspect release log")));
+        } else if (applied && !rolledBack) {
+          actions.prepend(element("p", "Installed and verified"));
+        } else if (rolledBack) {
+          actions.prepend(element("p", "Rolled back to previous release"));
+        } else {
+          actions.prepend(element("p", plan.staged_at ? "Approved and privately staged" : "Approved; awaiting staged source"));
+        }
+        const supported = ["ubuntu-worker/worker.py", "realtime/server.py"].includes(plan.source_path);
+        if (plan.host === "ubuntu-primary" && supported && !active) {
+          if (applied && !rolledBack && recent?.state !== "interrupted") {
+            actions.appendChild(releaseForm(plan, "request_source_rollback", csrf));
+          } else if (!applied && plan.staged_at && recent?.state !== "interrupted") {
+            actions.appendChild(releaseForm(plan, "request_source_deploy", csrf));
+          }
+        }
+      }
       row.appendChild(actions);
       tbody.appendChild(row);
     }
@@ -381,6 +412,7 @@
       status(data.state === "planned" ? "release plan created" :
              data.state === "approved" ? "revision approved (not installed)" :
              data.state === "canceled" ? "release plan canceled" :
+             data.state === "queued" ? "deployment queued" :
              "queued " + String(data.request_id).slice(0, 8));
       document.dispatchEvent(new CustomEvent("sirus:job-queued", {detail: data}));
     } catch (error) {
