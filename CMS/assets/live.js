@@ -95,6 +95,20 @@
       const badge = Array.from(document.querySelectorAll("[data-live-node-id]"))
         .find(el => el.dataset.liveNodeId === node.node_id);
       if (badge) badge.textContent = node.online ? "Online" : "Offline — stale metrics";
+      const services = Array.from(document.querySelectorAll("[data-live-node-services]"))
+        .find(el => el.dataset.liveNodeServices === node.node_id);
+      if (services) {
+        const metrics = node.metrics && typeof node.metrics === "object" ? node.metrics : {};
+        const running = Array.isArray(metrics.services) ? metrics.services : [];
+        const apps = Array.isArray(metrics.applications) ? metrics.applications : [];
+        const summary = element("p", node.online
+          ? "OpenRC running: " + (running.join(", ") || "None reported")
+          : "Latest known OpenRC services (host offline): " + (running.join(", ") || "None reported"));
+        const appSummary = element("p", "Local applications: " +
+          (apps.map(app => String(app.name || "app") + ": " +
+            (node.online && app.healthy ? "Healthy" : "Unavailable")).join(" · ") || "None reported"));
+        services.replaceChildren(summary, appSummary);
+      }
     }
     document.dispatchEvent(new CustomEvent("sirus:live", {detail: snapshot}));
   }
