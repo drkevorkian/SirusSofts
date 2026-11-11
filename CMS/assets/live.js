@@ -64,6 +64,50 @@
       }
       lastEventId = events.reduce((max, item) => Math.max(max, Number(item.id) || 0), lastEventId);
     }
+    const sourceStatus = document.querySelector("[data-live-source-status]");
+    const sourceList = document.querySelector("[data-live-source-list]");
+    if (sourceStatus && sourceList) {
+      const source = snapshot.source || {};
+      if (!source.commit || !Array.isArray(source.files)) {
+        sourceStatus.textContent = "GitHub source index unavailable; check the private indexer service.";
+        sourceList.replaceChildren();
+      } else {
+        const checked = source.checked_at ?
+          new Date(source.checked_at * 1000).toISOString() : "unknown";
+        sourceStatus.textContent = "Approved branch: " + String(source.branch) +
+          " · commit " + String(source.commit).slice(0, 12) + " · checked " + checked;
+        const deployed = new Map();
+        for (const item of source.installed || [])
+          deployed.set(item.path, item.sha256);
+        for (const node of snapshot.nodes || []) {
+          if (node.node_id !== "gentoo-home") continue;
+          for (const item of node.metrics?.software_files || [])
+            deployed.set(item.path, node.online ? item.sha256 : null);
+        }
+        const table = element("table");
+        const head = element("thead");
+        const header = element("tr");
+        for (const name of ["System", "Component", "Source comparison"])
+          header.appendChild(element("th", name));
+        head.appendChild(header);
+        table.appendChild(head);
+        const body = element("tbody");
+        for (const item of source.files) {
+          const tr = element("tr");
+          tr.appendChild(element("td", item.platform || ""));
+          tr.appendChild(element("td", item.path || ""));
+          const installed = deployed.get(item.path);
+          const state = installed === undefined ? "Not installed / not reported" :
+            installed === null ? "Node offline (stale)" :
+            installed === item.sha256 ? "Matches approved GitHub" :
+            "Differs from approved GitHub — review";
+          tr.appendChild(element("td", state));
+          body.appendChild(tr);
+        }
+        table.appendChild(body);
+        sourceList.replaceChildren(table);
+      }
+    }
     const updates = document.querySelector("[data-live-update-jobs]");
     if (updates) {
       const fragment = document.createDocumentFragment();
