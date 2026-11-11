@@ -76,9 +76,15 @@ def snapshot(root=ROOT):
     if nodes_db.is_file():
         with sqlite3.connect(f"file:{nodes_db}?mode=ro", uri=True, timeout=2) as db:
             db.row_factory = sqlite3.Row
-            for row in db.execute("""SELECT node_id,os,agent_version,last_seen
+            for row in db.execute("""SELECT node_id,os,agent_version,last_seen,metrics_json
                                      FROM node_status ORDER BY node_id LIMIT 32"""):
                 node = dict(row)
+                raw = node.pop("metrics_json", "{}")
+                try:
+                    metrics = json.loads(raw[:8192]) if len(raw) <= 8192 else {}
+                    node["metrics"] = metrics if isinstance(metrics, dict) else {}
+                except (ValueError, TypeError):
+                    node["metrics"] = {}
                 node["online"] = node["last_seen"] >= int(time.time()) - 180
                 data["nodes"].append(node)
     events_db = root / "live_events.sqlite3"
