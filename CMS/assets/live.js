@@ -132,6 +132,32 @@
     }
   }
 
+  // Enqueue jobs without document navigation; WebSocket supplies status transitions.
+  document.addEventListener("submit", async event => {
+    const form = event.target.closest("form[data-live-submit]");
+    if (!form) return;
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    if (button && button.disabled) return;
+    if (button) button.disabled = true;
+    status("submitting job");
+    try {
+      const reply = await fetch(form.action, {
+        method: "POST", credentials: "same-origin",
+        body: new FormData(form), redirect: "error",
+        headers: {"Accept": "application/json"}, cache: "no-store"
+      });
+      const data = await reply.json();
+      if (!reply.ok || !data.ok) throw new Error(data.error || "Job was rejected");
+      status("queued " + String(data.request_id).slice(0, 8));
+      document.dispatchEvent(new CustomEvent("sirus:job-queued", {detail: data}));
+    } catch (error) {
+      status("job error: " + String(error.message || "request failed").slice(0, 120));
+    } finally {
+      if (button) button.disabled = false;
+    }
+  });
+
   document.addEventListener("sirus:navigated", () => {
     if (!document.querySelector("[data-live-csrf]")) {
       if (socket) socket.close();
