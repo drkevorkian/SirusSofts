@@ -244,7 +244,7 @@ function cms_release_planner(PDO $db): void {
       <p>Choose an indexed GitHub revision and an installed component. Creating
       a plan does not modify any host. Approval requires your administrator password,
       the exact commit fingerprint and a fresh matching baseline.</p>
-      <form method="post" action="/admin/updates" data-live-submit>
+      <form method="post" action="/admin/updates" data-live-submit data-release-planner>
         <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
         <input type="hidden" name="action" value="plan_source_release">
         <label>Host<select name="host" required>
