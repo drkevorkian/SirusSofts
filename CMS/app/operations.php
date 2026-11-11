@@ -140,7 +140,7 @@ function cms_operations_page(PDO $db): void
              · <?=(int)$node['cpu_threads']?> CPU threads
              · agent <?=cms_esc($node['agent_version'])?></p>
         </div>
-        <div class="node-state <?=($online?'is-online':'is-offline')?>">
+        <div data-live-node-id="<?=cms_esc($node['node_id'])?>" class="node-state <?=($online?'is-online':'is-offline')?>">
           <?=($online?'Online':'Offline — stale metrics')?>
         </div>
       </div>
