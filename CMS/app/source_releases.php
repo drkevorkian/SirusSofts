@@ -39,6 +39,20 @@ function cms_release_schema(PDO $db): void {
     )");
     $db->exec('CREATE INDEX IF NOT EXISTS cms_source_plan_created
                ON cms_source_release_plans(created_at DESC)');
+    $db->exec("CREATE TABLE IF NOT EXISTS cms_source_deploy_requests (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL REFERENCES cms_source_release_plans(id),
+        host TEXT NOT NULL CHECK(host IN ('ubuntu-primary')),
+        action TEXT NOT NULL CHECK(action IN ('apply','rollback')),
+        state TEXT NOT NULL CHECK(state IN ('queued','running','done','failed','interrupted')),
+        created_by INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        error TEXT NOT NULL DEFAULT '',
+        result_json TEXT NOT NULL DEFAULT '{}'
+    )");
+    $db->exec('CREATE INDEX IF NOT EXISTS cms_source_deploy_pending
+               ON cms_source_deploy_requests(host,state,created_at)');
 }
 
 function cms_release_index(?int $now=null): array {
@@ -200,6 +214,84 @@ function cms_release_recent(PDO $db): array {
                ->fetchAll(PDO::FETCH_ASSOC);
 }
 
+/**
+ * Queue a fixed, reviewed Ubuntu Python service deployment.
+ * Only the separate root-owned controller can carry out the request.
+ */
+function cms_release_request_deployment(PDO $db,string $action,string $id,
+    string $password,string $confirmation,?int $now=null): string {
+    cms_need_admin();
+    $now??=time();
+    if(!preg_match('/^[a-f0-9]{32}$/D',$id) ||
+       !in_array($action,['apply','rollback'],true))
+        throw new InvalidArgumentException('Invalid deployment request.');
+    cms_release_schema($db);
+    $stmt=$db->prepare('SELECT * FROM cms_source_release_plans WHERE id=?');
+    $stmt->execute([$id]);
+    $plan=$stmt->fetch(PDO::FETCH_ASSOC);
+    if(!$plan || $plan['state']!=='approved' || $plan['host']!=='ubuntu-primary' ||
+       !in_array($plan['source_path'],['ubuntu-worker/worker.py','realtime/server.py'],true))
+        throw new InvalidArgumentException('This component is not eligible for automatic deployment.');
+    $phrase=($action==='apply'?'DEPLOY ':'ROLLBACK ').substr($plan['commit_sha'],0,12);
+    if(!hash_equals($phrase,$confirmation))
+        throw new InvalidArgumentException('Enter the exact deployment confirmation phrase.');
+    $user=$db->prepare('SELECT password_hash FROM cms_admins WHERE id=?');
+    $user->execute([(int)$_SESSION['cms_admin_id']]);
+    $hash=$user->fetchColumn();
+    if(!is_string($hash) || !password_verify($password,$hash))
+        throw new InvalidArgumentException('Administrator password was incorrect.');
+    if($action==='apply'){
+        if(!0 <= $now-(int)$plan['approved_at'] ||
+           $now-(int)$plan['approved_at']>86400)
+            throw new InvalidArgumentException('Approved deployment is too old; review the release again.');
+        $staging=cms_private_directory().'/nodes/source_artifacts';
+        $artifact=$staging.'/'.$id.'.source';
+        $manifest=$staging.'/'.$id.'.json';
+        if(is_link($staging) || !is_dir($staging) ||
+           is_link($artifact) || !is_file($artifact) ||
+           is_link($manifest) || !is_file($manifest) ||
+           filesize($artifact)>2000000 || filesize($manifest)>2048 ||
+           !hash_equals($plan['target_sha256'],(string)hash_file('sha256',$artifact)))
+            throw new InvalidArgumentException('Matching private source artifact has not been staged.');
+        $data=json_decode((string)file_get_contents($manifest),true);
+        if(!is_array($data) || ($data['id']??null)!==$id ||
+           ($data['commit']??null)!==$plan['commit_sha'] ||
+           ($data['target_sha256']??null)!==$plan['target_sha256'] ||
+           ($data['baseline_sha256']??null)!==$plan['baseline_sha256'])
+            throw new InvalidArgumentException('Staged release manifest is inconsistent.');
+        $current=cms_release_installed($plan['host'],$plan['source_path']);
+        if(!is_string($current) || !hash_equals($plan['baseline_sha256'],$current))
+            throw new InvalidArgumentException('Installed component has changed since approval.');
+    }
+    $db->beginTransaction();
+    try{
+        $blocked=$db->prepare("SELECT COUNT(*) FROM cms_source_deploy_requests
+                WHERE plan_id=? AND action=? AND state IN ('queued','running','done')");
+        $blocked->execute([$id,$action]);
+        if((int)$blocked->fetchColumn()>0)
+            throw new InvalidArgumentException('That release operation has already been requested.');
+        if($action==='rollback'){
+            $successful=$db->prepare("SELECT COUNT(*) FROM cms_source_deploy_requests
+                         WHERE plan_id=? AND action='apply' AND state='done'");
+            $successful->execute([$id]);
+            if((int)$successful->fetchColumn()!==1)
+                throw new InvalidArgumentException('There is no verified website deployment to roll back.');
+        }
+        $request=bin2hex(random_bytes(16));
+        $db->prepare("INSERT INTO cms_source_deploy_requests
+            (id,plan_id,host,action,state,created_by,created_at,updated_at)
+            VALUES(?,?,? ,?,'queued',?,?,?)")
+           ->execute([$request,$id,$plan['host'],$action,
+                       (int)$_SESSION['cms_admin_id'],$now,$now]);
+        cms_audit($db,'queue-source-'.$action,$id);
+        $db->commit();
+        return $request;
+    }catch(Throwable $error){
+        if($db->inTransaction())$db->rollBack();
+        throw $error;
+    }
+}
+
 function cms_release_post(PDO $db,string $action): never {
     cms_need_admin();
     if($action==='plan_source_release'){
@@ -213,6 +305,12 @@ function cms_release_post(PDO $db,string $action): never {
             (string)($_POST['confirm']??''));
         $message='Release explicitly approved; installation is not enabled.';
         $state='approved';
+    }elseif($action==='request_source_deploy' || $action==='request_source_rollback'){
+        $operation=$action==='request_source_deploy'?'apply':'rollback';
+        $id=cms_release_request_deployment($db,$operation,(string)($_POST['id']??''),
+             (string)($_POST['password']??''),(string)($_POST['confirm']??''));
+        $message='Deployment request queued for privileged local execution.';
+        $state='queued';
     }elseif($action==='cancel_source_release'){
         $id=(string)($_POST['id']??'');
         cms_release_cancel($db,$id);
@@ -269,7 +367,9 @@ function cms_release_planner(PDO $db): void {
         <button type="submit" class="btn primary" <?=!$revisions?'disabled':''?>>Create release plan</button>
       </form>
       <p class="muted small">Plans expire after one hour. Approved plans are
-      recorded for the later deployment executor; they do not perform installations.</p>
+      recorded for the later deployment executor. Only approved Ubuntu Python
+      services can be submitted for installation after independent password
+      confirmation. Full CMS and Gentoo releases remain manually supervised.</p>
     </div>
     <div class="admin-panel">
       <h2>Release plan history</h2>
