@@ -61,6 +61,10 @@ jobs:
           python3 -m unittest discover -s deploy/tests -p 'test_github_cms_import.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_github_source_browser.py' -v
           python3 deploy/ubuntu24/github-source-browser.py --check
+          python3 -m unittest discover -s realtime/tests -p 'test_*.py' -v
+          python3 realtime/server.py --check
+          bash realtime/install-ubuntu.sh --check
+          bash -n realtime/install-ubuntu.sh
           python3 -m unittest discover -s gentoo-node/tests -p 'test_*.py' -v
           python3 -m unittest discover -s ubuntu-worker/tests -p 'test_*.py' -v
           python3 ubuntu-worker/worker.py --check
