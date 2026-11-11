@@ -79,7 +79,7 @@ def ensure_regular(path: Path, *, max_bytes=2_000_000) -> None:
 def check_host(host: str, *, etc=Path("/etc")) -> None:
     if host == "ubuntu-primary":
         info = (etc / "os-release").read_text(encoding="utf8")
-        if not re.search(r'(?m)^ID="?ubuntu"?
+        if not re.search(r'(?m)^ID="?ubuntu"?$', info):
             raise ReleaseError("This is not the approved Ubuntu host OS")
     elif host == "gentoo-home":
         if not (etc / "gentoo-release").is_file():
