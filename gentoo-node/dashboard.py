@@ -279,7 +279,10 @@ assigns jobs and stores the authoritative task history.
 <div class="wrap"><table><thead><tr><th>ID</th><th>Kind</th><th>Status</th>
 <th>Attempts</th><th>Updated</th><th>Result</th></tr></thead>
 <tbody id="live-job-rows">{rows or '<tr><td colspan="6">No previous jobs</td></tr>'}</tbody></table></div>
-</section><small>Read-only · WebSocket updates without page reloads</small>\n<small id="live-status" role="status" aria-live="polite">Live: connecting</small>\n<small id="live-updated"></small></main>\n<script defer src="./dashboard_live.js"></script></body></html>"""
+</section><small>Read-only · WebSocket updates without page reloads</small>
+<small id="live-status" role="status" aria-live="polite">Live: connecting</small>
+<small id="live-updated"></small></main>
+<script defer src="./dashboard_live.js"></script></body></html>"""
     return body.encode("utf8")
 
 
