@@ -219,7 +219,8 @@ function cms_release_recent(PDO $db): array {
  * Only the separate root-owned controller can carry out the request.
  */
 function cms_release_request_deployment(PDO $db,string $action,string $id,
-    string $password,string $confirmation,?int $now=null): string {
+    string $password,string $confirmation,?int $now=null,
+    ?callable $installed=null,?string $stagingPath=null): string {
     cms_need_admin();
     $now??=time();
     if(!preg_match('/^[a-f0-9]{32}$/D',$id) ||
@@ -244,7 +245,7 @@ function cms_release_request_deployment(PDO $db,string $action,string $id,
         if($now<(int)$plan['approved_at'] ||
            $now-(int)$plan['approved_at']>86400)
             throw new InvalidArgumentException('Approved deployment is too old; review the release again.');
-        $staging=cms_private_directory().'/nodes/source_artifacts';
+        $staging=$stagingPath ?? cms_private_directory().'/nodes/source_artifacts';
         $artifact=$staging.'/'.$id.'.source';
         $manifest=$staging.'/'.$id.'.json';
         if(is_link($staging) || !is_dir($staging) ||
@@ -259,7 +260,7 @@ function cms_release_request_deployment(PDO $db,string $action,string $id,
            ($data['target_sha256']??null)!==$plan['target_sha256'] ||
            ($data['baseline_sha256']??null)!==$plan['baseline_sha256'])
             throw new InvalidArgumentException('Staged release manifest is inconsistent.');
-        $current=cms_release_installed($plan['host'],$plan['source_path']);
+        $current=($installed ?? 'cms_release_installed')($plan['host'],$plan['source_path']);
         if(!is_string($current) || !hash_equals($plan['baseline_sha256'],$current))
             throw new InvalidArgumentException('Installed component has changed since approval.');
     }
