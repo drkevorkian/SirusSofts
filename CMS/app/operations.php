@@ -410,6 +410,7 @@ function cms_updates_page(PDO $db): void {
       <p data-live-source-status class="muted">Awaiting authenticated live source inventory.</p>
       <div data-live-source-list role="status" aria-live="polite"></div>
     </div>
+    <?php cms_release_planner($db); ?>
     <div class="admin-panel">
       <h2>Recent update checks</h2>
       <div class="table-scroll"><table><thead><tr>

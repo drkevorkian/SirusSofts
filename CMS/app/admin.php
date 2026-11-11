@@ -3,6 +3,7 @@ declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 require_once __DIR__.'/vhosts.php';
 require_once __DIR__.'/operations.php';
+require_once __DIR__.'/source_releases.php';
 require_once __DIR__.'/github_projects.php';
 require_once __DIR__.'/access.php';
 require_once __DIR__.'/source.php';
@@ -92,6 +93,10 @@ function cms_admin_post(PDO $db,string $path): void {
     }
     if($path==='/admin/live-token' && $action==='live_token'){
         cms_live_token($db);
+    }
+    if($path==='/admin/updates' &&
+       in_array($action,['plan_source_release','approve_source_release','cancel_source_release'],true)){
+        cms_release_post($db,$action);
     }
     if($path==='/admin/updates' && in_array($action,['check_package_updates','check_source_updates'],true)){
         cms_updates_post($db,$action);

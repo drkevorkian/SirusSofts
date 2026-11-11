@@ -57,9 +57,9 @@ def verify_token(token, secret, now=None):
 def source_versions(root=ROOT):
     """Admin-only inventory of approved GitHub fingerprints and deployed bytes."""
     result = {"checked_at": None, "commit": None, "branch": None,
-              "files": [], "installed": []}
+              "files": [], "installed": [], "candidates": []}
     index = root / "source_index.json"
-    if index.is_file() and not index.is_symlink() and index.stat().st_size < 8192:
+    if index.is_file() and not index.is_symlink() and index.stat().st_size < 65536:
         try:
             data = json.loads(index.read_text(encoding="utf8"))
             if isinstance(data, dict) and isinstance(data.get("files"), list):
@@ -67,6 +67,13 @@ def source_versions(root=ROOT):
                 result["commit"] = data.get("commit")
                 result["branch"] = data.get("branch")
                 result["files"] = data["files"][:16]
+                if isinstance(data.get("candidates"), list):
+                    for candidate in data["candidates"][:3]:
+                        if isinstance(candidate, dict) and isinstance(candidate.get("commit"), str):
+                            result["candidates"].append({
+                                "commit": candidate["commit"][:40],
+                                "message": str(candidate.get("message", ""))[:160],
+                            })
         except (OSError, ValueError):
             pass
     components = (
@@ -90,7 +97,8 @@ def source_versions(root=ROOT):
 
 def snapshot(root=ROOT):
     """Finite, read-only view. No database creation or modification."""
-    data = {"jobs": [], "nodes": [], "events": [], "source": source_versions(root)}
+    data = {"jobs": [], "nodes": [], "events": [],
+            "source": source_versions(root), "release_plans": []}
     jobs_db = root / "work.sqlite3"
     nodes_db = root / "registry.sqlite3"
     if jobs_db.is_file():
@@ -121,6 +129,36 @@ def snapshot(root=ROOT):
                     node["metrics"] = {}
                 node["online"] = node["last_seen"] >= int(time.time()) - 180
                 data["nodes"].append(node)
+    cms_db = root.parent / "data" / "cms.sqlite3"
+    if cms_db.is_file() and not cms_db.is_symlink():
+        try:
+            with sqlite3.connect(f"file:{cms_db}?mode=ro", uri=True, timeout=2) as db:
+                db.row_factory = sqlite3.Row
+                rows = db.execute("""SELECT id,host,source_path,commit_sha,
+                               target_sha256,baseline_sha256,state,created_at,approved_at
+                               FROM cms_source_release_plans
+                               ORDER BY created_at DESC,id DESC LIMIT 30""")
+                data["release_plans"] = [dict(row) for row in rows]
+            staging = root / "source_artifacts"
+            if staging.is_dir() and not staging.is_symlink():
+                for plan in data["release_plans"]:
+                    if plan["state"] != "approved":
+                        continue
+                    manifest = staging / (plan["id"] + ".json")
+                    if manifest.is_symlink() or not manifest.is_file() or manifest.stat().st_size > 2048:
+                        continue
+                    try:
+                        info = json.loads(manifest.read_text(encoding="utf8"))
+                        if (info.get("id") == plan["id"]
+                                and info.get("commit") == plan["commit_sha"]
+                                and info.get("target_sha256") == plan["target_sha256"]
+                                and info.get("baseline_sha256") == plan["baseline_sha256"]):
+                            plan["staged_at"] = info.get("staged_at")
+                    except (OSError, ValueError, AttributeError):
+                        continue
+        except sqlite3.Error:
+            # May not exist until first installation of the Release Planner.
+            pass
     events_db = root / "live_events.sqlite3"
     if events_db.is_file():
         with sqlite3.connect(f"file:{events_db}?mode=ro", uri=True, timeout=2) as db:

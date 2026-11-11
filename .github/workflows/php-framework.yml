@@ -45,6 +45,7 @@ jobs:
           php CMS/tests/node_registry_test.php
           php CMS/tests/storage_cli_test.php
           php CMS/tests/operations_admin_test.php
+          php CMS/tests/source_release_test.php
           php CMS/tests/live_events_test.php
           php CMS/tests/github_projects_test.php
           php CMS/tests/access_control_test.php
