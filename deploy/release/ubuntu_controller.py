@@ -36,6 +36,18 @@ def connect(path=CMS_DB):
     return db
 
 
+def heartbeat(db, now=None):
+    now = int(time.time()) if now is None else int(now)
+    try:
+        db.execute("""INSERT INTO cms_source_controller_health(host,last_seen,state)
+            VALUES('ubuntu-primary',?,'ready')
+            ON CONFLICT(host) DO UPDATE SET last_seen=excluded.last_seen,state='ready'""",
+            (now,))
+    except sqlite3.OperationalError:
+        # Schema is installed by CMS. Do not create DB tables as root.
+        pass
+
+
 def recover_interrupted(db, now=None):
     now = int(time.time()) if now is None else int(now)
     try:
@@ -132,6 +144,7 @@ def main():
     with connect() as db:
         recover_interrupted(db)
         while RUNNING:
+            heartbeat(db)
             process_one(db)
             if args.once:
                 break
