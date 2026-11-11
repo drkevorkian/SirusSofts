@@ -451,6 +451,24 @@ def gentoo_app_health() -> list[dict]:
     return results
 
 
+def deployed_source_hashes(base: Path = Path("/opt/sirus-gentoo-node")) -> list[dict]:
+    """Fingerprint only fixed installed agent components, never arbitrary paths."""
+    components = (("gentoo-node/client.py", "client.py"),
+                  ("gentoo-node/dashboard.py", "dashboard.py"),
+                  ("gentoo-node/tunnel.py", "tunnel.py"))
+    results = []
+    for name, filename in components:
+        path = base / filename
+        try:
+            if path.is_symlink() or not path.is_file() or path.stat().st_size > 2_000_000:
+                continue
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            results.append({"path": name, "sha256": digest})
+        except OSError:
+            continue
+    return results
+
+
 def performance() -> dict:
     memory=meminfo()
     total=memory.get("MemTotal",0)
@@ -479,7 +497,8 @@ def performance() -> dict:
         "uptime_seconds":max(0,uptime),
         "gpus":gpu_devices(),
         "services":gentoo_services(),
-        "applications":gentoo_app_health()
+        "applications":gentoo_app_health(),
+        "software_files":deployed_source_hashes()
     }
 
 def telemetry(node_id: str, when: int | None = None) -> dict:
