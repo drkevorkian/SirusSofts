@@ -56,7 +56,7 @@ def verify_token(token, secret, now=None):
 
 def snapshot(root=ROOT):
     """Finite, read-only view. No database creation or modification."""
-    data = {"jobs": [], "nodes": []}
+    data = {"jobs": [], "nodes": [], "events": []}
     jobs_db = root / "work.sqlite3"
     nodes_db = root / "registry.sqlite3"
     if jobs_db.is_file():
@@ -81,6 +81,20 @@ def snapshot(root=ROOT):
                 node = dict(row)
                 node["online"] = node["last_seen"] >= int(time.time()) - 180
                 data["nodes"].append(node)
+    events_db = root / "live_events.sqlite3"
+    if events_db.is_file():
+        with sqlite3.connect(f"file:{events_db}?mode=ro", uri=True, timeout=2) as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute("""SELECT id,topic,payload_json,created_at
+                                 FROM live_events ORDER BY id DESC LIMIT 30""")
+            for row in reversed(rows.fetchall()):
+                item = dict(row)
+                raw = item.pop("payload_json", "{}")
+                try:
+                    item["payload"] = json.loads(raw[:2048]) if len(raw) <= 2048 else {}
+                except (ValueError, TypeError):
+                    item["payload"] = {}
+                data["events"].append(item)
     return data
 
 
