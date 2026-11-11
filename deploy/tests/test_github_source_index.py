@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-FILE = Path(__file__).resolve().parents[1] / "github-source-index.py"
+FILE = Path(__file__).resolve().parents[1] / "ubuntu24" / "github-source-index.py"
 spec = importlib.util.spec_from_file_location("github_index", FILE)
 source = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(source)
