@@ -7,6 +7,30 @@ require_once __DIR__.'/github_projects.php';
 require_once __DIR__.'/access.php';
 require_once __DIR__.'/source.php';
 
+/** Mint a short-lived, admin-only proof for the local WebSocket service. */
+function cms_live_token(PDO $db): never {
+    cms_need_admin();
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    header('X-Content-Type-Options: nosniff');
+    $keyPath=cms_private_directory().'/nodes/live.key';
+    if(!is_file($keyPath) || is_link($keyPath)) {
+        http_response_code(503);
+        exit('{"ok":false,"error":"Live updates not configured"}');
+    }
+    $key=file_get_contents($keyPath);
+    if(!is_string($key) || strlen($key)!==32) {
+        http_response_code(503);
+        exit('{"ok":false,"error":"Live updates not configured"}');
+    }
+    $payload=json_encode(['role'=>'admin','uid'=>(int)$_SESSION['cms_admin_id'],
+         'exp'=>time()+45],JSON_THROW_ON_ERROR);
+    $b64=static fn(string $bytes):string=>rtrim(strtr(base64_encode($bytes),'+/','-_'),'=');
+    $token=$b64($payload).'.'.$b64(hash_hmac('sha256',$payload,$key,true));
+    echo json_encode(['ok'=>true,'token'=>$token],JSON_THROW_ON_ERROR);
+    exit;
+}
+
 /** Keep draft and published projects in one explicit, validated order. */
 function cms_reorder_project_ids(PDO $db,string $ids): void {
     if(strlen($ids)>10000 || $ids==='')throw new InvalidArgumentException('Invalid project order.');
@@ -65,6 +89,9 @@ function cms_admin_post(PDO $db,string $path): void {
     }
     if(in_array($action,['vhost_preview','vhost_apply','vhost_rollback','vhost_settings'],true)&&$path==='/admin/hosting'){
         cms_vhost_post($db,$action);
+    }
+    if($path==='/admin/live-token' && $action==='live_token'){
+        cms_live_token($db);
     }
     if($path==='/admin/updates' && $action==='check_package_updates'){
         cms_updates_post($db,$action);
@@ -233,6 +260,9 @@ function cms_admin_shell_start(PDO $db,string $title): void {
           <button class="sidebar-logout" type="submit">Sign out</button>
         </form>
       </aside><div class="admin-work">
+        <div data-live-status role="status" aria-live="polite" class="muted small">Live updates: connecting</div>
+        <input type="hidden" data-live-csrf value="<?=cms_esc(cms_csrf())?>">
+
 <?php
 }
 function cms_admin_shell_end(PDO $db): void {
@@ -346,6 +376,7 @@ function cms_admin_run(PDO $db,string $path): never {
     if($path==='/admin/users'){cms_users_page($db,$error);exit;}
     if($path==='/admin/hosting'){cms_vhost_page($db,$error);exit;}
     if($path==='/admin/infrastructure'){cms_operations_page($db);exit;}
+    if($path==='/admin/live-token'){http_response_code(405);exit('POST required');}
     if($path==='/admin/updates'){cms_updates_page($db);exit;}
     if($path==='/admin/github'){cms_github_projects_page($db);exit;}
     if($path==='/admin/projects/new'){cms_admin_project_editor($db,null);exit;}
