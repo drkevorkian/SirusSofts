@@ -55,7 +55,9 @@ jobs:
       - name: OpenRC installer syntax
         run: bash -n node/install-openrc.sh
       - name: JavaScript syntax
-        run: node --check CMS/assets/cms.js
+        run: |
+          node --check CMS/assets/cms.js
+          node --check CMS/assets/live.js
       - name: GitHub repository importer tests
         run: |
           python3 -m unittest discover -s deploy/tests -p 'test_github_cms_import.py' -v
