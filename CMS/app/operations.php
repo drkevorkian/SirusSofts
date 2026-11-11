@@ -158,25 +158,25 @@ function cms_operations_page(PDO $db): void
       <div class="node-metric-grid">
         <div class="node-metric">
           <span>CPU utilization</span>
-          <strong><?=$cpu===null?'Unavailable':cms_esc(number_format((float)$cpu,1)).'%'?></strong>
+          <strong data-live-metric="cpu_pct" data-live-metric-node="<?=cms_esc($node['node_id'])?>"><?=$cpu===null?'Unavailable':cms_esc(number_format((float)$cpu,1)).'%'?></strong>
           <?php if($cpu!==null):?><progress max="100" value="<?=cms_esc((string)$cpu)?>">CPU load</progress><?php endif;?>
           <small>1-minute load: <?=isset($m['load_1'])?cms_esc((string)$m['load_1']):'N/A'?></small>
         </div>
         <div class="node-metric">
           <span>Memory</span>
-          <strong><?=isset($m['memory_used_bytes'])?cms_esc(cms_node_size($memoryUsed)):'Unavailable'?> / <?=cms_esc(cms_node_size($memoryTotal))?></strong>
+          <strong data-live-metric="memory" data-live-metric-node="<?=cms_esc($node['node_id'])?>"><?=isset($m['memory_used_bytes'])?cms_esc(cms_node_size($memoryUsed)):'Unavailable'?> / <?=cms_esc(cms_node_size($memoryTotal))?></strong>
           <?php if(isset($m['memory_used_bytes'])):?><progress max="100" value="<?=cms_esc((string)$memoryPct)?>">Memory used</progress><?php endif;?>
           <small><?=isset($m['memory_used_bytes'])?cms_esc((string)$memoryPct).'% used':'Awaiting updated agent'?></small>
         </div>
         <div class="node-metric">
           <span>Root filesystem</span>
-          <strong><?=$diskTotal>0?cms_esc(cms_node_size($diskUsed)).' / '.cms_esc(cms_node_size($diskTotal)):'Unavailable'?></strong>
+          <strong data-live-metric="disk" data-live-metric-node="<?=cms_esc($node['node_id'])?>"><?=$diskTotal>0?cms_esc(cms_node_size($diskUsed)).' / '.cms_esc(cms_node_size($diskTotal)):'Unavailable'?></strong>
           <?php if($diskTotal>0):?><progress max="100" value="<?=cms_esc((string)$diskPct)?>">Disk used</progress><?php endif;?>
           <small><?=$diskTotal>0?cms_esc((string)$diskPct).'% used':'Awaiting updated agent'?></small>
         </div>
         <div class="node-metric">
           <span>CPU temperature</span>
-          <strong><?=$cpuTemp===null?'Unavailable':cms_esc(number_format((float)$cpuTemp,1)).' °C'?></strong>
+          <strong data-live-metric="cpu_temp_c" data-live-metric-node="<?=cms_esc($node['node_id'])?>"><?=$cpuTemp===null?'Unavailable':cms_esc(number_format((float)$cpuTemp,1)).' °C'?></strong>
           <small>Uptime:
             <?=isset($m['uptime_seconds'])?cms_esc(cms_node_uptime((int)$m['uptime_seconds'])):'N/A'?></small>
         </div>
@@ -196,7 +196,7 @@ function cms_operations_page(PDO $db): void
         <p>No GPU temperature/utilization data yet.
         Detected PCI vendors: <?=cms_esc(implode(', ',$node['gpu_vendors']??[]))?></p>
       <?php else:?>
-      <div class="node-metric-grid">
+      <div class="node-metric-grid" data-live-gpus="<?=cms_esc($node['node_id'])?>">
         <?php foreach($gpu as $device):?>
           <div class="node-metric">
             <span><?=cms_esc($device['name']??'GPU')?> · <?=cms_esc($device['vendor']??'')?></span>
