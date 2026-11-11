@@ -45,6 +45,7 @@ jobs:
           php CMS/tests/node_registry_test.php
           php CMS/tests/storage_cli_test.php
           php CMS/tests/operations_admin_test.php
+          php CMS/tests/live_events_test.php
           php CMS/tests/github_projects_test.php
           php CMS/tests/access_control_test.php
           php CMS/tests/work_broker_test.php
@@ -55,12 +56,18 @@ jobs:
       - name: OpenRC installer syntax
         run: bash -n node/install-openrc.sh
       - name: JavaScript syntax
-        run: node --check CMS/assets/cms.js
+        run: |
+          node --check CMS/assets/cms.js
+          node --check CMS/assets/live.js
       - name: GitHub repository importer tests
         run: |
           python3 -m unittest discover -s deploy/tests -p 'test_github_cms_import.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_github_source_browser.py' -v
           python3 deploy/ubuntu24/github-source-browser.py --check
+          python3 -m unittest discover -s realtime/tests -p 'test_*.py' -v
+          python3 realtime/server.py --check
+          bash realtime/install-ubuntu.sh --check
+          bash -n realtime/install-ubuntu.sh
           python3 -m unittest discover -s gentoo-node/tests -p 'test_*.py' -v
           python3 -m unittest discover -s ubuntu-worker/tests -p 'test_*.py' -v
           python3 ubuntu-worker/worker.py --check

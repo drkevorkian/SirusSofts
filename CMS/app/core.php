@@ -260,7 +260,7 @@ function cms_headers(): void {
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: strict-origin-when-cross-origin');
     header('X-Frame-Options: DENY');
-    header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'");
+    header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss://sirussofts.com; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'");
     header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
     if(cms_https())header('Strict-Transport-Security: max-age=15552000');
 }

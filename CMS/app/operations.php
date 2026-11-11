@@ -87,6 +87,13 @@ function cms_operations_post(PDO $db,string $action): never {
     $broker=new SirusWorkBroker($nodeDir.'/work.sqlite3');
     $id=$broker->enqueue($nodeId,$kind);
     cms_audit($db,'enqueue-gentoo-work',$nodeId.':'.$kind.':'.$id);
+    if(str_contains((string)($_SERVER['HTTP_ACCEPT']??''),'application/json')) {
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+        http_response_code(202);
+        echo json_encode(['ok'=>true,'request_id'=>$id,'node_id'=>$nodeId],JSON_THROW_ON_ERROR);
+        exit;
+    }
     cms_flash('Work queued for Gentoo: '.$id.'. Gentoo will claim it on its next authenticated poll.');
     cms_go('/admin/infrastructure');
 }
@@ -140,7 +147,7 @@ function cms_operations_page(PDO $db): void
              · <?=(int)$node['cpu_threads']?> CPU threads
              · agent <?=cms_esc($node['agent_version'])?></p>
         </div>
-        <div class="node-state <?=($online?'is-online':'is-offline')?>">
+        <div data-live-node-id="<?=cms_esc($node['node_id'])?>" class="node-state <?=($online?'is-online':'is-offline')?>">
           <?=($online?'Online':'Offline — stale metrics')?>
         </div>
       </div>
@@ -208,7 +215,7 @@ function cms_operations_page(PDO $db): void
       <?php $flash=cms_take_flash();if($flash):?>
         <p class="flash-message"><?=cms_esc($flash['message'])?></p>
       <?php endif;?>
-      <form method="post" action="/admin/infrastructure">
+      <form method="post" action="/admin/infrastructure" data-live-submit>
         <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
         <input type="hidden" name="action" value="enqueue_gentoo_job">
         <label>Worker node
@@ -236,7 +243,7 @@ function cms_operations_page(PDO $db): void
       <div class="table-scroll"><table><thead><tr>
         <th>Request ID</th><th>Node</th><th>Kind</th>
         <th>Status</th><th>Attempts</th><th>Submitted (UTC)</th><th>Result</th>
-      </tr></thead><tbody>
+      </tr></thead><tbody data-live-infrastructure-jobs>
         <?php foreach($snapshot['work_jobs'] as $job):?>
         <tr><td><code><?=cms_esc($job['request_id'])?></code></td>
             <td><?=cms_esc($job['node_id'])?></td>
@@ -306,6 +313,13 @@ function cms_updates_post(PDO $db, string $action): never {
     $broker=new SirusWorkBroker($dir.'/work.sqlite3');
     $id=$broker->enqueue($nodeId,'package_update_check');
     cms_audit($db,'preview-host-updates',$nodeId.':'.$id);
+    if(str_contains((string)($_SERVER['HTTP_ACCEPT']??''),'application/json')) {
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+        http_response_code(202);
+        echo json_encode(['ok'=>true,'request_id'=>$id,'node_id'=>$nodeId],JSON_THROW_ON_ERROR);
+        exit;
+    }
     cms_flash('Read-only update check queued for '.$nodeId.'. No packages were changed.');
     cms_go('/admin/updates');
 }
@@ -332,7 +346,7 @@ function cms_updates_page(PDO $db): void {
       <?php endif;?>
       <?php foreach(['ubuntu-primary'=>'Ubuntu public gateway',
                      'gentoo-home'=>'Gentoo compute node'] as $id=>$label):?>
-        <form method="post" action="/admin/updates">
+        <form method="post" action="/admin/updates" data-live-submit>
           <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
           <input type="hidden" name="action" value="check_package_updates">
           <input type="hidden" name="node_id" value="<?=cms_esc($id)?>">
@@ -353,7 +367,7 @@ function cms_updates_page(PDO $db): void {
       <h2>Recent update checks</h2>
       <div class="table-scroll"><table><thead><tr>
         <th>Host</th><th>Status</th><th>Time (UTC)</th><th>Preview</th>
-      </tr></thead><tbody>
+      </tr></thead><tbody data-live-update-jobs>
         <?php foreach($snapshot['work_jobs'] as $job):
           if(($job['kind']??'')!=='package_update_check')continue;?>
           <tr><td><?=cms_esc($job['node_id'])?></td>
