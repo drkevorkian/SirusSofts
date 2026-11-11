@@ -78,6 +78,7 @@
       const newFooter = parsed.querySelector(".site-footer");
       if (oldFooter && newFooter) oldFooter.replaceWith(document.importNode(newFooter, true));
       if (push) window.history.pushState({sirusCms: true}, "", finalUrl.href);
+      document.dispatchEvent(new Event("sirus:navigated"));
       window.scrollTo(0, 0);
       const heading = document.querySelector("main h1");
       if (heading) { heading.setAttribute("tabindex", "-1"); heading.focus({preventScroll: true}); }
