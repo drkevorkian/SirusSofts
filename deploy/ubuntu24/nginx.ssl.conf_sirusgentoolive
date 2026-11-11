@@ -1,0 +1,16 @@
+# Existing Hestia TLS vhost for sirussofts.com, Gentoo dashboard live socket only.
+# Gentoo remains privately reachable through the established reverse SSH tunnel.
+location = /Gentoo/live {
+    proxy_pass http://127.0.0.1:18480/live;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Origin $http_origin;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_connect_timeout 4s;
+    proxy_read_timeout 65s;
+    proxy_send_timeout 20s;
+    proxy_buffering off;
+    proxy_cache off;
+}
