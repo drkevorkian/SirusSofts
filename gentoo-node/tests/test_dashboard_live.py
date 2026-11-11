@@ -95,8 +95,11 @@ class LiveDashboardTests(unittest.TestCase):
                 raw=json.dumps({"token":token}).encode()
                 mask=b"abcd"
                 payload=bytes(byte^mask[i%4] for i,byte in enumerate(raw))
-                self.assertLess(len(raw),126)
-                conn.sendall(bytes([0x81,0x80|len(raw)])+mask+payload)
+                if len(raw)<126:
+                    header=bytes([0x81,0x80|len(raw)])
+                else:
+                    header=bytes([0x81,0xfe])+len(raw).to_bytes(2,"big")
+                conn.sendall(header+mask+payload)
                 self.assertIn(b'"type":"ready"',self.read_frame(reader))
                 content=self.read_frame(reader)
                 self.assertIn(b'"cpu_pct":22',content)
