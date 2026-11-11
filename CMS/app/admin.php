@@ -360,6 +360,14 @@ function cms_admin_run(PDO $db,string $path): never {
         try{cms_admin_post($db,$path);}
         catch(InvalidArgumentException|PDOException $e){
             $error=$e instanceof PDOException?'A database constraint prevented that change.':$e->getMessage();
+            if(str_contains((string)($_SERVER['HTTP_ACCEPT']??''),'application/json') &&
+               in_array($path,['/admin/updates','/admin/infrastructure'],true)) {
+                header('Content-Type: application/json; charset=utf-8');
+                header('Cache-Control: no-store');
+                http_response_code(400);
+                echo json_encode(['ok'=>false,'error'=>$error],JSON_THROW_ON_ERROR);
+                exit;
+            }
         }
     }
     if(!cms_authenticated($db)){
