@@ -27,6 +27,8 @@ class LiveDashboardTests(unittest.TestCase):
         self.assertIn('id="live-job-rows"',html)
         self.assertIn('id="live-gpu-rows"',html)
         self.assertIn('id="live-cpu"',html)
+        self.assertIn('id="live-services"',html)
+        self.assertIn('id="live-apps"',html)
         script = (ROOT/"dashboard_live.js").read_text()
         self.assertNotIn("window.location.reload",script)
         self.assertNotIn("location.reload(",script)
