@@ -181,6 +181,16 @@ function cms_operations_page(PDO $db): void
             <?=isset($m['uptime_seconds'])?cms_esc(cms_node_uptime((int)$m['uptime_seconds'])):'N/A'?></small>
         </div>
       </div>
+      <h3>Running services and application health</h3>
+      <div data-live-node-services="<?=cms_esc($node['node_id'])?>">
+        <p>OpenRC services: <?=cms_esc(implode(', ',(array)($m['services']??[])))?></p>
+        <p>Local applications:
+          <?php foreach((array)($m['applications']??[]) as $app):?>
+            <?=cms_esc($app['name']??'app')?>:
+            <?=!empty($app['healthy'])?'Healthy':'Unavailable'?>
+          <?php endforeach;?>
+        </p>
+      </div>
       <h3>Graphics processing units</h3>
       <?php if(!$gpu):?>
         <p>No GPU temperature/utilization data yet.
