@@ -48,6 +48,7 @@ function cms_layout_start(PDO $db,string $title,bool $admin=false): void {
 <title><?=cms_esc($full)?></title>
 <link rel="stylesheet" href="/assets/cms.css">
 <script defer src="/assets/cms.js"></script>
+<script defer src="/assets/live.js"></script>
 </head><body>
 <div class="site-frame">
 <header class="topbar">
