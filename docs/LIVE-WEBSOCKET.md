@@ -78,6 +78,21 @@ The socket service requires an existing CMS private work DB. If its schema
 or Hestia include differs from the expected deployment, stop and inspect
 before installing. The installer does not install packages or grant any sudo.
 
+## Private notification event journal
+
+A trusted server-side producer can require `CMS/app/live_events.php` and
+call `cms_live_publish('mail.received', ['unread' => 2])` or
+`cms_live_publish('message.received', ['message_id' => '...'])`.
+The publisher only accepts fixed topic names, caps JSON metadata to 2 KiB,
+stores its bounded journal under the private CMS nodes directory, and does
+not expose an HTTP publishing endpoint. The WebSocket reads the latest 30
+records and the browser emits a `sirus:notification` event once per new ID.
+
+No actual mailbox or chat service is wired to the publisher yet. The
+administrator notification banner simply reports arrival metadata.
+Use separate topic-specific authorization before exposing mail or message
+events to ordinary user accounts; do not send message bodies here.
+
 ## Future event topics
 
 The WebSocket transport is intended to carry site messages, mail indicators,
