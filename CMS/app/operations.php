@@ -236,7 +236,7 @@ function cms_operations_page(PDO $db): void
       <div class="table-scroll"><table><thead><tr>
         <th>Request ID</th><th>Node</th><th>Kind</th>
         <th>Status</th><th>Attempts</th><th>Submitted (UTC)</th><th>Result</th>
-      </tr></thead><tbody>
+      </tr></thead><tbody data-live-infrastructure-jobs>
         <?php foreach($snapshot['work_jobs'] as $job):?>
         <tr><td><code><?=cms_esc($job['request_id'])?></code></td>
             <td><?=cms_esc($job['node_id'])?></td>
