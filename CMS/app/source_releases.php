@@ -385,6 +385,7 @@ function cms_release_planner(PDO $db): void {
     </div>
     <div class="admin-panel">
       <h2>Release plan history</h2>
+      <p data-live-deploy-controller class="muted">Ubuntu deployment controller: status pending</p>
       <div data-live-release-plans aria-live="polite">
         <div class="table-scroll"><table><thead><tr>
           <th>Host</th><th>Component</th><th>GitHub commit</th><th>Status</th><th>Control</th>
