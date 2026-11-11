@@ -21,6 +21,8 @@ class SourceChecks(unittest.TestCase):
             self.assertEqual(token, "private-test-credential")
             if path.startswith("/commits/"):
                 return {"sha": sha}
+            if path.startswith("/commits?"):
+                return [{"sha": sha, "commit": {"message": "Approved test release"}}]
             body = b"safe fixture"
             return {"type":"file","encoding":"base64",
                     "content":base64.b64encode(body).decode()}
@@ -28,7 +30,8 @@ class SourceChecks(unittest.TestCase):
         self.assertEqual(index["commit"], sha)
         self.assertEqual(index["checked_at"], 123)
         self.assertEqual(len(index["files"]), 8)
-        for path in requested[1:]:
+        self.assertEqual(len(index["candidates"]), 1)
+        for path in (p for p in requested if p.startswith("/contents/")):
             self.assertIn("?ref=" + sha, path)
         self.assertEqual(index["files"][0]["sha256"], hashlib.sha256(b"safe fixture").hexdigest())
 
@@ -36,9 +39,41 @@ class SourceChecks(unittest.TestCase):
         def fake_api(path, token):
             if path.startswith("/commits/"):
                 return {"sha": "b" * 40}
+            if path.startswith("/commits?"):
+                return []
             return {"type": "dir"}
         with self.assertRaises(RuntimeError):
             source.refresh("private-test-credential", fake_api)
+
+    def test_previous_revision_selectable_when_complete(self):
+        head, old = "a" * 40, "b" * 40
+        def api(path, token):
+            if path.startswith("/commits/"):
+                return {"sha": head}
+            if path.startswith("/commits?"):
+                return [{"sha": head, "commit": {"message": "HEAD"}},
+                        {"sha": old, "commit": {"message": "Known stable release"}}]
+            return {"type": "file", "encoding": "base64",
+                    "content": base64.b64encode(path.encode()).decode()}
+        index = source.refresh("private-test-credential", api, now=456)
+        self.assertEqual([x["commit"] for x in index["candidates"]], [head, old])
+        self.assertEqual(index["candidates"][1]["message"], "Known stable release")
+        self.assertNotEqual(index["candidates"][0]["files"][0]["sha256"],
+                            index["candidates"][1]["files"][0]["sha256"])
+
+    def test_incomplete_older_revision_is_skipped(self):
+        head, old = "a" * 40, "b" * 40
+        def api(path, token):
+            if path.startswith("/commits/"):
+                return {"sha": head}
+            if path.startswith("/commits?"):
+                return [{"sha": head}, {"sha": old}]
+            if "ref=" + old in path:
+                return {"type": "dir"}
+            return {"type": "file", "encoding": "base64",
+                    "content": base64.b64encode(b"ok").decode()}
+        index = source.refresh("private-test-credential", api, now=456)
+        self.assertEqual([x["commit"] for x in index["candidates"]], [head])
 
     def test_atomic_private_index(self):
         with tempfile.TemporaryDirectory() as temp:
