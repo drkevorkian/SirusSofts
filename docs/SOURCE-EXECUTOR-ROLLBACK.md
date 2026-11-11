@@ -1,113 +1,132 @@
-# Guarded SirusSofts source deployment and rollback
+# SirusSofts controlled source deployments and rollback
 
-This is **stage 2 of the Release Planner**. It introduces an independent,
-root-console release executor at `deploy/release/source_executor.py`.
+This release adds a **fixed-task Ubuntu installation queue** to the existing
+authenticated Release Planner at `/admin/updates`. It also includes a
+guarded **local console executor** for Ubuntu and Gentoo.
 
-**No automatic web-triggered installation is enabled**. A browser request,
-GitHub push, or release approval alone cannot invoke this executor. It does
-not use GitHub credentials, write to the CMS database, process shell text,
-grant sudo to PHP, or install operating-system packages.
+Important: the website does not get a shell, sudo, or root credentials.
+The privileged root-owned Ubuntu controller is a separate systemd service,
+reads a bounded queue from the private CMS database, validates an already
+password-confirmed deployment request, and independently enforces fixed
+source-file destinations and SHA-256 hashes. A GitHub push or source update
+check can **never** automatically install code.
 
-## Bounded targets
+## Website-controlled actions: current scope
 
-| Host | Exact supported source | Fixed installed target | Controlled restart |
+| Host | Component | Website Install | Website Rollback |
 | --- | --- | --- | --- |
-| Ubuntu | `ubuntu-worker/worker.py` | `/usr/local/libexec/sirus-ubuntu-worker.py` | `systemctl restart sirus-ubuntu-worker.service` |
-| Ubuntu | `realtime/server.py` | `/usr/local/libexec/sirus-live-socket.py` | `systemctl restart sirus-live-socket.service` |
-| Gentoo | `gentoo-node/client.py` | `/opt/sirus-gentoo-node/client.py` | `rc-service sirus-gentoo-node restart` |
-| Gentoo | `gentoo-node/dashboard.py` | `/opt/sirus-gentoo-node/dashboard.py` | `rc-service sirus-gentoo-dashboard restart` |
+| Ubuntu | `ubuntu-worker/worker.py` | Enabled **only after controller installation** | Yes |
+| Ubuntu | `realtime/server.py` | Enabled **only after controller installation** | Yes |
+| Ubuntu | CMS PHP and JS | No: guarded CMS release upgrade | No: existing CMS recovery |
+| Gentoo | Node agent and dashboard | No: local root console only | Local console only |
+| Gentoo | SSH tunnel | No: keep tunnel intact | No: manual tunnel recovery |
 
-The full CMS/website must still use the existing backed-up
-`deploy/ubuntu24/08-upgrade-cms-hestia.sh` deployment. Changing one
-`CMS/app/*.php` file at a time is **not a coherent CMS release**.
-The Gentoo SSH tunnel also remains out of scope to prevent losing
-the private compute node while deploying.
+**Website installation of Gentoo and full CMS bundles is not complete.**
+The UI hides Install/Rollback actions when the Ubuntu controller's
+30-second heartbeat is stale. The PHP request additionally rejects them
+before they enter the work queue. The admin must re-enter the password
+and type `DEPLOY <12-char-commit>` or `ROLLBACK <12-char-commit>`.
+Approvals and requests are written to the existing CMS audit log.
 
-## Required inputs
+Only an approved, staged, immutable GitHub component with a matching
+installed baseline can be installed. Ubuntu's controller handles one job
+at a time; it never handles Gentoo jobs and never executes user-supplied
+command strings. An interrupted in-progress job is marked
+`interrupted` and **not automatically replayed**.
 
-An administrator must first select a revision, create a plan and
-explicitly approve it in `/admin/updates`. The GitHub source indexer
-downloads the approved *immutable* commit's source file and verifies
-its SHA-256 before staging it outside the website root.
+## Protection and rollback
 
-For Ubuntu, the CLI independently verifies the local CMS SQLite
-`cms_source_release_plans` row is still approved. The release
-must be recent, the manifest must be allowlisted, and the live
-installed file must still match the approved baseline digest.
+The local `deploy/release/source_executor.py` requires:
+- A fixed approved host, service and destination, exact plan ID,
+  GitHub commit SHA and approved source-file SHA-256
+- No symlink/hardlink target file, no baseline drift and valid Python syntax
+- Root-owned private backup directory and at least **512 MiB** free
+  on the destination filesystem
+- A running target service before replacement
+- A local process lock, exact operator confirmation, and a fresh
+  approval (on Ubuntu)
 
-For Gentoo, the existing HMAC heartbeat reports installed code
-digests, but **remote signed transfer and web-triggered application are
-not built**. To use the CLI, the administrator must securely transfer
-the approved file and matching manifest into
-`/var/lib/sirusnode/source_artifacts/` *outside the web root*.
-Only a local root console can run the executor on Gentoo. The CLI
-does not claim to validate a remote Ubuntu approval on its own.
+The executor copies the live file and the approved staged source into
+root-owned private storage, verifies both hashes and atomically replaces
+the target. It restarts only the corresponding named service, checks
+its status and automatically attempts rollback on failure.
 
-## Console commands (only after code review, PR merge, and staging)
+**Recovery is independent of source artifact or approval expiration.**
+If the controller is interrupted between backup and verification, the
+original file remains in `/var/lib/sirussofts/source-releases/<plan-id>/`.
+A root console can recover it based solely on the validated recovery
+journal. The restore refuses unrelated file drift.
 
-Read-only syntax preflight, from the reviewed source checkout on either host:
+## Deployment onto Ubuntu, after review and merge
+
+Do **not** run the commands until the PR is merged into
+`feature/cms-vhost-distributed-nodes`. They operate on the existing
+Hestia installation; never run the first-run CMS installer.
+
+1. Review local working changes, then
+   `git pull --ff-only origin feature/cms-vhost-distributed-nodes` from
+   `/root/SirusSofts`.
+2. Run the repo checks:
+   `python3 -m unittest discover -s deploy/release/tests -p 'test_*.py' -v`,
+   `php CMS/tests/source_deploy_test.php`,
+   and `bash deploy/release/install-ubuntu.sh --check`.
+3. Deploy the CMS using
+   `bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com`,
+   review the plan and existing local changes, then explicitly run the
+   same script with `--apply`. The guarded CMS release creates a
+   rollback backup and preserves SQLite/admin credentials.
+4. Visit `https://sirussofts.com/admin/updates` once as the
+   administrator to ensure the new queue schema exists.
+5. Review/update the separate WebSocket Python installation using the
+   existing guarded `realtime/install-ubuntu.sh --check|--plan|--install`
+   workflow; the CMS PHP deployment does not replace its executable.
+6. `bash deploy/release/install-ubuntu.sh --plan`, then interactive
+   `bash deploy/release/install-ubuntu.sh --install`.
+   Its installer refuses any previously queued deployment request.
+7. Verify `systemctl is-active sirus-release-controller.service`,
+   `journalctl -u sirus-release-controller.service -n 40 --no-pager`,
+   and that the Update Center shows **controller connected**.
+   Confirm the public website and Gentoo dashboard still respond.
+
+Only after these gates should the administrator approve a specific
+Ubuntu worker/WebSocket revision, wait for private staging, submit
+**Install approved source**, and watch the WebSocket queue progress.
+Do **not** test by applying an unreviewed older commit to production.
+
+## Local recovery
+
+From the reviewed checkout on Ubuntu, as root:
+
+```sh
+python3 deploy/release/source_executor.py --host ubuntu-primary --id PLAN_ID --rollback --confirm "ROLLBACK SHORT_COMMIT"
+```
+
+Gentoo can use the same CLI with `--host gentoo-home` only from a **local
+root console** after the operator securely transfers the exact staged
+artifact and manifest to `/var/lib/sirusnode/source_artifacts/`.
+The existing sirus-tunnel user is deliberately restricted and must not
+be changed into a general-purpose file/command tunnel.
+
+Read-only local preflight for either host:
 
 ```sh
 python3 deploy/release/source_executor.py --check
 ```
 
-Ubuntu plan and apply, with the precise 32-character plan ID and commit
-short hash supplied by the authenticated Release Planner:
+The website-controlled Gentoo source delivery, coherent whole-CMS
+release manifests and production package installation are separate
+workstreams, not enabled by this code.
 
-```sh
-sudo python3 deploy/release/source_executor.py --host ubuntu-primary --id PLAN_ID --plan
-sudo python3 deploy/release/source_executor.py --host ubuntu-primary --id PLAN_ID --apply --confirm "DEPLOY SHORT_COMMIT"
-```
+## Failure handling
 
-Gentoo manual console usage, after explicit operator transfer of the
-staged artifact and manifest:
+- Request `queued`: waiting for the fixed Ubuntu controller
+- `running`: root controller claimed the exact request
+- `done`: service restart and health check verified
+- `failed`: no automatic retry, review root-owned backup and logs
+- `interrupted`: controller stopped while applying; **operator review**
+  of the journal is required before any other operation
 
-```sh
-sudo python3 deploy/release/source_executor.py --host gentoo-home --id PLAN_ID --plan
-sudo python3 deploy/release/source_executor.py --host gentoo-home --id PLAN_ID --apply --confirm "DEPLOY SHORT_COMMIT"
-```
-
-Rollback is independently available even if the approved plan expires
-or the original staged artifact is gone. Root-owned backups are stored
-under `/var/lib/sirussofts/source-releases/<plan-id>/`:
-
-```sh
-sudo python3 deploy/release/source_executor.py --host ubuntu-primary --id PLAN_ID --rollback --confirm "ROLLBACK SHORT_COMMIT"
-```
-
-Use `--host gentoo-home` on the Gentoo machine for Gentoo rollback.
-Never run the Ubuntu host mode on Gentoo or vice versa.
-
-## Safety and recovery behavior
-
-1. The executable checks the host OS, exact component allowlist, source
-   and installed SHA-256, staging age, installed service health,
-   file types and 512 MiB of free destination disk space.
-2. It takes a non-blocking process lock; only one local deployment may
-   run at once.
-3. It creates a root-owned 0700 recovery directory with a 0600
-   backup and a **second root-owned copy of the approved staged source**.
-   This prevents a PHP-account race after the replacement begins.
-4. Python syntax is compiled before any live file changes. The source
-   file is atomically replaced on the same filesystem, preserving
-   the original owner, group and mode.
-5. Only the known service is restarted. A failing service health check
-   triggers rollback of the source file and an attempted service
-   restart. The private journal retains deployment/rollback state.
-6. A manual rollback refuses to overwrite a file that has drifted
-   since deployment. Escalate to operator recovery in this case.
-
-Do not erase recovery directories or manually modify a running file
-after approval and before application. Do not point a sudo rule or an
-HTTP route at the generic Python interpreter or this CLI.
-
-## Current deployment readiness
-
-The executor and its tests can be reviewed and staged, but **neither
-machine has been modified by repository commits**. Production requires
-an administrator to deploy and validate the updated code, ensure
-approved artifacts have been staged, and execute the guarded CLI.
-The next control-plane milestone is a separate audited, host-specific,
-root-owned queue service that consumes constrained apply requests,
-publishes progress over WebSockets and arranges authenticated Gentoo
-artifact transfer. Those endpoints are intentionally not enabled yet.
+Do not delete source artifacts, journals, or previous-file backups
+during a deployment. Avoid manual file edits between approval and
+installation. Never add unrestricted sudo rules to PHP or the
+unprivileged Gentoo agent.
