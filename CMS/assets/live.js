@@ -64,6 +64,50 @@
       }
       lastEventId = events.reduce((max, item) => Math.max(max, Number(item.id) || 0), lastEventId);
     }
+    const sourceStatus = document.querySelector("[data-live-source-status]");
+    const sourceList = document.querySelector("[data-live-source-list]");
+    if (sourceStatus && sourceList) {
+      const source = snapshot.source || {};
+      if (!source.commit || !Array.isArray(source.files)) {
+        sourceStatus.textContent = "GitHub source index unavailable; check the private indexer service.";
+        sourceList.replaceChildren();
+      } else {
+        const checked = source.checked_at ?
+          new Date(source.checked_at * 1000).toISOString() : "unknown";
+        sourceStatus.textContent = "Approved branch: " + String(source.branch) +
+          " · commit " + String(source.commit).slice(0, 12) + " · checked " + checked;
+        const deployed = new Map();
+        for (const item of source.installed || [])
+          deployed.set(item.path, item.sha256);
+        for (const node of snapshot.nodes || []) {
+          if (node.node_id !== "gentoo-home") continue;
+          for (const item of node.metrics?.software_files || [])
+            deployed.set(item.path, node.online ? item.sha256 : null);
+        }
+        const table = element("table");
+        const head = element("thead");
+        const header = element("tr");
+        for (const name of ["System", "Component", "Source comparison"])
+          header.appendChild(element("th", name));
+        head.appendChild(header);
+        table.appendChild(head);
+        const body = element("tbody");
+        for (const item of source.files) {
+          const tr = element("tr");
+          tr.appendChild(element("td", item.platform || ""));
+          tr.appendChild(element("td", item.path || ""));
+          const installed = deployed.get(item.path);
+          const state = installed === undefined ? "Not installed / not reported" :
+            installed === null ? "Node offline (stale)" :
+            installed === item.sha256 ? "Matches approved GitHub" :
+            "Differs from approved GitHub — review";
+          tr.appendChild(element("td", state));
+          body.appendChild(tr);
+        }
+        table.appendChild(body);
+        sourceList.replaceChildren(table);
+      }
+    }
     const updates = document.querySelector("[data-live-update-jobs]");
     if (updates) {
       const fragment = document.createDocumentFragment();
@@ -95,6 +139,55 @@
       const badge = Array.from(document.querySelectorAll("[data-live-node-id]"))
         .find(el => el.dataset.liveNodeId === node.node_id);
       if (badge) badge.textContent = node.online ? "Online" : "Offline — stale metrics";
+      const fmtGiB = bytes => (Number(bytes || 0) / (1024 ** 3)).toFixed(1) + " GiB";
+      const metrics = node.metrics && typeof node.metrics === "object" ? node.metrics : {};
+      document.querySelectorAll("[data-live-metric]").forEach(target => {
+        if (target.dataset.liveMetricNode !== node.node_id) return;
+        const key = target.dataset.liveMetric;
+        let value = "Unavailable";
+        if (node.online) {
+          if (key === "cpu_pct" && typeof metrics.cpu_pct === "number")
+            value = metrics.cpu_pct.toFixed(1) + "%";
+          if (key === "cpu_temp_c" && typeof metrics.cpu_temp_c === "number")
+            value = metrics.cpu_temp_c.toFixed(1) + " °C";
+          if (key === "memory" && typeof metrics.memory_used_bytes === "number")
+            value = fmtGiB(metrics.memory_used_bytes);
+          if (key === "disk" && typeof metrics.disk_total_bytes === "number")
+            value = fmtGiB(metrics.disk_used_bytes) + " / " + fmtGiB(metrics.disk_total_bytes);
+        }
+        target.textContent = value;
+      });
+      const gpuPanel = Array.from(document.querySelectorAll("[data-live-gpus]"))
+        .find(el => el.dataset.liveGpus === node.node_id);
+      if (gpuPanel && Array.isArray(metrics.gpus)) {
+        const fragment = document.createDocumentFragment();
+        for (const gpu of metrics.gpus) {
+          const card = element("div");
+          card.className = "node-metric";
+          card.appendChild(element("span", String(gpu.name || "GPU")));
+          card.appendChild(element("strong", node.online && typeof gpu.usage_pct === "number"
+            ? gpu.usage_pct.toFixed(1) + "% GPU" : "GPU load unavailable"));
+          card.appendChild(element("small", "Temperature: " +
+            (node.online && typeof gpu.temp_c === "number"
+              ? gpu.temp_c.toFixed(1) + " °C" : "Unavailable")));
+          fragment.appendChild(card);
+        }
+        gpuPanel.replaceChildren(fragment);
+      }
+      const services = Array.from(document.querySelectorAll("[data-live-node-services]"))
+        .find(el => el.dataset.liveNodeServices === node.node_id);
+      if (services) {
+        const metrics = node.metrics && typeof node.metrics === "object" ? node.metrics : {};
+        const running = Array.isArray(metrics.services) ? metrics.services : [];
+        const apps = Array.isArray(metrics.applications) ? metrics.applications : [];
+        const summary = element("p", node.online
+          ? "OpenRC running: " + (running.join(", ") || "None reported")
+          : "Latest known OpenRC services (host offline): " + (running.join(", ") || "None reported"));
+        const appSummary = element("p", "Local applications: " +
+          (apps.map(app => String(app.name || "app") + ": " +
+            (node.online && app.healthy ? "Healthy" : "Unavailable")).join(" · ") || "None reported"));
+        services.replaceChildren(summary, appSummary);
+      }
     }
     document.dispatchEvent(new CustomEvent("sirus:live", {detail: snapshot}));
   }

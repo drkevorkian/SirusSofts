@@ -158,35 +158,45 @@ function cms_operations_page(PDO $db): void
       <div class="node-metric-grid">
         <div class="node-metric">
           <span>CPU utilization</span>
-          <strong><?=$cpu===null?'Unavailable':cms_esc(number_format((float)$cpu,1)).'%'?></strong>
+          <strong data-live-metric="cpu_pct" data-live-metric-node="<?=cms_esc($node['node_id'])?>"><?=$cpu===null?'Unavailable':cms_esc(number_format((float)$cpu,1)).'%'?></strong>
           <?php if($cpu!==null):?><progress max="100" value="<?=cms_esc((string)$cpu)?>">CPU load</progress><?php endif;?>
           <small>1-minute load: <?=isset($m['load_1'])?cms_esc((string)$m['load_1']):'N/A'?></small>
         </div>
         <div class="node-metric">
           <span>Memory</span>
-          <strong><?=isset($m['memory_used_bytes'])?cms_esc(cms_node_size($memoryUsed)):'Unavailable'?> / <?=cms_esc(cms_node_size($memoryTotal))?></strong>
+          <strong data-live-metric="memory" data-live-metric-node="<?=cms_esc($node['node_id'])?>"><?=isset($m['memory_used_bytes'])?cms_esc(cms_node_size($memoryUsed)):'Unavailable'?> / <?=cms_esc(cms_node_size($memoryTotal))?></strong>
           <?php if(isset($m['memory_used_bytes'])):?><progress max="100" value="<?=cms_esc((string)$memoryPct)?>">Memory used</progress><?php endif;?>
           <small><?=isset($m['memory_used_bytes'])?cms_esc((string)$memoryPct).'% used':'Awaiting updated agent'?></small>
         </div>
         <div class="node-metric">
           <span>Root filesystem</span>
-          <strong><?=$diskTotal>0?cms_esc(cms_node_size($diskUsed)).' / '.cms_esc(cms_node_size($diskTotal)):'Unavailable'?></strong>
+          <strong data-live-metric="disk" data-live-metric-node="<?=cms_esc($node['node_id'])?>"><?=$diskTotal>0?cms_esc(cms_node_size($diskUsed)).' / '.cms_esc(cms_node_size($diskTotal)):'Unavailable'?></strong>
           <?php if($diskTotal>0):?><progress max="100" value="<?=cms_esc((string)$diskPct)?>">Disk used</progress><?php endif;?>
           <small><?=$diskTotal>0?cms_esc((string)$diskPct).'% used':'Awaiting updated agent'?></small>
         </div>
         <div class="node-metric">
           <span>CPU temperature</span>
-          <strong><?=$cpuTemp===null?'Unavailable':cms_esc(number_format((float)$cpuTemp,1)).' °C'?></strong>
+          <strong data-live-metric="cpu_temp_c" data-live-metric-node="<?=cms_esc($node['node_id'])?>"><?=$cpuTemp===null?'Unavailable':cms_esc(number_format((float)$cpuTemp,1)).' °C'?></strong>
           <small>Uptime:
             <?=isset($m['uptime_seconds'])?cms_esc(cms_node_uptime((int)$m['uptime_seconds'])):'N/A'?></small>
         </div>
+      </div>
+      <h3>Running services and application health</h3>
+      <div data-live-node-services="<?=cms_esc($node['node_id'])?>">
+        <p>OpenRC services: <?=cms_esc(implode(', ',(array)($m['services']??[])))?></p>
+        <p>Local applications:
+          <?php foreach((array)($m['applications']??[]) as $app):?>
+            <?=cms_esc($app['name']??'app')?>:
+            <?=!empty($app['healthy'])?'Healthy':'Unavailable'?>
+          <?php endforeach;?>
+        </p>
       </div>
       <h3>Graphics processing units</h3>
       <?php if(!$gpu):?>
         <p>No GPU temperature/utilization data yet.
         Detected PCI vendors: <?=cms_esc(implode(', ',$node['gpu_vendors']??[]))?></p>
       <?php else:?>
-      <div class="node-metric-grid">
+      <div class="node-metric-grid" data-live-gpus="<?=cms_esc($node['node_id'])?>">
         <?php foreach($gpu as $device):?>
           <div class="node-metric">
             <span><?=cms_esc($device['name']??'GPU')?> · <?=cms_esc($device['vendor']??'')?></span>
@@ -293,6 +303,30 @@ function cms_operations_page(PDO $db): void
  */
 function cms_updates_post(PDO $db, string $action): never {
     cms_need_admin();
+    if($action==='check_source_updates'){
+        $dir=cms_private_directory().'/nodes';
+        if(!is_dir($dir) || is_link($dir))
+            throw new InvalidArgumentException('Private node directory unavailable.');
+        $marker=$dir.'/source_refresh.request';
+        if(is_link($marker))
+            throw new InvalidArgumentException('Unsafe source refresh path.');
+        if(!is_file($marker)){
+            $handle=@fopen($marker,'x');
+            if($handle===false)throw new InvalidArgumentException('Cannot request GitHub refresh.');
+            fclose($handle);
+            chmod($marker,0600);
+        }
+        cms_audit($db,'request-github-source-check','approved-sirussofts-branch');
+        if(str_contains((string)($_SERVER['HTTP_ACCEPT']??''),'application/json')){
+            header('Content-Type: application/json; charset=utf-8');
+            header('Cache-Control: no-store');
+            http_response_code(202);
+            echo json_encode(['ok'=>true,'request_id'=>'github-source-check'],JSON_THROW_ON_ERROR);
+            exit;
+        }
+        cms_flash('GitHub source check requested; the restricted indexer will process it.');
+        cms_go('/admin/updates');
+    }
     if($action!=='check_package_updates')
         throw new InvalidArgumentException('Unsupported Update Center operation.');
     $nodeId=(string)($_POST['node_id']??'');
@@ -362,6 +396,19 @@ function cms_updates_page(PDO $db): void {
           </button>
         </form>
       <?php endforeach;?>
+    </div>
+    <div class="admin-panel">
+      <h2>SirusSofts GitHub source updates</h2>
+      <p>Compare the approved GitHub deployment branch against actual installed
+      SirusSofts files on Ubuntu and the signed Gentoo node. Different code
+      is flagged for review, not automatically installed.</p>
+      <form method="post" action="/admin/updates" data-live-submit>
+        <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+        <input type="hidden" name="action" value="check_source_updates">
+        <button type="submit" class="btn primary">Check GitHub source revisions</button>
+      </form>
+      <p data-live-source-status class="muted">Awaiting authenticated live source inventory.</p>
+      <div data-live-source-list role="status" aria-live="polite"></div>
     </div>
     <div class="admin-panel">
       <h2>Recent update checks</h2>

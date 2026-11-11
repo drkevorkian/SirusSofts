@@ -54,9 +54,43 @@ def verify_token(token, secret, now=None):
         return False
 
 
+def source_versions(root=ROOT):
+    """Admin-only inventory of approved GitHub fingerprints and deployed bytes."""
+    result = {"checked_at": None, "commit": None, "branch": None,
+              "files": [], "installed": []}
+    index = root / "source_index.json"
+    if index.is_file() and not index.is_symlink() and index.stat().st_size < 8192:
+        try:
+            data = json.loads(index.read_text(encoding="utf8"))
+            if isinstance(data, dict) and isinstance(data.get("files"), list):
+                result["checked_at"] = data.get("checked_at")
+                result["commit"] = data.get("commit")
+                result["branch"] = data.get("branch")
+                result["files"] = data["files"][:16]
+        except (OSError, ValueError):
+            pass
+    components = (
+        ("CMS/app/admin.php", "/home/sirusweb/web/sirussofts.com/public_html/app/admin.php"),
+        ("CMS/app/operations.php", "/home/sirusweb/web/sirussofts.com/public_html/app/operations.php"),
+        ("CMS/assets/live.js", "/home/sirusweb/web/sirussofts.com/public_html/assets/live.js"),
+        ("ubuntu-worker/worker.py", "/usr/local/libexec/sirus-ubuntu-worker.py"),
+        ("realtime/server.py", "/usr/local/libexec/sirus-live-socket.py"),
+    )
+    for name, filename in components:
+        file = Path(filename)
+        try:
+            if file.is_file() and not file.is_symlink() and file.stat().st_size < 2_000_000:
+                import hashlib
+                result["installed"].append({"path": name,
+                    "sha256": hashlib.sha256(file.read_bytes()).hexdigest()})
+        except OSError:
+            pass
+    return result
+
+
 def snapshot(root=ROOT):
     """Finite, read-only view. No database creation or modification."""
-    data = {"jobs": [], "nodes": [], "events": []}
+    data = {"jobs": [], "nodes": [], "events": [], "source": source_versions(root)}
     jobs_db = root / "work.sqlite3"
     nodes_db = root / "registry.sqlite3"
     if jobs_db.is_file():
@@ -76,9 +110,15 @@ def snapshot(root=ROOT):
     if nodes_db.is_file():
         with sqlite3.connect(f"file:{nodes_db}?mode=ro", uri=True, timeout=2) as db:
             db.row_factory = sqlite3.Row
-            for row in db.execute("""SELECT node_id,os,agent_version,last_seen
+            for row in db.execute("""SELECT node_id,os,agent_version,last_seen,metrics_json
                                      FROM node_status ORDER BY node_id LIMIT 32"""):
                 node = dict(row)
+                raw = node.pop("metrics_json", "{}")
+                try:
+                    metrics = json.loads(raw[:8192]) if len(raw) <= 8192 else {}
+                    node["metrics"] = metrics if isinstance(metrics, dict) else {}
+                except (ValueError, TypeError):
+                    node["metrics"] = {}
                 node["online"] = node["last_seen"] >= int(time.time()) - 180
                 data["nodes"].append(node)
     events_db = root / "live_events.sqlite3"

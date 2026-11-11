@@ -42,9 +42,11 @@ class LiveSocketTests(unittest.TestCase):
                       (str(n), "gentoo-home", "compute_selftest", "done", 1,
                        123,"", '{"safe":true}', n))
             with sqlite3.connect(root/"registry.sqlite3") as db:
-                db.execute("CREATE TABLE node_status(node_id TEXT,os TEXT,agent_version TEXT,last_seen INTEGER)")
-                db.execute("INSERT INTO node_status VALUES(?,?,?,?)",
-                           ("gentoo-home","gentoo","0.5",int(time.time())))
+                db.execute("CREATE TABLE node_status(node_id TEXT,os TEXT,agent_version TEXT,last_seen INTEGER,metrics_json TEXT)")
+                db.execute("INSERT INTO node_status VALUES(?,?,?,?,?)",
+                           ("gentoo-home","gentoo","0.5",int(time.time()),
+                            json.dumps({"cpu_pct":12.0,"services":["sshd","nginx"],
+                                        "applications":[{"name":"dashboard","healthy":True}]})))
             with sqlite3.connect(root/"live_events.sqlite3") as db:
                 db.execute("CREATE TABLE live_events(id INTEGER,topic TEXT,payload_json TEXT,created_at INTEGER)")
                 db.execute('INSERT INTO live_events VALUES(1,?,?,?)',
@@ -55,6 +57,7 @@ class LiveSocketTests(unittest.TestCase):
             self.assertEqual(result["events"][0]["payload"],{"unread":2})
             self.assertEqual(result["jobs"][0]["result"],{"safe":True})
             self.assertTrue(result["nodes"][0]["online"])
+            self.assertEqual(result["nodes"][0]["metrics"]["services"],["sshd","nginx"])
             with sqlite3.connect(root/"work.sqlite3") as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM work_jobs").fetchone()[0],50)
 
