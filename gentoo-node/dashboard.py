@@ -242,7 +242,7 @@ def page(m: dict, hardware: dict, jobs: list, graph: str, sync: str) -> bytes:
     cpu="N/A" if m.get("cpu_pct") is None else f'{m["cpu_pct"]:.1f}%'
     body=f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="30"><title>Gentoo · SirusSofts</title>
+<title>Gentoo · SirusSofts</title>
 <style>
 :root{{color-scheme:dark;--bg:#07121f;--panel:#132a40;--stroke:#31536c;
 --text:#eaf4ff;--muted:#a5bcd0;--accent:#6db9ff}}
@@ -265,21 +265,21 @@ svg{{display:block;width:100%;height:150px}}summary{{cursor:pointer}}
 assigns jobs and stores the authoritative task history.
 <a href="https://sirussofts.com/admin/infrastructure">CMS infrastructure</a></p>
 <div class="cards">
-<div class="card"><small>CPU · {hardware["cpu_threads"]} threads</small><strong>{e(cpu)}</strong></div>
-<div class="card"><small>Memory</small><strong>{100*used/max(1,ram):.1f}%</strong></div>
-<div class="card"><small>Root disk</small><strong>{100*disk/max(1,total):.1f}%</strong></div>
-<div class="card"><small>Uptime</small><strong>{int(m.get("uptime_seconds",0))//3600}h</strong></div>
+<div class="card"><small>CPU · {hardware["cpu_threads"]} threads</small><strong id="live-cpu">{e(cpu)}</strong></div>
+<div class="card"><small>Memory</small><strong id="live-memory">{100*used/max(1,ram):.1f}%</strong></div>
+<div class="card"><small>Root disk</small><strong id="live-disk">{100*disk/max(1,total):.1f}%</strong></div>
+<div class="card"><small>Uptime</small><strong id="live-uptime">{int(m.get("uptime_seconds",0))//3600}h</strong></div>
 </div>
-<section><h2>CPU utilization · last 24 hours</h2>{graph}</section>
+<section><h2>CPU utilization · last 24 hours</h2><div id="live-cpu-chart">{graph}</div></section>
 <section><h2>Graphics hardware</h2><div class="wrap"><table>
 <thead><tr><th>GPU</th><th>Usage</th><th>Temperature</th><th>VRAM</th></tr></thead>
-<tbody>{gpu_rows or '<tr><td colspan="4">No GPUs found</td></tr>'}</tbody>
+<tbody id="live-gpu-rows">{gpu_rows or '<tr><td colspan="4">No GPUs found</td></tr>'}</tbody>
 </table></div></section>
-<section><h2>Previous tasks</h2><p class="muted">{e(sync)}</p>
+<section><h2>Previous tasks</h2><p class="muted" id="live-history-status">{e(sync)}</p>
 <div class="wrap"><table><thead><tr><th>ID</th><th>Kind</th><th>Status</th>
 <th>Attempts</th><th>Updated</th><th>Result</th></tr></thead>
-<tbody>{rows or '<tr><td colspan="6">No previous jobs</td></tr>'}</tbody></table></div>
-</section><small>Read-only · Refreshes every 30 seconds</small></main></body></html>"""
+<tbody id="live-job-rows">{rows or '<tr><td colspan="6">No previous jobs</td></tr>'}</tbody></table></div>
+</section><small>Read-only · WebSocket updates without page reloads</small>\n<small id="live-status" role="status" aria-live="polite">Live: connecting</small>\n<small id="live-updated"></small></main>\n<script defer src="./dashboard_live.js"></script></body></html>"""
     return body.encode("utf8")
 
 
@@ -298,6 +298,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy","no-referrer")
         self.send_header("Content-Security-Policy",
                          "default-src 'none';style-src 'unsafe-inline';"
+                         "script-src 'self';connect-src 'self' "
+                         "wss://sirussofts.com wss://gentoo.sirussofts.com;"
                          "frame-ancestors 'none';form-action 'none'")
         if authenticate:
             self.send_header("WWW-Authenticate",'Basic realm="SirusSofts Gentoo"')
