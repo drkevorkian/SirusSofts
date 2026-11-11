@@ -45,8 +45,14 @@ class LiveSocketTests(unittest.TestCase):
                 db.execute("CREATE TABLE node_status(node_id TEXT,os TEXT,agent_version TEXT,last_seen INTEGER)")
                 db.execute("INSERT INTO node_status VALUES(?,?,?,?)",
                            ("gentoo-home","gentoo","0.5",int(time.time())))
+            with sqlite3.connect(root/"live_events.sqlite3") as db:
+                db.execute("CREATE TABLE live_events(id INTEGER,topic TEXT,payload_json TEXT,created_at INTEGER)")
+                db.execute('INSERT INTO live_events VALUES(1,?,?,?)',
+                           ("mail.received", '{"unread":2}', 123))
             result=live.snapshot(root)
             self.assertEqual(len(result["jobs"]),40)
+            self.assertEqual(result["events"][0]["topic"],"mail.received")
+            self.assertEqual(result["events"][0]["payload"],{"unread":2})
             self.assertEqual(result["jobs"][0]["result"],{"safe":True})
             self.assertTrue(result["nodes"][0]["online"])
             with sqlite3.connect(root/"work.sqlite3") as db:
