@@ -196,7 +196,8 @@ def release_from_backup(host: str, ident: str, *,
             or not isinstance(commit, str) or not HEX40.fullmatch(commit)
             or not isinstance(baseline, str) or not HEX64.fullmatch(baseline)
             or not isinstance(target, str) or not HEX64.fullmatch(target)
-            or record.get("state") not in ("verified", "rollback_required")
+            or record.get("state") not in ("verified", "rollback_required",
+                                         "backup_complete", "installed_unverified")
             or digest(backup) != baseline):
         raise ReleaseError("Root-owned recovery record failed validation")
     destination, restart, health = ALLOWED[host][path]
@@ -340,13 +341,16 @@ def rollback(release: Release, *, backup_root: Path = BACKUPS,
             or record.get("path") != release.path or record.get("commit") != release.commit
             or record.get("baseline_sha256") != release.baseline_sha
             or record.get("target_sha256") != release.target_sha
-            or record.get("state") not in ("verified", "rollback_required")):
+            or record.get("state") not in ("verified", "rollback_required",
+                                         "backup_complete", "installed_unverified")):
         raise ReleaseError("No matching verified release to roll back")
     if digest(backup) != release.baseline_sha:
         raise ReleaseError("Rollback backup corrupted")
-    if digest(release.destination) != release.target_sha:
+    current = digest(release.destination)
+    if current not in (release.target_sha, release.baseline_sha):
         raise ReleaseError("Installed version drifted; manual investigation required")
-    _atomic_replace(backup, release.destination)
+    if current == release.target_sha:
+        _atomic_replace(backup, release.destination)
     result = run(release.restart, capture_output=True, text=True, timeout=30, check=False)
     if result.returncode != 0:
         record["state"] = "rollback_service_failed"
