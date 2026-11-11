@@ -241,7 +241,7 @@ function cms_release_request_deployment(PDO $db,string $action,string $id,
     if(!is_string($hash) || !password_verify($password,$hash))
         throw new InvalidArgumentException('Administrator password was incorrect.');
     if($action==='apply'){
-        if(!0 <= $now-(int)$plan['approved_at'] ||
+        if($now<(int)$plan['approved_at'] ||
            $now-(int)$plan['approved_at']>86400)
             throw new InvalidArgumentException('Approved deployment is too old; review the release again.');
         $staging=cms_private_directory().'/nodes/source_artifacts';
