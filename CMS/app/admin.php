@@ -95,7 +95,9 @@ function cms_admin_post(PDO $db,string $path): void {
         cms_live_token($db);
     }
     if($path==='/admin/updates' &&
-       in_array($action,['plan_source_release','approve_source_release','cancel_source_release'],true)){
+       in_array($action,['plan_source_release','approve_source_release',
+                         'cancel_source_release','request_source_deploy',
+                         'request_source_rollback'],true)){
         cms_release_post($db,$action);
     }
     if($path==='/admin/updates' && in_array($action,['check_package_updates','check_source_updates'],true)){

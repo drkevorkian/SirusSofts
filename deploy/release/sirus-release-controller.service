@@ -1,0 +1,29 @@
+[Unit]
+Description=SirusSofts approved local source release controller
+After=network.target
+ConditionPathExists=/home/sirusweb/web/sirussofts.com/private/sirus-cms/data/cms.sqlite3
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+WorkingDirectory=/usr/local/libexec/sirus-release
+ExecStart=/usr/bin/python3 -B /usr/local/libexec/sirus-release/ubuntu_controller.py --loop --interval 4
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ReadWritePaths=/home/sirusweb/web/sirussofts.com/private/sirus-cms/data /var/lib/sirussofts /usr/local/libexec /run/lock
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX
+MemoryMax=192M
+LimitNOFILE=128
+
+[Install]
+WantedBy=multi-user.target
