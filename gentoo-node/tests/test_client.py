@@ -104,6 +104,27 @@ class DelegationTests(unittest.TestCase):
              patch.object(client,"execute_job",side_effect=AssertionError):
             self.assertEqual(client.poll_once(cfg,b"Z"*32)["state"],"idle")
 
+    def test_running_openrc_services_are_bounded(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            for name in ("sshd","sirus-gentoo-node","sirus-gentoo-tunnel"):
+                (root/name).touch()
+            (root/"unsafe name").touch()
+            result=client.gentoo_services(root)
+            self.assertEqual(result,["sirus-gentoo-node","sirus-gentoo-tunnel","sshd"])
+
+    def test_application_health_probes_only_loopback(self):
+        from unittest.mock import MagicMock
+        with patch.object(client.urllib.request,"urlopen") as opener:
+            opener.return_value.__enter__.return_value.status=200
+            result=client.gentoo_app_health()
+            self.assertEqual(len(result),2)
+            self.assertTrue(all(item["healthy"] for item in result))
+            urls=[call.args[0] for call in opener.call_args_list]
+            self.assertEqual(urls,["http://127.0.0.1:18080/healthz",
+                                   "http://127.0.0.1:18081/healthz"])
+
     def test_portage_update_check_never_installs(self):
         from types import SimpleNamespace
         with patch.object(client.shutil,"which",return_value="/usr/bin/emerge") as which, \
