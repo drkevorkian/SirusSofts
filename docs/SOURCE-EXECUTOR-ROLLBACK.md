@@ -11,6 +11,24 @@ password-confirmed deployment request, and independently enforces fixed
 source-file destinations and SHA-256 hashes. A GitHub push or source update
 check can **never** automatically install code.
 
+## SQLite privilege boundary
+
+The Hestia website owns the CMS SQLite database and its WAL/SHM files.
+To preserve ownership, the root-owned source controller **never connects
+to the CMS database with a writable SQLite handle**. Instead it calls the
+fixed, root-owned `db_queue.py` helper with subprocess credentials dropped
+to the existing `sirusweb` UID/GID. Queue claims, controller heartbeats,
+completion records, and interrupted-request recovery occur as `sirusweb`.
+
+Only the separate root controller replaces allowlisted installed Python
+service files and manages root-private backups. This distinction prevents a
+deployment controller from creating root-owned SQLite journal files.
+The SQLite approval checker used by the release executor opens the
+database in read-only mode.
+
+Do not execute `db_queue.py` as root or change the installed helper's
+root-owned file permissions to allow web-user writes.
+
 ## Website-controlled actions: current scope
 
 | Host | Component | Website Install | Website Rollback |

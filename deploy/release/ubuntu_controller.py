@@ -8,6 +8,8 @@ verifies source hashes, approved plan, host OS and exact destination allowlist.
 import argparse
 import json
 import os
+import pwd
+import subprocess
 from pathlib import Path
 import signal
 import sqlite3
@@ -124,6 +126,79 @@ def process_one(db, *, loader=load_release, restorer=release_from_backup,
     return state
 
 
+def database_helper(action, *, request_id="", state="", result=None, error="",
+                    run=subprocess.run):
+    """Delegate ALL writeable CMS SQLite operations to the Hestia site owner."""
+    if action not in ("recover", "next", "finish"):
+        raise ReleaseError("Unsupported SQLite bridge operation")
+    account = pwd.getpwnam("sirusweb")
+    executable = Path(__file__).with_name("db_queue.py")
+    if executable.is_symlink() or not executable.is_file():
+        raise ReleaseError("Trusted CMS queue helper is missing")
+    args = ["/usr/bin/python3", "-B", str(executable), action]
+    payload = None
+    if action == "finish":
+        if (len(request_id) != 32 or any(ch not in "0123456789abcdef" for ch in request_id)
+                or state not in ("done", "failed")):
+            raise ReleaseError("Invalid queue completion identifier")
+        args.extend(["--request-id", request_id, "--state", state])
+        payload = json.dumps({"result": result or {}, "error": error[:190]})
+
+    def drop_privileges():
+        os.setgroups([])
+        os.setgid(account.pw_gid)
+        os.setuid(account.pw_uid)
+
+    completed = run(args, input=payload, capture_output=True, text=True,
+                    timeout=15, check=False, preexec_fn=drop_privileges)
+    if completed.returncode != 0 or len(completed.stdout) > 8192:
+        raise ReleaseError("Unprivileged CMS queue helper failed")
+    try:
+        response = json.loads(completed.stdout)
+    except ValueError:
+        raise ReleaseError("CMS queue helper returned invalid data") from None
+    if not isinstance(response, dict) or response.get("ok") is not True:
+        raise ReleaseError("CMS queue helper rejected request")
+    return response
+
+
+def process_privileged(*, queue=database_helper, loader=load_release,
+                       restorer=release_from_backup, installer=apply,
+                       undo=rollback):
+    """One root-managed deployment with unprivileged persistence only."""
+    response = queue("next")
+    request = response.get("request")
+    if request is None:
+        return None
+    if (not isinstance(request, dict)
+            or request.get("host") != "ubuntu-primary"
+            or request.get("action") not in ("apply", "rollback")
+            or not isinstance(request.get("plan_id"), str)
+            or not isinstance(request.get("id"), str)):
+        raise ReleaseError("Invalid request returned from unprivileged queue")
+    state = "done"
+    result = {}
+    error = ""
+    try:
+        if request["action"] == "apply":
+            release = loader("ubuntu-primary", request["plan_id"])
+            result = installer(release)
+        else:
+            release = restorer("ubuntu-primary", request["plan_id"])
+            result = undo(release)
+        if not isinstance(result, dict) or result.get("state") not in ("verified", "rolled_back"):
+            raise ReleaseError("Executor returned an unverified deployment state")
+    except Exception as exc:
+        state = "failed"
+        error = type(exc).__name__ + ": inspect root-owned release journal"
+        result = {}
+    queue("finish", request_id=request["id"], state=state,
+          result=result, error=error)
+    print(f"release={request['plan_id']} request={request['id']} "
+          f"action={request['action']} state={state}", flush=True)
+    return state
+
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--check",action="store_true")
@@ -141,14 +216,14 @@ def main():
     check_host("ubuntu-primary")
     signal.signal(signal.SIGTERM,stop)
     signal.signal(signal.SIGINT,stop)
-    with connect() as db:
-        recover_interrupted(db)
-        while RUNNING:
-            heartbeat(db)
-            process_one(db)
-            if args.once:
-                break
-            time.sleep(args.interval)
+    # The privileged worker MUST NOT open writable CMS SQLite connections:
+    # doing so could create root-owned WAL/SHM files and break the website.
+    database_helper("recover")
+    while RUNNING:
+        process_privileged()
+        if args.once:
+            break
+        time.sleep(args.interval)
 
 
 if __name__=="__main__":

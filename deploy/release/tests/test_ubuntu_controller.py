@@ -77,6 +77,37 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(result,"done")
         self.assertEqual(self.db.execute("SELECT state FROM cms_source_deploy_requests").fetchone()[0],"done")
 
+    def test_privileged_controller_uses_only_unprivileged_queue_bridge(self):
+        calls=[]
+        request={"id":"a"*32,"plan_id":"b"*32,"host":"ubuntu-primary",
+                 "action":"apply"}
+        def queue(action,**kwargs):
+            calls.append((action,kwargs))
+            return {"ok":True,"request":request} if action=="next" else {"ok":True}
+        result=controller.process_privileged(
+            queue=queue,
+            loader=lambda host,ident:(host,ident),
+            installer=lambda rel:{"state":"verified"})
+        self.assertEqual(result,"done")
+        self.assertEqual([action for action,_ in calls],["next","finish"])
+        self.assertEqual(calls[1][1]["request_id"],request["id"])
+        self.assertEqual(calls[1][1]["result"]["state"],"verified")
+
+    def test_failed_privileged_job_still_records_terminal_failure(self):
+        calls=[]
+        request={"id":"c"*32,"plan_id":"d"*32,"host":"ubuntu-primary",
+                 "action":"apply"}
+        def queue(action,**kwargs):
+            calls.append((action,kwargs))
+            return {"ok":True,"request":request} if action=="next" else {"ok":True}
+        result=controller.process_privileged(
+            queue=queue,
+            loader=lambda *args: (_ for _ in ()).throw(RuntimeError("sensitive data")),
+        )
+        self.assertEqual(result,"failed")
+        self.assertEqual(calls[1][1]["state"],"failed")
+        self.assertNotIn("sensitive data",calls[1][1]["error"])
+
     def test_interrupted_release_is_not_automatically_retried(self):
         self.insert("f",state="running")
         controller.recover_interrupted(self.db,now=55)
