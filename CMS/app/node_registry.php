@@ -64,7 +64,8 @@ final class SirusNodeRegistry
         if (!is_array($metrics) || array_is_list($metrics) ||
             array_diff(array_keys($metrics), [
                 'cpu_pct','cpu_temp_c','load_1','memory_used_bytes',
-                'disk_used_bytes','disk_total_bytes','uptime_seconds','gpus'
+                'disk_used_bytes','disk_total_bytes','uptime_seconds','gpus',
+                'services','applications'
             ])) throw new InvalidArgumentException('Invalid performance metrics');
         foreach (['cpu_pct' => 100.0, 'cpu_temp_c' => 140.0, 'load_1' => 1024.0] as $field => $upper) {
             if (!array_key_exists($field, $metrics) || $metrics[$field] === null) continue;
@@ -110,6 +111,26 @@ final class SirusNodeRegistry
                     if ($val!==null && (!is_int($val) || $val<0 || $val>1125899906842624))
                         throw new InvalidArgumentException('Invalid GPU memory');
                 }
+            }
+        }
+        if(isset($metrics['services'])){
+            if(!is_array($metrics['services']) || !array_is_list($metrics['services']) ||
+               count($metrics['services'])>48)throw new InvalidArgumentException('Invalid service inventory');
+            foreach($metrics['services'] as $service){
+                if(!is_string($service) ||
+                   !preg_match('/^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$/D',$service))
+                    throw new InvalidArgumentException('Invalid running service');
+            }
+        }
+        if(isset($metrics['applications'])){
+            if(!is_array($metrics['applications']) || !array_is_list($metrics['applications']) ||
+               count($metrics['applications'])>8)throw new InvalidArgumentException('Invalid applications');
+            foreach($metrics['applications'] as $app){
+                if(!is_array($app) || array_is_list($app) ||
+                   array_diff(array_keys($app),['name','healthy']) ||
+                   !in_array($app['name']??null,['dashboard','application-router'],true) ||
+                   !is_bool($app['healthy']??null))
+                    throw new InvalidArgumentException('Invalid application health');
             }
         }
         return $metrics;
