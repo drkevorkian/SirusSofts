@@ -353,7 +353,7 @@ function cms_updates_page(PDO $db): void {
       <h2>Recent update checks</h2>
       <div class="table-scroll"><table><thead><tr>
         <th>Host</th><th>Status</th><th>Time (UTC)</th><th>Preview</th>
-      </tr></thead><tbody>
+      </tr></thead><tbody data-live-update-jobs>
         <?php foreach($snapshot['work_jobs'] as $job):
           if(($job['kind']??'')!=='package_update_check')continue;?>
           <tr><td><?=cms_esc($job['node_id'])?></td>
