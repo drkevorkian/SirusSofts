@@ -88,7 +88,9 @@ try {
             'APPROVE '.substr($head,0,12),$current,$now+3601);
         throw new RuntimeException('Expired plan approved');
     }catch(InvalidArgumentException $expected){}
-    checkRelease(cms_release_recent($db)[0]['state']==='planned','Expiry mutated the plan');
+    $expiryState=$db->prepare('SELECT state FROM cms_source_release_plans WHERE id=?');
+    $expiryState->execute([$other]);
+    checkRelease($expiryState->fetchColumn()==='planned','Expiry mutated the plan');
     echo "PASS source release approval, pinned historical revisions, invalid password,
 stale installed hash, expiry, and cancellation\n";
 }finally{
