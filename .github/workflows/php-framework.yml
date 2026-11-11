@@ -45,6 +45,7 @@ jobs:
           php CMS/tests/node_registry_test.php
           php CMS/tests/storage_cli_test.php
           php CMS/tests/operations_admin_test.php
+          php CMS/tests/source_release_test.php
           php CMS/tests/live_events_test.php
           php CMS/tests/github_projects_test.php
           php CMS/tests/access_control_test.php
@@ -61,6 +62,8 @@ jobs:
           node --check CMS/assets/live.js
       - name: GitHub repository importer tests
         run: |
+          python3 -m unittest discover -s deploy/tests -p 'test_github_source_index.py' -v
+          bash deploy/ubuntu24/12-install-github-source-index.sh --check
           python3 -m unittest discover -s deploy/tests -p 'test_github_cms_import.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_github_source_browser.py' -v
           python3 deploy/ubuntu24/github-source-browser.py --check

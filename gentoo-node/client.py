@@ -417,6 +417,58 @@ def gpu_devices(drm_root: Path = Path("/sys/class/drm"),
     return devices[:16]
 
 
+def gentoo_services(root: Path = Path("/run/openrc/started")) -> list[str]:
+    """Bounded OpenRC running-service inventory; no shell or privilege needed."""
+    services = []
+    try:
+        for item in sorted(root.iterdir()):
+            if (item.is_symlink() or not item.is_file()) and not item.is_dir():
+                continue
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}", item.name):
+                services.append(item.name)
+            if len(services) >= 48:
+                break
+    except OSError:
+        pass
+    return services
+
+
+def gentoo_app_health() -> list[dict]:
+    """Only fixed loopback destinations. Never probe user-supplied URLs."""
+    import urllib.error
+    targets = (("dashboard", 18080, "/healthz"),
+               ("application-router", 18081, "/healthz"))
+    results = []
+    for name, port, path in targets:
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}{path}", timeout=0.7
+            ) as response:
+                healthy = response.status == 200
+        except (OSError, ValueError, TimeoutError, urllib.error.URLError):
+            healthy = False
+        results.append({"name": name, "healthy": healthy})
+    return results
+
+
+def deployed_source_hashes(base: Path = Path("/opt/sirus-gentoo-node")) -> list[dict]:
+    """Fingerprint only fixed installed agent components, never arbitrary paths."""
+    components = (("gentoo-node/client.py", "client.py"),
+                  ("gentoo-node/dashboard.py", "dashboard.py"),
+                  ("gentoo-node/tunnel.py", "tunnel.py"))
+    results = []
+    for name, filename in components:
+        path = base / filename
+        try:
+            if path.is_symlink() or not path.is_file() or path.stat().st_size > 2_000_000:
+                continue
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            results.append({"path": name, "sha256": digest})
+        except OSError:
+            continue
+    return results
+
+
 def performance() -> dict:
     memory=meminfo()
     total=memory.get("MemTotal",0)
@@ -443,7 +495,10 @@ def performance() -> dict:
         "disk_used_bytes":max(0,disk_used),
         "disk_total_bytes":max(0,disk_total),
         "uptime_seconds":max(0,uptime),
-        "gpus":gpu_devices()
+        "gpus":gpu_devices(),
+        "services":gentoo_services(),
+        "applications":gentoo_app_health(),
+        "software_files":deployed_source_hashes()
     }
 
 def telemetry(node_id: str, when: int | None = None) -> dict:
