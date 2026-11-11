@@ -100,6 +100,11 @@
     if (!mount) { lastPlansSignature = null; return; }
     const plans = Array.isArray(snapshot.release_plans) ? snapshot.release_plans : [];
     const requests = Array.isArray(snapshot.deployment_requests) ? snapshot.deployment_requests : [];
+    const controllerOnline = snapshot.deployment_controller?.online === true;
+    const controllerStatus = document.querySelector("[data-live-deploy-controller]");
+    if (controllerStatus) controllerStatus.textContent = controllerOnline
+      ? "Ubuntu deployment controller: connected"
+      : "Ubuntu deployment controller: offline (install/rollback disabled)";
     const signature = JSON.stringify([plans,requests]);
     if (signature === lastPlansSignature && mount.querySelector("table")) return;
     lastPlansSignature = signature;
@@ -142,7 +147,9 @@
           actions.prepend(element("p", plan.staged_at ? "Approved and privately staged" : "Approved; awaiting staged source"));
         }
         const supported = ["ubuntu-worker/worker.py", "realtime/server.py"].includes(plan.source_path);
-        if (plan.host === "ubuntu-primary" && supported && !active) {
+        if (plan.host === "ubuntu-primary" && supported && !controllerOnline)
+          actions.prepend(element("p", "Controller offline; installation disabled"));
+        if (plan.host === "ubuntu-primary" && supported && !active && controllerOnline) {
           if (applied && !rolledBack && recent?.state !== "interrupted") {
             actions.appendChild(releaseForm(plan, "request_source_rollback", csrf));
           } else if (!applied && plan.staged_at && recent?.state !== "interrupted") {
