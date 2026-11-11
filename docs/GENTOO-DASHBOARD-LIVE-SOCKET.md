@@ -63,8 +63,10 @@ curl -i --max-time 5 http://127.0.0.1:18080/healthz
 
 For the main-site path `https://sirussofts.com/Gentoo/`, Hestia needs a
 specific WebSocket Upgrade location. The guarded include:
-`deploy/ubuntu24/nginx.ssl.conf_sirusgentoolive` proxies ONLY the
-`/Gentoo/live` endpoint through existing private loopback tunnel
+`deploy/ubuntu24/nginx.ssl.conf_sirusgentoolive` proxies the three
+fixed live-dashboard endpoints `/Gentoo/live`,
+`/Gentoo/live-token`, and `/Gentoo/dashboard_live.js`
+through the existing private loopback tunnel
 `127.0.0.1:18480`. It leaves the existing `/Gentoo/` page route,
 TLS certificates, site CMS and Gentoo SSH configuration untouched.
 
