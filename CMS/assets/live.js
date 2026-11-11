@@ -38,6 +38,94 @@
     return row;
   }
 
+  let lastPlansSignature = null;
+
+  function refreshReleaseComponentOptions() {
+    const form = document.querySelector('form[data-release-planner]');
+    if (!form) return;
+    const host = form.querySelector('[name="host"]')?.value;
+    const component = form.querySelector('[name="component"]');
+    if (!component) return;
+    for (const option of component.querySelectorAll("option[data-release-host]")) {
+      option.disabled = option.dataset.releaseHost !== host;
+      option.hidden = option.disabled;
+    }
+    if (component.selectedOptions[0]?.disabled) {
+      const available = Array.from(component.options).find(option => !option.disabled);
+      if (available) component.value = available.value;
+    }
+  }
+
+  function releaseForm(plan, action, csrf) {
+    const form = element("form");
+    form.method = "post";
+    form.action = "/admin/updates";
+    form.dataset.liveSubmit = "";
+    for (const [name, value] of Object.entries({csrf, action, id: plan.id})) {
+      const field = element("input");
+      field.type = "hidden";
+      field.name = name;
+      field.value = value;
+      form.appendChild(field);
+    }
+    if (action === "approve_source_release") {
+      const pass = element("input");
+      pass.type = "password";
+      pass.name = "password";
+      pass.placeholder = "Admin password";
+      pass.autocomplete = "current-password";
+      pass.required = true;
+      form.appendChild(pass);
+      const confirm = element("input");
+      confirm.type = "text";
+      confirm.name = "confirm";
+      confirm.placeholder = "APPROVE " + String(plan.commit_sha).slice(0, 12);
+      confirm.required = true;
+      form.appendChild(confirm);
+    }
+    const button = element("button",
+      action === "approve_source_release" ? "Approve revision" : "Cancel plan");
+    button.type = "submit";
+    button.className = "btn subtle";
+    form.appendChild(button);
+    return form;
+  }
+
+  function renderReleasePlans(snapshot) {
+    const mount = document.querySelector("[data-live-release-plans]");
+    if (!mount) { lastPlansSignature = null; return; }
+    const plans = Array.isArray(snapshot.release_plans) ? snapshot.release_plans : [];
+    const signature = JSON.stringify(plans);
+    if (signature === lastPlansSignature && mount.querySelector("table")) return;
+    lastPlansSignature = signature;
+    const csrf = document.querySelector("[data-live-csrf]")?.value || "";
+    const table = element("table");
+    const head = element("thead");
+    const header = element("tr");
+    for (const value of ["Host", "Component", "Revision", "Status", "Approval"])
+      header.appendChild(element("th", value));
+    head.appendChild(header);
+    table.appendChild(head);
+    const tbody = element("tbody");
+    for (const plan of plans) {
+      const row = element("tr");
+      for (const value of [plan.host, plan.source_path,
+        String(plan.commit_sha || "").slice(0, 12), plan.state])
+        row.appendChild(element("td", value || ""));
+      const actions = element("td");
+      if (plan.state === "planned")
+        actions.appendChild(releaseForm(plan, "approve_source_release", csrf));
+      if (plan.state === "planned" || plan.state === "approved")
+        actions.appendChild(releaseForm(plan, "cancel_source_release", csrf));
+      if (plan.state === "approved")
+        actions.prepend(element("p", "Approved; not installed"));
+      row.appendChild(actions);
+      tbody.appendChild(row);
+    }
+    table.appendChild(tbody);
+    mount.replaceChildren(table);
+  }
+
   function render(snapshot) {
     latest = snapshot;
     const events = Array.isArray(snapshot.events) ? snapshot.events : [];
@@ -108,6 +196,30 @@
         sourceList.replaceChildren(table);
       }
     }
+    const commitSelect = document.querySelector("[data-live-release-commits]");
+    if (commitSelect && Array.isArray(snapshot.source?.candidates)) {
+      const candidates = snapshot.source.candidates;
+      const fingerprint = JSON.stringify(candidates);
+      if (commitSelect.dataset.candidates !== fingerprint) {
+        const previouslySelected = commitSelect.value;
+        const fragment = document.createDocumentFragment();
+        for (const candidate of candidates) {
+          if (!/^[a-f0-9]{40}$/.test(String(candidate.commit || ""))) continue;
+          const option = element("option",
+            String(candidate.commit).slice(0, 12) + " — " + String(candidate.message || ""));
+          option.value = candidate.commit;
+          fragment.appendChild(option);
+        }
+        commitSelect.replaceChildren(fragment);
+        if (Array.from(commitSelect.options).some(el => el.value === previouslySelected))
+          commitSelect.value = previouslySelected;
+        commitSelect.dataset.candidates = fingerprint;
+        const button = commitSelect.closest("form")?.querySelector('button[type="submit"]');
+        if (button) button.disabled = !commitSelect.options.length;
+      }
+      refreshReleaseComponentOptions();
+    }
+    renderReleasePlans(snapshot);
     const updates = document.querySelector("[data-live-update-jobs]");
     if (updates) {
       const fragment = document.createDocumentFragment();
@@ -266,7 +378,10 @@
       });
       const data = await reply.json();
       if (!reply.ok || !data.ok) throw new Error(data.error || "Job was rejected");
-      status("queued " + String(data.request_id).slice(0, 8));
+      status(data.state === "planned" ? "release plan created" :
+             data.state === "approved" ? "revision approved (not installed)" :
+             data.state === "canceled" ? "release plan canceled" :
+             "queued " + String(data.request_id).slice(0, 8));
       document.dispatchEvent(new CustomEvent("sirus:job-queued", {detail: data}));
     } catch (error) {
       status("job error: " + String(error.message || "request failed").slice(0, 120));
@@ -274,6 +389,12 @@
       if (button) button.disabled = false;
     }
   });
+
+  document.addEventListener("change", event => {
+    if (event.target.matches('form[data-release-planner] [name="host"]'))
+      refreshReleaseComponentOptions();
+  });
+  window.addEventListener("DOMContentLoaded", refreshReleaseComponentOptions);
 
   document.addEventListener("sirus:navigated", () => {
     if (!document.querySelector("[data-live-csrf]")) {
@@ -284,6 +405,8 @@
       latest = null;
       return;
     }
+    lastPlansSignature = null;
+    refreshReleaseComponentOptions();
     if (latest) render(latest);
     connect();
   });
