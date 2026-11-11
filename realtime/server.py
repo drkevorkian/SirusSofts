@@ -99,7 +99,7 @@ def snapshot(root=ROOT):
     """Finite, read-only view. No database creation or modification."""
     data = {"jobs": [], "nodes": [], "events": [],
             "source": source_versions(root), "release_plans": [],
-            "deployment_requests": []}
+            "deployment_requests": [], "deployment_controller": {"online": False}}
     jobs_db = root / "work.sqlite3"
     nodes_db = root / "registry.sqlite3"
     if jobs_db.is_file():
@@ -140,6 +140,17 @@ def snapshot(root=ROOT):
                                FROM cms_source_release_plans
                                ORDER BY created_at DESC,id DESC LIMIT 30""")
                 data["release_plans"] = [dict(row) for row in rows]
+                try:
+                    ctrl = db.execute("""SELECT last_seen,state FROM cms_source_controller_health
+                                 WHERE host='ubuntu-primary' LIMIT 1""").fetchone()
+                    if ctrl:
+                        last_seen = int(ctrl["last_seen"])
+                        data["deployment_controller"] = {
+                            "online": ctrl["state"] == "ready" and
+                                      0 <= int(time.time()) - last_seen <= 30,
+                            "last_seen": last_seen}
+                except sqlite3.OperationalError:
+                    pass
                 try:
                     queued = db.execute("""SELECT id,plan_id,host,action,state,
                                             created_at,updated_at,error,result_json
