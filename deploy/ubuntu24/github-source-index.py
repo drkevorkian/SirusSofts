@@ -124,6 +124,100 @@ def write_index(index, path=TARGET):
             os.unlink(name)
 
 
+def stage_approved(token, reader=api_json, *, root=ROOT,
+                   database=None, index=None, now=None):
+    """Stage approved immutable source bytes privately without executing them."""
+    import sqlite3
+    import shutil
+    now = int(time.time()) if now is None else int(now)
+    database = database or root.parent / "data" / "cms.sqlite3"
+    index = index or root / "source_index.json"
+    if (not database.is_file() or database.is_symlink()
+            or not index.is_file() or index.is_symlink()):
+        return 0
+    with sqlite3.connect(f"file:{database}?mode=ro", uri=True, timeout=5) as db:
+        db.row_factory = sqlite3.Row
+        try:
+            plans = [dict(row) for row in db.execute("""
+                SELECT id,host,source_path,commit_sha,target_sha256,baseline_sha256,
+                       approved_at FROM cms_source_release_plans
+                WHERE state='approved' ORDER BY approved_at DESC LIMIT 15""")]
+        except sqlite3.OperationalError:
+            return 0
+    if not plans:
+        return 0
+    if shutil.disk_usage(root).free < 256 * 1024 * 1024:
+        raise RuntimeError("Insufficient free disk space for private source staging")
+    document = json.loads(index.read_text(encoding="utf8"))
+    candidates = document.get("candidates", [])
+    revisions = {}
+    for candidate in candidates[:3]:
+        if isinstance(candidate, dict) and isinstance(candidate.get("files"), list):
+            revisions[candidate.get("commit")] = {
+                (part.get("platform"), part.get("path")): part.get("sha256")
+                for part in candidate["files"] if isinstance(part, dict)
+            }
+    directory = root / "source_artifacts"
+    if directory.is_symlink():
+        raise RuntimeError("Unsafe source artifact directory")
+    completed = 0
+    for plan in plans:
+        ident, host, path = plan["id"], plan["host"], plan["source_path"]
+        sha, expected, baseline = plan["commit_sha"], plan["target_sha256"], plan["baseline_sha256"]
+        platform = "gentoo" if host == "gentoo-home" else "ubuntu" if host == "ubuntu-primary" else ""
+        if (not re.fullmatch(r"[a-f0-9]{32}", ident)
+                or not re.fullmatch(r"[a-f0-9]{40}", sha)
+                or not re.fullmatch(r"[a-f0-9]{64}", expected)
+                or not re.fullmatch(r"[a-f0-9]{64}", baseline)
+                or path not in SOURCES.get(platform, ())
+                or revisions.get(sha, {}).get((platform, path)) != expected
+                or not 0 <= now - int(plan["approved_at"]) <= 86400):
+            continue
+        artifact, manifest = directory / (ident + ".source"), directory / (ident + ".json")
+        if artifact.is_symlink() or manifest.is_symlink():
+            raise RuntimeError("Unsafe source artifact path")
+        if artifact.is_file() and manifest.is_file():
+            if hashlib.sha256(artifact.read_bytes()).hexdigest() == expected:
+                continue
+        result = reader("/contents/" + quote(path, safe="/") + "?ref=" + sha, token)
+        if (not isinstance(result, dict) or result.get("type") != "file"
+                or result.get("encoding") != "base64"):
+            raise RuntimeError("GitHub returned an invalid source artifact")
+        raw = base64.b64decode(result["content"], validate=True)
+        if len(raw) > 2_000_000 or hashlib.sha256(raw).hexdigest() != expected:
+            raise RuntimeError("Staged source does not match the approved SHA-256")
+        if not directory.exists():
+            directory.mkdir(mode=0o700)
+        fd, temporary = tempfile.mkstemp(prefix=".source-", dir=str(directory))
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "wb") as output:
+                output.write(raw)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, artifact)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+        data = {"id": ident, "host": host, "path": path, "commit": sha,
+                "target_sha256": expected, "baseline_sha256": baseline,
+                "staged_at": now, "ready_for_manual_review": True}
+        fd, temporary = tempfile.mkstemp(prefix=".source-meta-", dir=str(directory))
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w", encoding="utf8") as output:
+                json.dump(data, output, separators=(",", ":"))
+                output.write("\n")
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, manifest)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+        completed += 1
+    return completed
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
@@ -144,17 +238,18 @@ def main():
             last = int(json.loads(TARGET.read_text(encoding="utf8")).get("checked_at", 0))
         except (ValueError, OSError):
             last = 0
-    if not requested and time.time() - last < 21600:
-        print("Source manifest current; no GitHub request required")
-        return
     token = Path(args.token_file).read_text(encoding="utf8").strip()
     if len(token) < 20 or "\n" in token:
         raise RuntimeError("GitHub credential missing")
-    index = refresh(token)
-    write_index(index)
-    if requested and REQUEST.is_file() and not REQUEST.is_symlink():
-        REQUEST.unlink()
-    print("PASS GitHub source fingerprint check; commit " + index["commit"][:12])
+    if requested or time.time() - last >= 21600:
+        index = refresh(token)
+        write_index(index)
+        if requested and REQUEST.is_file() and not REQUEST.is_symlink():
+            REQUEST.unlink()
+        print("PASS GitHub source fingerprint check; commit " + index["commit"][:12])
+    count = stage_approved(token)
+    if count:
+        print("PASS privately staged " + str(count) + " approved artifacts; not installed")
 
 
 if __name__ == "__main__":
