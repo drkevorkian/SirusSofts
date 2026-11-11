@@ -65,7 +65,7 @@ final class SirusNodeRegistry
             array_diff(array_keys($metrics), [
                 'cpu_pct','cpu_temp_c','load_1','memory_used_bytes',
                 'disk_used_bytes','disk_total_bytes','uptime_seconds','gpus',
-                'services','applications'
+                'services','applications','software_files'
             ])) throw new InvalidArgumentException('Invalid performance metrics');
         foreach (['cpu_pct' => 100.0, 'cpu_temp_c' => 140.0, 'load_1' => 1024.0] as $field => $upper) {
             if (!array_key_exists($field, $metrics) || $metrics[$field] === null) continue;
@@ -131,6 +131,20 @@ final class SirusNodeRegistry
                    !in_array($app['name']??null,['dashboard','application-router'],true) ||
                    !is_bool($app['healthy']??null))
                     throw new InvalidArgumentException('Invalid application health');
+            }
+        }
+        if(isset($metrics['software_files'])){
+            if(!is_array($metrics['software_files']) || !array_is_list($metrics['software_files']) ||
+               count($metrics['software_files'])>3)
+                throw new InvalidArgumentException('Invalid source inventory');
+            $allowed=['gentoo-node/client.py','gentoo-node/dashboard.py','gentoo-node/tunnel.py'];
+            foreach($metrics['software_files'] as $file){
+                if(!is_array($file) || array_is_list($file) ||
+                   array_diff(array_keys($file),['path','sha256']) ||
+                   !in_array($file['path']??null,$allowed,true) ||
+                   !is_string($file['sha256']??null) ||
+                   !preg_match('/^[a-f0-9]{64}$/D',$file['sha256']))
+                    throw new InvalidArgumentException('Invalid source fingerprint');
             }
         }
         return $metrics;
