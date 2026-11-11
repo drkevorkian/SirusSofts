@@ -46,6 +46,7 @@ jobs:
           php CMS/tests/storage_cli_test.php
           php CMS/tests/operations_admin_test.php
           php CMS/tests/source_release_test.php
+          php CMS/tests/source_deploy_test.php
           php CMS/tests/live_events_test.php
           php CMS/tests/github_projects_test.php
           php CMS/tests/access_control_test.php
@@ -64,6 +65,9 @@ jobs:
         run: |
           python3 -m unittest discover -s deploy/release/tests -p 'test_*.py' -v
           python3 deploy/release/source_executor.py --check
+          python3 deploy/release/ubuntu_controller.py --check
+          bash deploy/release/install-ubuntu.sh --check
+          bash -n deploy/release/install-ubuntu.sh
           python3 -m unittest discover -s deploy/tests -p 'test_github_source_index.py' -v
           bash deploy/ubuntu24/12-install-github-source-index.sh --check
           python3 -m unittest discover -s deploy/tests -p 'test_github_cms_import.py' -v
