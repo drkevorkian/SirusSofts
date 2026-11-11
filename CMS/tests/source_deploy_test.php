@@ -32,6 +32,8 @@ try {
     ]);
     cms_schema($db);
     cms_release_schema($db);
+    $db->prepare("INSERT INTO cms_source_controller_health(host,last_seen,state)
+                  VALUES('ubuntu-primary',?,'ready')")->execute([$now]);
     $password='strong-password-for-release';
     $db->prepare("INSERT INTO cms_admins(username,password_hash,created_at)
                   VALUES('admin',?,?)")
