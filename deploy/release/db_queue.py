@@ -8,9 +8,69 @@ import argparse
 import json
 import os
 import pwd
+import sqlite3
+from pathlib import Path
 import sys
+import time
 
-from ubuntu_controller import connect, heartbeat, recover_interrupted, claim, finish
+DB = Path("/home/sirusweb/web/sirussofts.com/private/sirus-cms/data/cms.sqlite3")
+
+
+def connect(path=DB):
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("CMS release queue database unavailable")
+    db = sqlite3.connect(str(path), timeout=5, isolation_level=None)
+    db.row_factory = sqlite3.Row
+    db.execute("PRAGMA busy_timeout=5000")
+    return db
+
+
+def heartbeat(db, now=None):
+    now = int(time.time()) if now is None else int(now)
+    db.execute("""INSERT INTO cms_source_controller_health(host,last_seen,state)
+        VALUES('ubuntu-primary',?,'ready')
+        ON CONFLICT(host) DO UPDATE SET last_seen=excluded.last_seen,state='ready'""",
+        (now,))
+
+
+def recover_interrupted(db, now=None):
+    now = int(time.time()) if now is None else int(now)
+    db.execute("""UPDATE cms_source_deploy_requests
+        SET state='interrupted',updated_at=?,
+            error='Service stopped during deployment; operator review required'
+        WHERE host='ubuntu-primary' AND state='running'""", (now,))
+
+
+def claim(db, now=None):
+    now = int(time.time()) if now is None else int(now)
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute("""SELECT id,plan_id,host,action FROM cms_source_deploy_requests
+                    WHERE host='ubuntu-primary' AND state='queued'
+                    ORDER BY created_at,id LIMIT 1""").fetchone()
+        if row:
+            updated = db.execute("""UPDATE cms_source_deploy_requests
+                    SET state='running',updated_at=? WHERE id=? AND state='queued'""",
+                                 (now,row["id"]))
+            if updated.rowcount != 1:
+                row = None
+        db.commit()
+        return dict(row) if row else None
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def finish(db, request_id, state, *, result=None, error="", now=None):
+    if state not in ("done","failed"):
+        raise ValueError("Invalid terminal deployment state")
+    now = int(time.time()) if now is None else int(now)
+    db.execute("""UPDATE cms_source_deploy_requests
+               SET state=?,updated_at=?,result_json=?,error=?
+               WHERE id=? AND state='running'""",
+               (state,now,json.dumps(result or {},separators=(",",":")),
+                error[:190],request_id))
+
 
 ALLOWED_STATES = ("done", "failed")
 
@@ -29,7 +89,7 @@ def do_action(db, action, *, request_id="", state="", result=None, error=""):
                 or not isinstance(result, dict)
                 or not isinstance(error, str)):
             raise ValueError("Invalid source deployment completion request")
-        finish(db, {"id": request_id}, state, result=result, error=error)
+        finish(db, request_id, state, result=result, error=error)
         return {"ok": True}
     raise ValueError("Unknown database helper action")
 
