@@ -72,10 +72,9 @@ for script in source_executor.py ubuntu_controller.py; do
     if [[ -f "$file" ]]; then
         cp -p "$file" "$file.before-controller-$(date +%s)"
     fi
-    # db_queue imports ubuntu_controller for shared bounded SQLite operations;
-    # both must be readable by sirusweb, while only root may modify them.
+    # Only the DB helper runs as sirusweb. Root owns every deployed script.
     mode=0700
-    [[ "$script" == db_queue.py || "$script" == ubuntu_controller.py ]] && mode=0755
+    [[ "$script" == db_queue.py ]] && mode=0755
     install -m "$mode" -o root -g root "$here/$script" "$file"
 done
 if [[ ! -f "$unit" ]]; then
