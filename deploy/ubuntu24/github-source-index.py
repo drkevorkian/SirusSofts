@@ -183,7 +183,7 @@ def stage_approved(token, reader=api_json, *, root=ROOT,
         if (not isinstance(result, dict) or result.get("type") != "file"
                 or result.get("encoding") != "base64"):
             raise RuntimeError("GitHub returned an invalid source artifact")
-        raw = base64.b64decode(result["content"], validate=True)
+        raw = base64.b64decode(result["content"], validate=False)
         if len(raw) > 2_000_000 or hashlib.sha256(raw).hexdigest() != expected:
             raise RuntimeError("Staged source does not match the approved SHA-256")
         if not directory.exists():
