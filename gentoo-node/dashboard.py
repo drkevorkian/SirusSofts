@@ -20,6 +20,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 import client
+import dashboard_live
 
 HOST, PORT = "127.0.0.1", 18080
 AUTH = "/etc/sirus-gentoo-node/dashboard.auth"
@@ -89,6 +90,74 @@ def chart(path: str) -> str:
             'role="img" aria-label="CPU use over 24 hours">'
             '<polyline stroke="#6db9ff" stroke-width="2" fill="none" points="'
             +line+'"/></svg>')
+
+
+def chart_points(path: str) -> list[float]:
+    """Bounded 24-hour CPU samples as numbers for the live chart."""
+    try:
+        with metrics_db(path) as conn:
+            return [min(100, max(0, float(v))) for (v,) in conn.execute(
+                "SELECT cpu FROM samples WHERE cpu IS NOT NULL ORDER BY at DESC LIMIT 1440")][::-1]
+    except (OSError, ValueError, sqlite3.Error):
+        return []
+
+
+def live_loop(server, stop: threading.Event):
+    """One metrics and signed-history producer for all connected browsers."""
+    metrics, jobs, graph = {}, [], []
+    hardware = {"node_id": server.config["node_id"],
+                "ram_bytes": client.memory_bytes(),
+                "cpu_threads": max(1, os.cpu_count() or 1)}
+    sync = "Connecting to Ubuntu's signed work broker."
+    next_metrics = next_jobs = next_graph = 0.0
+    while not stop.is_set():
+        now = time.monotonic()
+        changed = False
+        if now >= next_metrics:
+            try:
+                fresh = client.performance()
+                if isinstance(fresh, dict):
+                    metrics = fresh
+                    changed = True
+            except (OSError, ValueError, TypeError) as error:
+                print("Live metrics failed:", type(error).__name__, flush=True)
+            next_metrics = now + 10
+        if now >= next_jobs:
+            try:
+                key = client.load_key(server.config["key_file"])
+                response = client.work_request(server.config, key, "history")
+                fresh = response.get("jobs", []) if isinstance(response, dict) else []
+                if not isinstance(fresh, list):
+                    raise ValueError("Invalid history response")
+                jobs = [entry for entry in fresh[:40] if isinstance(entry, dict)]
+                sync = "Live signed node-scoped jobs from Ubuntu."
+            except Exception as error:
+                sync = history_error_message(error) + (
+                    " Displaying previously received jobs." if jobs else "")
+                print("Live history unavailable:", type(error).__name__, flush=True)
+            changed = True
+            next_jobs = now + 4
+        if now >= next_graph:
+            graph = chart_points(server.db)
+            changed = True
+            next_graph = now + 60
+        if changed:
+            safe_jobs = []
+            for entry in jobs[:40]:
+                item = {k: entry.get(k) for k in
+                        ("request_id", "kind", "state", "attempts", "updated_at", "error")}
+                raw = entry.get("result", {})
+                try:
+                    value = json.dumps(raw, ensure_ascii=True)
+                    item["result"] = raw if len(value) <= 8192 else {"notice": "Result exceeds display limit"}
+                except (TypeError, ValueError):
+                    item["result"] = {}
+                safe_jobs.append(item)
+            server.live_state.publish({
+                "type": "snapshot", "metrics": metrics, "hardware": hardware,
+                "jobs": safe_jobs, "graph": graph, "sync": sync
+            })
+        stop.wait(2)
 
 
 def bytes_gib(value):
