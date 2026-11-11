@@ -95,6 +95,41 @@
       const badge = Array.from(document.querySelectorAll("[data-live-node-id]"))
         .find(el => el.dataset.liveNodeId === node.node_id);
       if (badge) badge.textContent = node.online ? "Online" : "Offline — stale metrics";
+      const fmtGiB = bytes => (Number(bytes || 0) / (1024 ** 3)).toFixed(1) + " GiB";
+      const metrics = node.metrics && typeof node.metrics === "object" ? node.metrics : {};
+      document.querySelectorAll("[data-live-metric]").forEach(target => {
+        if (target.dataset.liveMetricNode !== node.node_id) return;
+        const key = target.dataset.liveMetric;
+        let value = "Unavailable";
+        if (node.online) {
+          if (key === "cpu_pct" && typeof metrics.cpu_pct === "number")
+            value = metrics.cpu_pct.toFixed(1) + "%";
+          if (key === "cpu_temp_c" && typeof metrics.cpu_temp_c === "number")
+            value = metrics.cpu_temp_c.toFixed(1) + " °C";
+          if (key === "memory" && typeof metrics.memory_used_bytes === "number")
+            value = fmtGiB(metrics.memory_used_bytes);
+          if (key === "disk" && typeof metrics.disk_total_bytes === "number")
+            value = fmtGiB(metrics.disk_used_bytes) + " / " + fmtGiB(metrics.disk_total_bytes);
+        }
+        target.textContent = value;
+      });
+      const gpuPanel = Array.from(document.querySelectorAll("[data-live-gpus]"))
+        .find(el => el.dataset.liveGpus === node.node_id);
+      if (gpuPanel && Array.isArray(metrics.gpus)) {
+        const fragment = document.createDocumentFragment();
+        for (const gpu of metrics.gpus) {
+          const card = element("div");
+          card.className = "node-metric";
+          card.appendChild(element("span", String(gpu.name || "GPU")));
+          card.appendChild(element("strong", node.online && typeof gpu.usage_pct === "number"
+            ? gpu.usage_pct.toFixed(1) + "% GPU" : "GPU load unavailable"));
+          card.appendChild(element("small", "Temperature: " +
+            (node.online && typeof gpu.temp_c === "number"
+              ? gpu.temp_c.toFixed(1) + " °C" : "Unavailable")));
+          fragment.appendChild(card);
+        }
+        gpuPanel.replaceChildren(fragment);
+      }
       const services = Array.from(document.querySelectorAll("[data-live-node-services]"))
         .find(el => el.dataset.liveNodeServices === node.node_id);
       if (services) {
