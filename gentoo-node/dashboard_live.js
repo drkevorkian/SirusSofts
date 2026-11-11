@@ -124,7 +124,28 @@
     table.replaceChildren(fragment);
   }
 
-  let lastGpu = "", lastJobs = "", lastGraph = "";
+  function renderServices(metrics) {
+    const services = byId("live-services");
+    if (services) {
+      const names = Array.isArray(metrics.services) ? metrics.services.slice(0, 48) : [];
+      services.textContent = names.length ? names.join(", ") : "No running services reported";
+    }
+    const applications = byId("live-apps");
+    if (applications) {
+      const apps = Array.isArray(metrics.applications) ? metrics.applications.slice(0, 8) : [];
+      applications.replaceChildren();
+      for (const app of apps) {
+        if (!app || typeof app !== "object") continue;
+        const item = node("p", String(app.name || "app") + ": " +
+          (app.healthy ? "healthy" : "unavailable"));
+        applications.appendChild(item);
+      }
+      if (!applications.childNodes.length)
+        applications.textContent = "No local applications reported";
+    }
+  }
+
+  let lastGpu = "", lastJobs = "", lastGraph = "", lastServices = "";
   function render(data) {
     if (!data || data.type !== "snapshot") return;
     const m = data.metrics || {};
@@ -136,6 +157,11 @@
       Math.max(1, Number(m.disk_total_bytes || 0))).toFixed(1) + "%");
     metric("live-uptime", Math.floor(Number(m.uptime_seconds || 0) / 3600) + "h");
     metric("live-history-status", data.sync || "Waiting for coordinator history");
+    const serviceState = JSON.stringify([m.services || [], m.applications || []]);
+    if (serviceState !== lastServices) {
+      renderServices(m);
+      lastServices = serviceState;
+    }
     const gpus = JSON.stringify(m.gpus || []);
     const jobs = JSON.stringify(data.jobs || []);
     const graph = JSON.stringify(data.graph || []);
