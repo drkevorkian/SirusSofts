@@ -2,7 +2,7 @@
 (() => {
   "use strict";
   let socket = null, retries = 0, retryTimer = null, connecting = false;
-  let latest = null;
+  let latest = null, lastEventId = null;
 
   function status(message) {
     const element = document.querySelector("[data-live-status]");
@@ -40,6 +40,30 @@
 
   function render(snapshot) {
     latest = snapshot;
+    const events = Array.isArray(snapshot.events) ? snapshot.events : [];
+    if (lastEventId === null) {
+      lastEventId = events.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0);
+    } else {
+      for (const item of events) {
+        const id = Number(item.id) || 0;
+        if (id <= lastEventId) continue;
+        document.dispatchEvent(new CustomEvent("sirus:notification", {detail: item}));
+        const banner = document.querySelector("[data-live-notifications]");
+        if (banner) {
+          const titles = {
+            "message.received": "New site message",
+            "mail.received": "New mail notification",
+            "deployment.changed": "Deployment status changed",
+            "site.notice": "New site notice"
+          };
+          if (titles[item.topic]) {
+            banner.prepend(element("p", titles[item.topic]));
+            while (banner.children.length > 5) banner.lastElementChild.remove();
+          }
+        }
+      }
+      lastEventId = events.reduce((max, item) => Math.max(max, Number(item.id) || 0), lastEventId);
+    }
     const updates = document.querySelector("[data-live-update-jobs]");
     if (updates) {
       const fragment = document.createDocumentFragment();
