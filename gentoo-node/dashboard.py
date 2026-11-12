@@ -296,6 +296,11 @@ assigns jobs and stores the authoritative task history.
 
 
 class Handler(BaseHTTPRequestHandler):
+    # BaseHTTPRequestHandler defaults to HTTP/1.0 even when a browser sends
+    # HTTP/1.1. RFC 6455 WebSocket upgrade responses must use HTTP/1.1;
+    # HTTP/1.0 101 is rejected by browsers before the first socket frame.
+    # Regular HTTP responses already set Content-Length in send().
+    protocol_version="HTTP/1.1"
     server_version="SirusGentoo/0.1"
     def log_message(self, fmt, *args):
         print("Gentoo dashboard:",fmt % args,flush=True)
@@ -339,6 +344,17 @@ class Handler(BaseHTTPRequestHandler):
         if uri=="/live-token":
             if self.headers.get("Host","").lower() not in dashboard_live.ALLOWED_HOSTS:
                 return self.send(403,b"Invalid dashboard host","text/plain; charset=utf-8")
+            # The existing authenticated HTTPS location carries a safe
+            # read-only fallback for browsers whose WebSocket Upgrade fails.
+            # No Ubuntu/Hestia proxy changes or additional public routes.
+            query=urlsplit(self.path).query
+            if query=="snapshot=1":
+                snapshot=self.server.live_state.wait(-1,0)[1]
+                data=json.dumps(snapshot,separators=(",",":"),ensure_ascii=True).encode()
+                return self.send(200,data,"application/json; charset=utf-8")
+            if query:
+                return self.send(400,b"Unknown live-token query",
+                                 "text/plain; charset=utf-8")
             data=json.dumps({"token":dashboard_live.new_token(self.server.secret)},
                             separators=(",",":")).encode()
             return self.send(200,data,"application/json; charset=utf-8")

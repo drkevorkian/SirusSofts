@@ -6,7 +6,10 @@ mode="${1:---check}"
 [[ $# -le 1 && ( "$mode" == --check || "$mode" == --plan || "$mode" == --install ) ]] ||
   fail 'Usage: install-dashboard-live.sh --check|--plan|--install'
 here="$(cd "$(dirname "$0")" && pwd)"
-for file in dashboard.py dashboard_live.py dashboard_live.js dashboard_health.py; do
+# All deployment stages use the SAME manifest: checking, backups,
+# installation, verification, and rollback must never diverge.
+dashboard_assets=(dashboard.py dashboard_live.py dashboard_live.js dashboard_health.py)
+for file in "${dashboard_assets[@]}"; do
   [[ -f "$here/$file" && ! -L "$here/$file" ]] || fail "Source missing: $file"
 done
 PYTHONDONTWRITEBYTECODE=1 python3 -B - "$here" <<'PY'
@@ -35,13 +38,14 @@ app=/opt/sirus-gentoo-node
    -f /etc/sirus-gentoo-node/dashboard.auth &&
    ! -L /etc/sirus-gentoo-node/dashboard.auth ]] ||
   fail 'Existing dashboard configuration or authentication unavailable'
-for name in dashboard.py dashboard_live.py dashboard_live.js; do
+for name in "${dashboard_assets[@]}"; do
   [[ ! -L "$app/$name" ]] || fail "Refusing linked installed asset: $name"
 done
 [[ "$(df -Pk "$app" | awk 'NR==2 {print $4}')" -ge 102400 ]] ||
   fail 'Less than 100 MiB free on Gentoo dashboard filesystem'
 if [[ "$mode" == --plan ]]; then
-  echo "Dashboard files: $app/dashboard.py, dashboard_live.py, dashboard_live.js"
+  printf 'Dashboard files to install and protect:\\n'
+  printf '  %s\\n' "${dashboard_assets[@]}"
   echo 'Back up existing dashboard source before replacing any executable.'
   echo 'Restart ONLY sirus-gentoo-dashboard; preserve sirus-gentoo-node/tunnel.'
   echo 'No new public ports, SSH keys, credentials, or firewall rules.'
@@ -55,7 +59,7 @@ read -r -p 'Type UPDATE GENTOO DASHBOARD: ' answer
 recovery="$app/recovery/dashboard-live-$(date +%Y%m%d-%H%M%S)-$$"
 install -d -m 0700 -o root -g root "$app/recovery"
 install -d -m 0700 -o root -g root "$recovery"
-for name in dashboard.py dashboard_live.py dashboard_live.js; do
+for name in "${dashboard_assets[@]}"; do
   if [[ -f "$app/$name" ]]; then
     cp -p -- "$app/$name" "$recovery/$name"
   fi
@@ -64,7 +68,7 @@ restore(){
   local status=$?
   if (( status != 0 )); then
     echo 'Dashboard upgrade failed; restoring only backed-up dashboard files.' >&2
-    for name in dashboard.py dashboard_live.py dashboard_live.js; do
+    for name in "${dashboard_assets[@]}"; do
       if [[ -f "$recovery/$name" ]]; then
         cp -p -- "$recovery/$name" "$app/$name"
       else
@@ -76,10 +80,12 @@ restore(){
   fi
 }
 trap restore EXIT
-for name in dashboard.py dashboard_live.py dashboard_live.js; do
+for name in "${dashboard_assets[@]}"; do
   mode=0644
   [[ "$name" == dashboard.py ]] && mode=0755
   install -o root -g root -m "$mode" "$here/$name" "$app/$name"
+  cmp -s -- "$here/$name" "$app/$name" ||
+    fail "Installed dashboard asset differs from reviewed source: $name"
 done
 PYTHONDONTWRITEBYTECODE=1 python3 -B - "$app" <<'PY'
 import ast,pathlib,sys
