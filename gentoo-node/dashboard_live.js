@@ -2,7 +2,8 @@
 (() => {
   "use strict";
   let ws = null, retry = null, attempts = 0;
-  let disposed = false, connecting = false;
+  let disposed = false, connecting = false, socketReady = false;
+  let pollTimer = null, pollBusy = false, handshakeTimer = null;
   const byId = id => document.getElementById(id);
   const base = new URL(".", window.location.href);
 
@@ -171,11 +172,52 @@
     metric("live-updated", "Latest data: " + new Date().toLocaleTimeString());
   }
 
+  // The snapshot uses the already installed /Gentoo/live-token proxy
+  // (with a query parameter). No page reload, additional public endpoint,
+  // credentials in a URL, or per-viewer polling of the Ubuntu job broker.
+  async function pollSnapshot() {
+    if (disposed || pollBusy || socketReady) return;
+    pollBusy = true;
+    try {
+      const response = await fetch(new URL("live-token?snapshot=1", base), {
+        credentials: "same-origin", cache: "no-store", redirect: "error"
+      });
+      if (!response.ok) {
+        label("updates unavailable (HTTP " + response.status + ")");
+        return;
+      }
+      const snapshot = await response.json();
+      if (!snapshot || snapshot.type !== "snapshot")
+        throw new Error("Invalid live snapshot");
+      render(snapshot);
+      label("updating in place (HTTPS fallback)");
+    } catch {
+      label("updates unavailable (retrying)");
+    } finally {
+      pollBusy = false;
+    }
+  }
+
+  function stopFallback() {
+    if (pollTimer !== null) window.clearInterval(pollTimer);
+    pollTimer = null;
+  }
+
+  function startFallback() {
+    if (disposed || pollTimer !== null || socketReady) return;
+    void pollSnapshot();
+    pollTimer = window.setInterval(() => { void pollSnapshot(); }, 5000);
+  }
+
   function reconnect() {
-    if (disposed || retry) return;
-    label("reconnecting");
+    if (disposed || retry !== null) return;
+    socketReady = false;
+    startFallback();
     const delay = Math.min(30000, 1000 * (2 ** Math.min(attempts++, 5)));
-    retry = window.setTimeout(() => { retry = null; connect(); }, delay);
+    retry = window.setTimeout(() => {
+      retry = null;
+      void connect();
+    }, delay);
   }
 
   async function connect() {
@@ -193,28 +235,45 @@
       const data = await response.json();
       if (typeof data.token !== "string") throw new Error("Missing live token");
       if (disposed) return;
+
       const endpoint = new URL("live", base);
       endpoint.protocol = "wss:";
       const socket = new WebSocket(endpoint.href);
       ws = socket;
-      socket.addEventListener("open", () => socket.send(JSON.stringify({token: data.token})));
+      socketReady = false;
+      // Some reverse proxies silently stall a bad handshake. In that case,
+      // fall back to authenticated HTTPS snapshots rather than a frozen page.
+      handshakeTimer = window.setTimeout(() => {
+        if (!socketReady && ws === socket) socket.close();
+      }, 8000);
+
+      socket.addEventListener("open", () => {
+        if (!disposed) socket.send(JSON.stringify({ token: data.token }));
+      });
       socket.addEventListener("message", event => {
         let payload;
         try { payload = JSON.parse(event.data); } catch { return; }
         if (payload.type === "ready") {
+          socketReady = true;
           attempts = 0;
-          label("connected");
+          if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
+          handshakeTimer = null;
+          stopFallback();
+          label("connected (WebSocket)");
         } else if (payload.type === "snapshot") {
           render(payload);
         }
       });
       socket.addEventListener("close", () => {
+        if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
+        handshakeTimer = null;
         if (ws === socket) ws = null;
         reconnect();
       });
-      socket.addEventListener("error", () => label("connection interrupted"));
+      socket.addEventListener("error", () => {
+        if (!socketReady) startFallback();
+      });
     } catch {
-      label("unable to connect");
       reconnect();
     } finally {
       connecting = false;
@@ -223,12 +282,15 @@
 
   window.addEventListener("pagehide", () => {
     disposed = true;
-    if (retry) window.clearTimeout(retry);
+    stopFallback();
+    if (retry !== null) window.clearTimeout(retry);
+    if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
     if (ws) ws.close();
   });
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", connect, {once: true});
+    document.addEventListener("DOMContentLoaded", () => { void connect(); }, {once: true});
   } else {
-    connect();
+    void connect();
   }
 })();
