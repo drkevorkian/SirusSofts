@@ -65,6 +65,7 @@ jobs:
           node --check gentoo-node/dashboard_live.js
           node gentoo-node/tests/dashboard_live_fallback.test.js
           node gentoo-node/tests/dashboard_live_socket.test.js
+          node gentoo-node/tests/dashboard_live_race.test.js
       - name: GitHub repository importer tests
         run: |
           python3 -m unittest discover -s deploy/release/tests -p 'test_*.py' -v
