@@ -28,6 +28,26 @@ accepts no remote commands, uses a bounded connection pool, and remains on
 The existing reverse SSH forwards Ubuntu `127.0.0.1:18480` to this service.
 No tunnel, SSH key, node HMAC key, credential, or Gentoo workload is altered.
 
+## Browser handshake compatibility
+
+The Gentoo dashboard uses Python's standard `BaseHTTPRequestHandler`.
+Without an explicit `protocol_version`, that class answers HTTP/1.1
+requests with **HTTP/1.0**, including WebSocket upgrade requests. Chrome
+can close such attempted upgrades immediately even when the status
+contains `101`. The live dashboard now explicitly responds with
+`HTTP/1.1 101 Switching Protocols`. Its authenticated ordinary HTTP
+endpoints also have explicit `Content-Length`, allowing HTTP/1.1
+keep-alive correctly. A socket-level regression test asserts the exact
+status line and verifies the first `ready` and live snapshot frames,
+rather than checking that a response contains `101` somewhere.
+
+After upgrading the **Gentoo dashboard only**, the Ubuntu `/Gentoo/live`
+proxy and the existing reverse SSH tunnel do not need reinstallation.
+Verify in Chrome Network → WS that `/Gentoo/live` has status 101 and
+receives `ready` and `snapshot` frames. If the connection still
+terminates immediately, inspect the failing request's actual HTTP
+status and response headers before changing any firewall or SSH setup.
+
 ## Install on Gentoo (local terminal, existing installation)
 
 After the PR is merged into `feature/cms-vhost-distributed-nodes`, use the
