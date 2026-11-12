@@ -121,13 +121,34 @@ def frame(payload: bytes, opcode: int = 1) -> bytes:
     return prefix + bytes((127,)) + struct.pack("!Q", length) + payload
 
 
+def _authenticated_subprotocol(headers, secret: str) -> bool:
+    """Authenticate before HTTP 101; do not rely on a fragile first frame.
+
+    Browsers cannot add custom Authorization headers to WebSocket requests.
+    The short-lived HMAC token is therefore carried in one offered subprotocol,
+    while the agreed response subprotocol is always the fixed 'sirus-live'.
+    Neither a token nor a secret is written to URLs or application logs.
+    """
+    offered = headers.get("Sec-WebSocket-Protocol", "")
+    if not isinstance(offered, str) or not 0 < len(offered) <= 512:
+        return False
+    parts = [item.strip() for item in offered.split(",")]
+    if len(parts) != 2 or parts[0] != "sirus-live":
+        return False
+    signed = parts[1]
+    if not signed.startswith("sirus-auth."):
+        return False
+    return verify_token(secret, signed[len("sirus-auth."):])
+
+
 def stream(handler) -> None:
-    """Handle an upgrade, authenticate the first frame, publish snapshots."""
+    """Perform an authenticated HTTP/1.1 WebSocket upgrade, then send snapshots."""
     slots = handler.server.live_slots
     if not slots.acquire(blocking=False):
         handler.send(503, b"Live dashboard connection limit reached",
                      "text/plain; charset=utf-8")
         return
+    upgraded = False
     try:
         headers = handler.headers
         host = headers.get("Host", "").lower()
@@ -139,11 +160,16 @@ def stream(handler) -> None:
             raw_key = b""
         if (host not in ALLOWED_HOSTS
                 or origin != "https://" + host
+                or handler.request_version != "HTTP/1.1"
                 or headers.get("Upgrade", "").lower() != "websocket"
                 or "upgrade" not in headers.get("Connection", "").lower()
                 or headers.get("Sec-WebSocket-Version") != "13"
                 or len(raw_key) != 16):
-            handler.send(403, b"WebSocket origin or handshake rejected",
+            handler.send(403, b"WebSocket handshake rejected",
+                         "text/plain; charset=utf-8")
+            return
+        if not _authenticated_subprotocol(headers, handler.server.secret):
+            handler.send(403, b"WebSocket authentication rejected",
                          "text/plain; charset=utf-8")
             return
         accept = base64.b64encode(
@@ -153,21 +179,12 @@ def stream(handler) -> None:
         handler.send_header("Upgrade", "websocket")
         handler.send_header("Connection", "Upgrade")
         handler.send_header("Sec-WebSocket-Accept", accept)
+        handler.send_header("Sec-WebSocket-Protocol", "sirus-live")
         handler.send_header("Cache-Control", "no-store")
         handler.end_headers()
         handler.wfile.flush()
         handler.close_connection = True
-        handler.connection.settimeout(8)
-        opcode, auth = masked_frame(handler.rfile)
-        if opcode != 1:
-            return
-        try:
-            data = json.loads(auth.decode("utf8"))
-        except (UnicodeError, ValueError):
-            return
-        if (not isinstance(data, dict) or set(data) != {"token"}
-                or not verify_token(handler.server.secret, data["token"])):
-            return
+        upgraded = True
         handler.connection.settimeout(25)
         handler.wfile.write(frame(b'{"type":"ready"}'))
         handler.wfile.flush()
@@ -183,8 +200,8 @@ def stream(handler) -> None:
             else:
                 handler.wfile.write(frame(b"", opcode=9))
                 handler.wfile.flush()
-            # Browsers respond to WebSocket PING with masked PONG. Read those
-            # frames to avoid accumulating control frames and detect close.
+            # Browsers respond to PING with masked PONG. Read control frames,
+            # detect closes, and reject client data (this is a read-only feed).
             if select.select([handler.connection], [], [], 0)[0]:
                 opcode, _ = masked_frame(handler.rfile)
                 if opcode == 8:
@@ -198,6 +215,7 @@ def stream(handler) -> None:
             pass
     except (OSError, ValueError, TimeoutError, BrokenPipeError,
             ConnectionError, json.JSONDecodeError):
+        # No signed tokens or user-controlled headers in server logs.
         pass
     finally:
         try:
