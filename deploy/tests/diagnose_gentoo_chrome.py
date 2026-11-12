@@ -67,7 +67,7 @@ def main():
                 "}\n"
                 + fragment + "\n} }\n", encoding="utf8"
             )
-            verify = subprocess.run(["nginx", "-p", str(root)+"/", "-c", str(conf), "-t"],
+            verify = subprocess.run(["sudo", "nginx", "-p", str(root)+"/", "-c", str(conf), "-t"],
                                     capture_output=True, text=True)
             if verify.returncode:
                 raise RuntimeError("Nginx test configuration invalid: " + verify.stderr)
