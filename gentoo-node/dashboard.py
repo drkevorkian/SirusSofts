@@ -296,6 +296,11 @@ assigns jobs and stores the authoritative task history.
 
 
 class Handler(BaseHTTPRequestHandler):
+    # BaseHTTPRequestHandler defaults to HTTP/1.0 even when a browser sends
+    # HTTP/1.1. RFC 6455 WebSocket upgrade responses must use HTTP/1.1;
+    # HTTP/1.0 101 is rejected by browsers before the first socket frame.
+    # Regular HTTP responses already set Content-Length in send().
+    protocol_version="HTTP/1.1"
     server_version="SirusGentoo/0.1"
     def log_message(self, fmt, *args):
         print("Gentoo dashboard:",fmt % args,flush=True)
