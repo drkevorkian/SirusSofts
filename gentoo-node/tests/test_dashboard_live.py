@@ -74,12 +74,14 @@ class LiveDashboardTests(unittest.TestCase):
             connection.request("GET","/live-token",headers={"Host":"sirussofts.com"})
             denied=connection.getresponse()
             self.assertEqual(denied.status,401)
+            self.assertEqual(denied.version,11, "Dashboard HTTP responses must use HTTP/1.1")
             denied.read()
             auth=base64.b64encode(b"admin:example-test-password").decode()
             connection.request("GET","/live-token",headers={
                 "Host":"sirussofts.com","Authorization":"Basic "+auth})
             response=connection.getresponse()
             self.assertEqual(response.status,200)
+            self.assertEqual(response.version,11, "Token endpoint must use HTTP/1.1")
             token=json.loads(response.read())["token"]
             connection.close()
             with socket.create_connection(("127.0.0.1",port),timeout=5) as conn:
@@ -92,7 +94,9 @@ class LiveDashboardTests(unittest.TestCase):
                     "\r\n\r\n").encode())
                 reader=conn.makefile("rb")
                 status=reader.readline()
-                self.assertIn(b"101",status)
+                # The previous test only searched for b"101", so it passed
+                # HTTP/1.0 101 (which modern WebSocket clients reject).
+                self.assertEqual(status,b"HTTP/1.1 101 Switching Protocols\r\n")
                 while reader.readline()!=b"\r\n": pass
                 raw=json.dumps({"token":token}).encode()
                 mask=b"abcd"
