@@ -6,15 +6,16 @@ mode="${1:---check}"
 [[ $# -le 1 && ( "$mode" == --check || "$mode" == --plan || "$mode" == --install ) ]] ||
   fail 'Usage: install-dashboard-live.sh --check|--plan|--install'
 here="$(cd "$(dirname "$0")" && pwd)"
-for file in dashboard.py dashboard_live.py dashboard_live.js; do
+for file in dashboard.py dashboard_live.py dashboard_live.js dashboard_health.py; do
   [[ -f "$here/$file" && ! -L "$here/$file" ]] || fail "Source missing: $file"
 done
 PYTHONDONTWRITEBYTECODE=1 python3 -B - "$here" <<'PY'
 import ast,pathlib,sys
-for name in ("dashboard.py","dashboard_live.py"):
+for name in ("dashboard.py","dashboard_live.py","dashboard_health.py"):
     ast.parse((pathlib.Path(sys.argv[1])/name).read_text(encoding="utf8"))
 print("PASS dashboard and live socket Python syntax")
 PY
+python3 -B "$here/dashboard_health.py" --check
 if command -v node >/dev/null 2>&1; then
   node --check "$here/dashboard_live.js" || fail 'Dashboard JavaScript failed syntax check'
 fi
@@ -43,6 +44,7 @@ if [[ "$mode" == --plan ]]; then
   echo 'Back up existing dashboard source before replacing any executable.'
   echo 'Restart ONLY sirus-gentoo-dashboard; preserve sirus-gentoo-node/tunnel.'
   echo 'No new public ports, SSH keys, credentials, or firewall rules.'
+  echo 'OpenRC supervisor may report success before Python binds; verify for up to 30 seconds.'
   echo 'Ubuntu must separately proxy /Gentoo/live with WebSocket Upgrade.'
   exit 0
 fi
@@ -80,15 +82,25 @@ for name in dashboard.py dashboard_live.py dashboard_live.js; do
 done
 PYTHONDONTWRITEBYTECODE=1 python3 -B - "$app" <<'PY'
 import ast,pathlib,sys
-for name in ("dashboard.py","dashboard_live.py"):
+for name in ("dashboard.py","dashboard_live.py","dashboard_health.py"):
     ast.parse((pathlib.Path(sys.argv[1])/name).read_text(encoding="utf8"))
 PY
 rc-service sirus-gentoo-dashboard restart ||
   fail 'Dashboard service restart failed'
-health="$(curl --noproxy '*' --silent --show-error --max-time 5   --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/healthz || true)"
-[[ "$health" == 200 ]] || fail "Dashboard /healthz expected HTTP 200, got $health"
-private="$(curl --noproxy '*' --silent --max-time 5   --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/ || true)"
-[[ "$private" == 401 ]] || fail "Dashboard without credentials expected HTTP 401, got $private"
+# supervise-daemon can report [ ok ] before Python has imported its
+# modules, loaded its private config and bound the loopback socket.
+# Wait for the *new* dashboard (including its live-only routes) to respond.
+if ! python3 -B "$here/dashboard_health.py" --port 18080 --wait 30; then
+  echo 'Dashboard did not become ready. Checking the OpenRC process and listener:' >&2
+  rc-service sirus-gentoo-dashboard status >&2 || true
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn '( sport = :18080 )' >&2 || true
+  fi
+  echo 'Dashboard service troubleshooting (no private credentials printed):' >&2
+  echo '  rc-service sirus-gentoo-dashboard status' >&2
+  echo '  ps -eo user,pid,stat,args | grep "[d]ashboard.py"' >&2
+  fail 'Live dashboard startup verification failed; restoring previous files'
+fi
 trap - EXIT
 echo 'PASS Gentoo live dashboard upgraded; only dashboard OpenRC service restarted.'
 echo "Private source recovery: $recovery"
