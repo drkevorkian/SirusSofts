@@ -50,3 +50,34 @@ jobs:
           node --version
           echo '--- curl and ALPN ---'
           curl -skvI --max-time 10 https://sirussofts.com/Gentoo/ 2>&1 | grep -E '(ALPN:|SSL connection using|HTTP/[12])' | head -25 || true
+      - name: Use real headless Chrome to observe public WebSocket handshake
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/ws-browser" --no-audit --no-fund --silent playwright-core@1.58.2
+          cat > "$RUNNER_TEMP/ws-browser/probe.cjs" <<'NODE'
+          const { chromium } = require("playwright-core");
+          (async() => {
+            const browser = await chromium.launch({
+              executablePath: "/usr/bin/google-chrome", headless: true,
+              args: ["--no-sandbox", "--disable-dev-shm-usage"]
+            });
+            try {
+              const context = await browser.newContext();
+              const page = await context.newPage();
+              const session = await context.newCDPSession(page);
+              await session.send("Network.enable");
+              session.on("Network.webSocketCreated", data => console.log("Chrome WS created", data.url));
+              session.on("Network.webSocketWillSendHandshakeRequest", data => console.log("Chrome WS request header names", Object.keys(data.request.headers)));
+              session.on("Network.webSocketHandshakeResponseReceived", data => console.log("Chrome WS response", data.response.status, data.response.statusText));
+              session.on("Network.webSocketFrameError", data => console.log("Chrome WS frame error", data.errorMessage));
+              session.on("Network.webSocketClosed", () => console.log("Chrome WS closed"));
+              page.on("console", msg => console.log("Chrome console", msg.type(), msg.text().slice(0,300)));
+              await page.goto("https://sirussofts.com/", {waitUntil: "domcontentloaded", timeout: 18000});
+              await page.evaluate(() => new WebSocket("wss://sirussofts.com/Gentoo/live",
+                ["sirus-live", "sirus-auth.invalid"]));
+              await page.waitForTimeout(2500);
+            } finally { await browser.close(); }
+          })().catch(e => {console.error("Browser test:", e.message); process.exitCode=1;});
+          NODE
+          node "$RUNNER_TEMP/ws-browser/probe.cjs"
