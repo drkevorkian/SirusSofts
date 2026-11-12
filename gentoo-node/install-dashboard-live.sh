@@ -113,6 +113,13 @@ if ! python3 -B "$here/dashboard_health.py" --port 18080 --wait 30; then
   echo '  ps -eo user,pid,stat,args | grep "[d]ashboard.py"' >&2
   fail 'Live dashboard startup verification failed; restoring previous files'
 fi
+# An HTTP 200 healthz does not establish that Chrome can authenticate over
+# WebSocket. Test the running new dashboard's real signed HTTP/1.1 upgrade,
+# ready acknowledgment, and live snapshot before declaring success.
+if ! PYTHONDONTWRITEBYTECODE=1 runuser -u sirusnode -- \
+     python3 -B "$app/dashboard_health.py" --socket-check; then
+  fail 'Signed live WebSocket self-test failed; restoring previous dashboard files'
+fi
 trap - EXIT
 echo 'PASS Gentoo live dashboard upgraded; only dashboard OpenRC service restarted.'
 echo "Private source recovery: $recovery"

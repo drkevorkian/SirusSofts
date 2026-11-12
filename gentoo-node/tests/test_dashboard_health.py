@@ -2,14 +2,54 @@
 import http.server
 from pathlib import Path
 import sys
+import tempfile
 import threading
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import dashboard_health as health
+import dashboard
+import dashboard_live
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_installed_websocket_probe_verifies_signed_authentication_and_frames(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "dashboard.auth"
+            secret = dashboard.make_hash("fixture-private-password-123456")
+            fixture.write_text(secret, encoding="utf8")
+            fixture.chmod(0o600)
+            server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), dashboard.Handler)
+            server.secret = secret
+            server.db = "/not-used-here"
+            server.config = {"node_id": "gentoo-home"}
+            server.live_state = dashboard_live.LiveState()
+            server.live_slots = threading.BoundedSemaphore(4)
+            server.live_state.publish({
+                "type": "snapshot", "metrics": {"cpu_pct": 10},
+                "hardware": {"node_id": "gentoo-home"},
+                "jobs": [], "graph": [], "sync": "test"
+            })
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                good, summary = health.websocket_selftest(
+                    server.server_port, auth_file=fixture
+                )
+                self.assertTrue(good, summary)
+                self.assertIn("ready frame and live snapshot", summary)
+                fixture.write_text(dashboard.make_hash("wrong-fixture-password-12345"),
+                                   encoding="utf8")
+                bad, summary = health.websocket_selftest(
+                    server.server_port, auth_file=fixture
+                )
+                self.assertFalse(bad)
+                self.assertNotIn("password", summary)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
     def test_retries_until_server_binds(self):
         values = iter([(False, "not bound"), (False, "still initializing"),
                        (True, "healthy")])
