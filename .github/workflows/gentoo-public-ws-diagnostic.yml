@@ -34,3 +34,19 @@ jobs:
           fi
           echo 'Expected from Gentoo: 403 and WebSocket authentication rejected'
           echo 'If 401/404/301/502 or a different body: a proxy or site route is intercepting the request.'
+      - name: Examine HTTP/2, HTTP/3, DNS and browser support
+        shell: bash
+        run: |
+          echo '--- public DNS IPv4 and IPv6 ---'
+          dig +short sirussofts.com A || true
+          dig +short sirussofts.com AAAA || true
+          echo '--- TLS public response headers ---'
+          curl -sSI --http2 --connect-timeout 8 --max-time 12 https://sirussofts.com/Gentoo/ | grep -iE '^(HTTP/|server:|alt-svc:|content-security-policy:|strict-transport-security:|location:|www-authenticate:)' || true
+          echo '--- Chrome binaries ---'
+          command -v google-chrome || true
+          command -v chromium || true
+          command -v chromium-browser || true
+          google-chrome --version || true
+          node --version
+          echo '--- curl and ALPN ---'
+          curl -skvI --max-time 10 https://sirussofts.com/Gentoo/ 2>&1 | grep -E '(ALPN:|SSL connection using|HTTP/[12])' | head -25 || true
