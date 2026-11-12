@@ -20,6 +20,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 import client
+import dashboard_live
 
 HOST, PORT = "127.0.0.1", 18080
 AUTH = "/etc/sirus-gentoo-node/dashboard.auth"
@@ -89,6 +90,74 @@ def chart(path: str) -> str:
             'role="img" aria-label="CPU use over 24 hours">'
             '<polyline stroke="#6db9ff" stroke-width="2" fill="none" points="'
             +line+'"/></svg>')
+
+
+def chart_points(path: str) -> list[float]:
+    """Bounded 24-hour CPU samples as numbers for the live chart."""
+    try:
+        with metrics_db(path) as conn:
+            return [min(100, max(0, float(v))) for (v,) in conn.execute(
+                "SELECT cpu FROM samples WHERE cpu IS NOT NULL ORDER BY at DESC LIMIT 1440")][::-1]
+    except (OSError, ValueError, sqlite3.Error):
+        return []
+
+
+def live_loop(server, stop: threading.Event):
+    """One metrics and signed-history producer for all connected browsers."""
+    metrics, jobs, graph = {}, [], []
+    hardware = {"node_id": server.config["node_id"],
+                "ram_bytes": client.memory_bytes(),
+                "cpu_threads": max(1, os.cpu_count() or 1)}
+    sync = "Connecting to Ubuntu's signed work broker."
+    next_metrics = next_jobs = next_graph = 0.0
+    while not stop.is_set():
+        now = time.monotonic()
+        changed = False
+        if now >= next_metrics:
+            try:
+                fresh = client.performance()
+                if isinstance(fresh, dict):
+                    metrics = fresh
+                    changed = True
+            except (OSError, ValueError, TypeError) as error:
+                print("Live metrics failed:", type(error).__name__, flush=True)
+            next_metrics = now + 10
+        if now >= next_jobs:
+            try:
+                key = client.load_key(server.config["key_file"])
+                response = client.work_request(server.config, key, "history")
+                fresh = response.get("jobs", []) if isinstance(response, dict) else []
+                if not isinstance(fresh, list):
+                    raise ValueError("Invalid history response")
+                jobs = [entry for entry in fresh[:40] if isinstance(entry, dict)]
+                sync = "Live signed node-scoped jobs from Ubuntu."
+            except Exception as error:
+                sync = history_error_message(error) + (
+                    " Displaying previously received jobs." if jobs else "")
+                print("Live history unavailable:", type(error).__name__, flush=True)
+            changed = True
+            next_jobs = now + 4
+        if now >= next_graph:
+            graph = chart_points(server.db)
+            changed = True
+            next_graph = now + 60
+        if changed:
+            safe_jobs = []
+            for entry in jobs[:40]:
+                item = {k: entry.get(k) for k in
+                        ("request_id", "kind", "state", "attempts", "updated_at", "error")}
+                raw = entry.get("result", {})
+                try:
+                    value = json.dumps(raw, ensure_ascii=True)
+                    item["result"] = raw if len(value) <= 8192 else {"notice": "Result exceeds display limit"}
+                except (TypeError, ValueError):
+                    item["result"] = {}
+                safe_jobs.append(item)
+            server.live_state.publish({
+                "type": "snapshot", "metrics": metrics, "hardware": hardware,
+                "jobs": safe_jobs, "graph": graph, "sync": sync
+            })
+        stop.wait(2)
 
 
 def bytes_gib(value):
@@ -173,7 +242,7 @@ def page(m: dict, hardware: dict, jobs: list, graph: str, sync: str) -> bytes:
     cpu="N/A" if m.get("cpu_pct") is None else f'{m["cpu_pct"]:.1f}%'
     body=f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="30"><title>Gentoo · SirusSofts</title>
+<title>Gentoo · SirusSofts</title>
 <style>
 :root{{color-scheme:dark;--bg:#07121f;--panel:#132a40;--stroke:#31536c;
 --text:#eaf4ff;--muted:#a5bcd0;--accent:#6db9ff}}
@@ -196,21 +265,33 @@ svg{{display:block;width:100%;height:150px}}summary{{cursor:pointer}}
 assigns jobs and stores the authoritative task history.
 <a href="https://sirussofts.com/admin/infrastructure">CMS infrastructure</a></p>
 <div class="cards">
-<div class="card"><small>CPU · {hardware["cpu_threads"]} threads</small><strong>{e(cpu)}</strong></div>
-<div class="card"><small>Memory</small><strong>{100*used/max(1,ram):.1f}%</strong></div>
-<div class="card"><small>Root disk</small><strong>{100*disk/max(1,total):.1f}%</strong></div>
-<div class="card"><small>Uptime</small><strong>{int(m.get("uptime_seconds",0))//3600}h</strong></div>
+<div class="card"><small>CPU · {hardware["cpu_threads"]} threads</small><strong id="live-cpu">{e(cpu)}</strong></div>
+<div class="card"><small>Memory</small><strong id="live-memory">{100*used/max(1,ram):.1f}%</strong></div>
+<div class="card"><small>Root disk</small><strong id="live-disk">{100*disk/max(1,total):.1f}%</strong></div>
+<div class="card"><small>Uptime</small><strong id="live-uptime">{int(m.get("uptime_seconds",0))//3600}h</strong></div>
 </div>
-<section><h2>CPU utilization · last 24 hours</h2>{graph}</section>
+<section><h2>CPU utilization · last 24 hours</h2><div id="live-cpu-chart">{graph}</div></section>
+<section><h2>Running Gentoo services</h2>
+<p class="muted">Live OpenRC inventory from Gentoo, not a remote-command interface.</p>
+<div id="live-services">{e(", ".join(m.get("services",[])[:48]) or "Collecting service inventory")}</div>
+<h2>Locally hosted application health</h2>
+<div id="live-apps">{e(", ".join(
+    str(item.get("name","app")) + ": " +
+    ("healthy" if item.get("healthy") else "unavailable")
+    for item in m.get("applications",[])[:8] if isinstance(item,dict)
+) or "Collecting application status")}</div></section>
 <section><h2>Graphics hardware</h2><div class="wrap"><table>
 <thead><tr><th>GPU</th><th>Usage</th><th>Temperature</th><th>VRAM</th></tr></thead>
-<tbody>{gpu_rows or '<tr><td colspan="4">No GPUs found</td></tr>'}</tbody>
+<tbody id="live-gpu-rows">{gpu_rows or '<tr><td colspan="4">No GPUs found</td></tr>'}</tbody>
 </table></div></section>
-<section><h2>Previous tasks</h2><p class="muted">{e(sync)}</p>
+<section><h2>Previous tasks</h2><p class="muted" id="live-history-status">{e(sync)}</p>
 <div class="wrap"><table><thead><tr><th>ID</th><th>Kind</th><th>Status</th>
 <th>Attempts</th><th>Updated</th><th>Result</th></tr></thead>
-<tbody>{rows or '<tr><td colspan="6">No previous jobs</td></tr>'}</tbody></table></div>
-</section><small>Read-only · Refreshes every 30 seconds</small></main></body></html>"""
+<tbody id="live-job-rows">{rows or '<tr><td colspan="6">No previous jobs</td></tr>'}</tbody></table></div>
+</section><small>Read-only · WebSocket updates without page reloads</small>
+<small id="live-status" role="status" aria-live="polite">Live: connecting</small>
+<small id="live-updated"></small></main>
+<script defer src="./dashboard_live.js"></script></body></html>"""
     return body.encode("utf8")
 
 
@@ -229,6 +310,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy","no-referrer")
         self.send_header("Content-Security-Policy",
                          "default-src 'none';style-src 'unsafe-inline';"
+                         "script-src 'self';connect-src 'self' "
+                         "wss://sirussofts.com wss://gentoo.sirussofts.com;"
                          "frame-ancestors 'none';form-action 'none'")
         if authenticate:
             self.send_header("WWW-Authenticate",'Basic realm="SirusSofts Gentoo"')
@@ -239,7 +322,9 @@ class Handler(BaseHTTPRequestHandler):
         uri=urlsplit(self.path).path
         if uri=="/healthz":
             return self.send(200,b"OK\n","text/plain; charset=utf-8")
-        if uri not in ("/","/dashboard"):
+        if uri=="/live":
+            return dashboard_live.stream(self)
+        if uri not in ("/","/dashboard","/live-token","/dashboard_live.js"):
             return self.send(404,b"Not found","text/plain; charset=utf-8")
         auth=self.headers.get("Authorization","")
         try:
@@ -251,20 +336,26 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Invalid")
         except (ValueError,UnicodeError):
             return self.send(401,b"Authentication required","text/plain; charset=utf-8",True)
-        config=self.server.config
-        m=client.performance()
-        hardware={"node_id":config["node_id"],"ram_bytes":client.memory_bytes(),
-                  "cpu_threads":max(1,os.cpu_count() or 1)}
-        jobs,sync=[],"Coordinator history is temporarily unavailable."
-        try:
-            key=client.load_key(config["key_file"])
-            jobs=client.work_request(config,key,"history").get("jobs",[])
-            sync="Latest 40 signed, node-scoped jobs from Ubuntu."
-        except Exception as error:
-            sync=history_error_message(error)
-            print("Task history request failed:",type(error).__name__,
-                  getattr(error,"code",""),flush=True)
-        self.send(200,page(m,hardware,jobs,chart(self.server.db),sync),
+        if uri=="/live-token":
+            if self.headers.get("Host","").lower() not in dashboard_live.ALLOWED_HOSTS:
+                return self.send(403,b"Invalid dashboard host","text/plain; charset=utf-8")
+            data=json.dumps({"token":dashboard_live.new_token(self.server.secret)},
+                            separators=(",",":")).encode()
+            return self.send(200,data,"application/json; charset=utf-8")
+        if uri=="/dashboard_live.js":
+            path=Path(__file__).with_name("dashboard_live.js")
+            if path.is_symlink() or not path.is_file() or path.stat().st_size>65536:
+                return self.send(503,b"Dashboard client asset unavailable",
+                                 "text/plain; charset=utf-8")
+            return self.send(200,path.read_bytes(),"text/javascript; charset=utf-8")
+        snapshot=self.server.live_state.wait(-1,0)[1]
+        m=snapshot.get("metrics",{})
+        hardware=snapshot.get("hardware") or {
+            "node_id":self.server.config["node_id"],
+            "ram_bytes":client.memory_bytes(),
+            "cpu_threads":max(1,os.cpu_count() or 1)}
+        self.send(200,page(m,hardware,snapshot.get("jobs",[]),
+                           chart(self.server.db),snapshot.get("sync","Collecting live data.")),
                   "text/html; charset=utf-8")
 
 
@@ -292,7 +383,10 @@ def main(argv=None):
     threading.Thread(target=sample_loop,args=(str(db_path),stop),daemon=True).start()
     server=ThreadingHTTPServer((HOST,PORT),Handler)
     server.config,server.secret,server.db=config,secret,str(db_path)
-    print("Gentoo dashboard started on loopback-only port",PORT,flush=True)
+    server.live_state=dashboard_live.LiveState()
+    server.live_slots=threading.BoundedSemaphore(dashboard_live.MAX_CONNECTIONS)
+    threading.Thread(target=live_loop,args=(server,stop),daemon=True).start()
+    print("Gentoo dashboard WebSocket listening on loopback-only port",PORT,flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
