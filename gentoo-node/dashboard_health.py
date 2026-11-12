@@ -11,7 +11,6 @@ import http.client
 import json
 import os
 from pathlib import Path
-import secrets
 import socket
 import stat
 import time
@@ -75,33 +74,33 @@ def websocket_selftest(port: int = 18080, *,
         with socket.create_connection(("127.0.0.1", port), timeout=4) as client:
             client.settimeout(4)
             request = (
-                "GET /live HTTP/1.1\\r\\n"
-                "Host: sirussofts.com\\r\\n"
-                "Origin: https://sirussofts.com\\r\\n"
-                "Upgrade: websocket\\r\\n"
-                "Connection: Upgrade\\r\\n"
-                "Sec-WebSocket-Version: 13\\r\\n"
-                f"Sec-WebSocket-Key: {key}\\r\\n"
-                f"Sec-WebSocket-Protocol: sirus-live, sirus-auth.{token}\\r\\n"
-                "\\r\\n"
+                "GET /live HTTP/1.1\r\n"
+                "Host: sirussofts.com\r\n"
+                "Origin: https://sirussofts.com\r\n"
+                "Upgrade: websocket\r\n"
+                "Connection: Upgrade\r\n"
+                "Sec-WebSocket-Version: 13\r\n"
+                f"Sec-WebSocket-Key: {key}\r\n"
+                f"Sec-WebSocket-Protocol: sirus-live, sirus-auth.{token}\r\n"
+                "\r\n"
             )
             client.sendall(request.encode())
             reader = client.makefile("rb")
             try:
                 status = reader.readline(128)
-                if status != b"HTTP/1.1 101 Switching Protocols\\r\\n":
+                if status != b"HTTP/1.1 101 Switching Protocols\r\n":
                     return False, "Signed WebSocket handshake did not return HTTP/1.1 101"
                 response_headers = []
                 for _ in range(32):
                     line = reader.readline(2048)
-                    if line == b"\\r\\n":
+                    if line == b"\r\n":
                         break
                     if not line or len(line) >= 2048:
                         return False, "Invalid WebSocket response headers"
                     response_headers.append(line.lower())
                 else:
                     return False, "WebSocket response headers too large"
-                if b"sec-websocket-protocol: sirus-live\\r\\n" not in response_headers:
+                if b"sec-websocket-protocol: sirus-live\r\n" not in response_headers:
                     return False, "Signed WebSocket subprotocol not accepted"
 
                 def read_frame() -> dict:
