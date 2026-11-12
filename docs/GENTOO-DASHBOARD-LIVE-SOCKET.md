@@ -28,6 +28,34 @@ accepts no remote commands, uses a bounded connection pool, and remains on
 The existing reverse SSH forwards Ubuntu `127.0.0.1:18480` to this service.
 No tunnel, SSH key, node HMAC key, credential, or Gentoo workload is altered.
 
+## Reliable in-place updates when WebSocket Upgrade is unavailable
+
+The dashboard now has two read-only delivery modes that use the **same**
+private Gentoo metrics and signed Ubuntu job-history collector:
+
+- **Live: connected (WebSocket)**: preferred, persistent WebSocket.
+- **Live: updating in place (HTTPS fallback)**: the browser receives a
+  fresh authenticated JSON snapshot every five seconds. It updates CPU,
+  RAM, disk, running services, GPU readings and task statuses without
+  a document navigation or JavaScript reload. The browser periodically
+  retries the WebSocket and switches back automatically when it works.
+
+The fallback deliberately uses the already installed,
+HTTP Basic-authenticated `/Gentoo/live-token?snapshot=1` endpoint so
+neither Hestia nor the Ubuntu SSH tunnel requires a new public path,
+certificate, proxy template or SSH restart. Without valid credentials
+it returns HTTP 401. The response contains the same node-scoped data
+already shown on the authenticated dashboard, not a control API.
+
+The existing guarded `gentoo-node/install-dashboard-live.sh --install`
+installs the updated dashboard Python and browser JavaScript files, and
+restarts only `sirus-gentoo-dashboard`.
+
+If both delivery modes fail, the dashboard reports an error in its
+**Live** status rather than repeatedly refreshing the document. Do not
+interpret a successful OpenRC restart as proof that public browser
+delivery is working: verify the page actually changes its metrics.
+
 ## Browser handshake compatibility
 
 The Gentoo dashboard uses Python's standard `BaseHTTPRequestHandler`.
