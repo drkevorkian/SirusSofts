@@ -64,6 +64,7 @@ jobs:
           node --check CMS/assets/live.js
           node --check gentoo-node/dashboard_live.js
           node gentoo-node/tests/dashboard_live_fallback.test.js
+          node gentoo-node/tests/dashboard_live_socket.test.js
       - name: GitHub repository importer tests
         run: |
           python3 -m unittest discover -s deploy/release/tests -p 'test_*.py' -v
@@ -122,4 +123,5 @@ jobs:
           python3 -m unittest discover -s deploy/tests -p 'test_nginx_config.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_gentoo_gateway_nginx.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_nginx_proxy_e2e.py' -v
+          python3 -m unittest discover -s deploy/tests -p 'test_gentoo_ws_proxy_e2e.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_hestia_nginx_guard.py' -v

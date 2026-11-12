@@ -56,6 +56,28 @@ If both delivery modes fail, the dashboard reports an error in its
 interpret a successful OpenRC restart as proof that public browser
 delivery is working: verify the page actually changes its metrics.
 
+## WebSocket handshake authentication
+
+The browser now obtains the existing short-lived signed token using the
+Basic-authenticated `/live-token` route, then offers two WebSocket
+subprotocol values: `sirus-live` and `sirus-auth.<signed-token>`.
+The Gentoo server verifies the token and the exact HTTPS Origin **before**
+replying with `HTTP/1.1 101 Switching Protocols`, selecting the fixed
+`sirus-live` protocol. No credential or signed token appears in the URL
+and no arbitrary WebSocket commands are accepted. Invalid tokens get HTTP
+403 rather than an ambiguous upgrade followed by an immediate disconnect.
+
+This eliminates the fragile post-upgrade first-message authentication
+path. A real Nginx integration test uses the existing production Hestia
+live proxy location (with only the backend port changed to an ephemeral
+test socket), then verifies authentication, HTTP 101, an immediate
+`ready` frame, ongoing CPU/task snapshots, and 403 for invalid tokens.
+
+The existing Ubuntu Nginx config automatically forwards the
+`Sec-WebSocket-Protocol` header unless deliberately overridden, so
+this change requires **only** updating the Gentoo dashboard with
+`install-dashboard-live.sh`. Do not restart the SSH tunnel.
+
 ## Browser handshake compatibility
 
 The Gentoo dashboard uses Python's standard `BaseHTTPRequestHandler`.
