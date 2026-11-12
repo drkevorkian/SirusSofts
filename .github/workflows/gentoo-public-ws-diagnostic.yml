@@ -1,0 +1,36 @@
+name: Gentoo public WebSocket route diagnostic
+on:
+  push:
+    branches:
+      - diagnostics/gentoo-public-websocket-probe
+  workflow_dispatch:
+jobs:
+  public_route:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Probe public dashboard WebSocket upgrade without credentials
+        shell: bash
+        run: |
+          set -u
+          echo 'Public probe: wss://sirussofts.com/Gentoo/live (invalid signed token, no credentials)'
+          curl -sS --http1.1 --connect-timeout 7 --max-time 15 \
+            -D "$RUNNER_TEMP/headers" -o "$RUNNER_TEMP/body" \
+            -w 'public_curl_status=%{http_code}; remote_ip=%{remote_ip}; ssl_verify=%{ssl_verify_result}; response_time=%{time_total}s\\n' \
+            -H 'Origin: https://sirussofts.com' \
+            -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+            -H 'Sec-WebSocket-Version: 13' \
+            -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+            -H 'Sec-WebSocket-Protocol: sirus-live, sirus-auth.invalid' \
+            https://sirussofts.com/Gentoo/live || true
+          echo '--- selected response headers ---'
+          if test -f "$RUNNER_TEMP/headers"; then
+            grep -iE '^(HTTP/|server:|location:|upgrade:|connection:|content-type:|sec-websocket-protocol:|x-powered-by:)' "$RUNNER_TEMP/headers" || true
+          fi
+          echo '--- first 150 bytes of response body ---'
+          if test -f "$RUNNER_TEMP/body"; then
+            head -c 150 "$RUNNER_TEMP/body" | tr '\\r\\n' '  '
+            echo
+          fi
+          echo 'Expected from Gentoo: 403 and WebSocket authentication rejected'
+          echo 'If 401/404/301/502 or a different body: a proxy or site route is intercepting the request.'
