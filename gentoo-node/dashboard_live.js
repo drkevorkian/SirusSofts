@@ -238,7 +238,9 @@
 
       const endpoint = new URL("live", base);
       endpoint.protocol = "wss:";
-      const socket = new WebSocket(endpoint.href);
+      // The existing signed token is offered at handshake time so a
+      // rejected client cannot receive 101 and then close silently.
+      const socket = new WebSocket(endpoint.href, ["sirus-live", "sirus-auth." + data.token]);
       ws = socket;
       socketReady = false;
       // Some reverse proxies silently stall a bad handshake. In that case,
@@ -248,7 +250,9 @@
       }, 8000);
 
       socket.addEventListener("open", () => {
-        if (!disposed) socket.send(JSON.stringify({ token: data.token }));
+        // The server authenticates the signed subprotocol before HTTP 101.
+        // Its first frame will be a ready acknowledgment, not a login prompt.
+        if (socket.protocol !== "sirus-live") socket.close(1002, "Subprotocol mismatch");
       });
       socket.addEventListener("message", event => {
         let payload;
