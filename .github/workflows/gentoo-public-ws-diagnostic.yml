@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
+      - uses: actions/checkout@v4
       - name: Probe public dashboard WebSocket upgrade without credentials
         shell: bash
         run: |
@@ -81,3 +82,10 @@ jobs:
           })().catch(e => {console.error("Browser test:", e.message); process.exitCode=1;});
           NODE
           node "$RUNNER_TEMP/ws-browser/probe.cjs"
+      - name: Real Chrome with valid signed token, TLS and production Nginx location
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/ws-browser" --no-audit --no-fund --silent playwright-core@1.58.2
+          export PLAYWRIGHT_LIB="$RUNNER_TEMP/ws-browser/node_modules/playwright-core"
+          python3 -B deploy/tests/diagnose_gentoo_chrome.py
