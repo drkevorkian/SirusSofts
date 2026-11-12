@@ -24,6 +24,7 @@ if [[ "$mode" == --check ]]; then exit 0; fi
   fail 'Gentoo root required for dashboard deployment'
 id sirusnode >/dev/null || fail 'Existing Gentoo node account missing'
 command -v rc-service >/dev/null || fail 'OpenRC required'
+command -v runuser >/dev/null || fail 'runuser required to validate service identity'
 app=/opt/sirus-gentoo-node
 [[ -d "$app" && ! -L "$app" ]] || fail 'Existing dashboard directory missing'
 [[ -f "$app/dashboard.py" && ! -L "$app/dashboard.py" ]] ||
@@ -85,6 +86,11 @@ import ast,pathlib,sys
 for name in ("dashboard.py","dashboard_live.py","dashboard_health.py"):
     ast.parse((pathlib.Path(sys.argv[1])/name).read_text(encoding="utf8"))
 PY
+# Syntax alone cannot catch missing modules or unreadable installed files.
+# Confirm the target service identity can import exactly what will be run.
+PYTHONDONTWRITEBYTECODE=1 runuser -u sirusnode -- \
+  python3 -B "$app/dashboard.py" --check ||
+  fail 'New dashboard failed import/self-check as sirusnode'
 rc-service sirus-gentoo-dashboard restart ||
   fail 'Dashboard service restart failed'
 # supervise-daemon can report [ ok ] before Python has imported its
