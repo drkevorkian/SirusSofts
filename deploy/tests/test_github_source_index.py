@@ -28,6 +28,9 @@ class SourceChecks(unittest.TestCase):
             return {"type":"file","encoding":"base64",
                     "content":base64.b64encode(body).decode()}
         index = source.refresh("private-test-credential", fake_api, now=123)
+        self.assertEqual(source.BRANCH, "main")
+        self.assertEqual(index["branch"], "main")
+        self.assertIn("/commits/main", requested)
         self.assertEqual(index["commit"], sha)
         self.assertEqual(index["checked_at"], 123)
         self.assertEqual(len(index["files"]), 8)
