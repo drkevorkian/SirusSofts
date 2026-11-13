@@ -1,0 +1,20 @@
+# SirusSofts CMS -- THIS DIRECTORY IS THE WEBSITE DOCUMENT ROOT.
+Options -Indexes
+DirectoryIndex index.php
+RewriteEngine On
+
+# Private CMS runtime and command-line tools must never be accessed from HTTP.
+RewriteRule ^(?:app|bin|tests|data|private)(?:/|$) - [F,L,NC]
+<FilesMatch "^(?:setup-key\.php|\.env|.*\.sqlite3?|.*\.db|.*\.bak)$">
+    Require all denied
+</FilesMatch>
+
+# Preserve old Android upload paths before the CMS catch-all.
+RewriteRule ^api/health/?$ cpoint/api.php?r=health [L,QSA,NC]
+RewriteRule ^api/observations/history/?$ cpoint/api.php?r=observations/history [L,QSA,NC]
+RewriteRule ^api/observations/?$ cpoint/api.php?r=observations [L,QSA,NC]
+
+# Existing /cpoint app and static assets are served as normal files/directories.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L,QSA]

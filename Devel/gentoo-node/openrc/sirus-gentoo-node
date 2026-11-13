@@ -1,0 +1,13 @@
+#!/sbin/openrc-run
+name="SirusSofts Gentoo node"
+description="Persistent outbound Gentoo telemetry and delegated work client"
+supervisor=supervise-daemon
+command="/usr/bin/python3"
+command_args="/opt/sirus-gentoo-node/client.py --config /etc/sirus-gentoo-node/config.json"
+command_user="sirusnode:sirusnode"
+respawn_delay=5
+respawn_max=0
+
+depend() {
+    need net
+}
