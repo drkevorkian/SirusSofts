@@ -39,11 +39,11 @@ jobs:
         run: |
           python3 -m pip install --user --disable-pip-version-check --quiet ruff==0.14.0
           "$HOME/.local/bin/ruff" check --select F821,F822,F823 $(git ls-files '*.py')
-          if command -v shellcheck >/dev/null 2>&1; then
-            git ls-files -z '*.sh' | xargs -0 -r shellcheck --severity=error
-          else
-            echo 'ShellCheck unavailable on runner; Bash syntax was verified by audit'
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends shellcheck
           fi
+          git ls-files -z '*.sh' | xargs -0 -r shellcheck --severity=error
       - name: Test external audit safety without network access
         run: |
           python3 -B security/external_audit.py --check
