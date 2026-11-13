@@ -1,13 +1,22 @@
 # SirusSofts — Main website and CMS
 
+## Code locations — main is the ONLY production branch
+
+- **[main](https://github.com/drkevorkian/SirusSofts/tree/main)** — website and production code. Deployment tools must pull or check out `main`; no site URL or webhook needs to know a development branch.
+- **[devel / Devel/](https://github.com/drkevorkian/SirusSofts/tree/devel/Devel)** — visible, full directory copy of the production source, including `CMS/`, Gentoo, deployment scripts, tests and documentation. Experimental work belongs **inside `Devel/`** on branch `devel`; not inside the website.
+- **Publish tested Devel → main:** GitHub Actions **Publish tested Devel to main**. It requires a successful full test run against the *current* `devel` commit, compares the new copy against its last published snapshot, refuses conflicting edits, and moves **only changes to production files** onto `main`. The `Devel/` directory is never copied into the production website.
+
+No untested changes should reach `main`. GitHub `main` promotion alone does not install a release on the Ubuntu/Gentoo machines; your normal production deployment must still update from `main`.
+
+
+
 **Live VPS:** Ubuntu 24.04 / HestiaCP hosts `sirussofts.com` as `sirusweb`.
 The main CMS, GitHub importer and private source-browser daemon have been
 installed and independently checked by the operator. The most recent v0.4 CMS
 upgrade was **declined at its interactive prompt**, so the user-management UI
-and newer node features are not yet deployed. Changes in this GitHub feature
-branch must still be reviewed, tested and installed separately.
+and newer node features are not yet deployed. GitHub changes must still pass validation and be installed on the servers separately.
 
-**New development architecture (v0.5.0-alpha, feature branch only):**
+**Distributed application architecture (v0.5.0-alpha source):**
 [`gentoo-node/`](gentoo-node/README.md) is the standalone outbound Python
 Gentoo/OpenRC client; [`ubuntu-worker/`](ubuntu-worker/README.md) is the
 independent restricted background executor. `CMS/node-work.php` is an
