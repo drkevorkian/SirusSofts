@@ -77,12 +77,11 @@ journal. The restore refuses unrelated file drift.
 
 ## Deployment onto Ubuntu, after review and merge
 
-Do **not** run the commands until the PR is merged into
-`feature/cms-vhost-distributed-nodes`. They operate on the existing
+Do **not** run the commands until the tested changes are on `main`. They operate on the existing
 Hestia installation; never run the first-run CMS installer.
 
 1. Review local working changes, then
-   `git pull --ff-only origin feature/cms-vhost-distributed-nodes` from
+   `git pull --ff-only origin main` from
    `/root/SirusSofts`.
 2. Run the repo checks:
    `python3 -m unittest discover -s deploy/release/tests -p 'test_*.py' -v`,
