@@ -53,9 +53,8 @@ arbitrary sudo/shell access.
 
 ## Deployment prerequisites
 
-This code is based on the active
-`feature/cms-vhost-distributed-nodes` branch. Merge the reviewed PR
-into that branch, not `main`. The Ubuntu CMS upgrade remains the
+The sole production source branch is `main`. Test reviewed source changes before
+committing them to `main`; the indexer and CMS both require that branch. The Ubuntu CMS upgrade remains the
 existing guarded `08-upgrade-cms-hestia.sh --plan` / `--apply`
 process. The source indexer is separately installed by
 `12-install-github-source-index.sh` and needs its script updated using
