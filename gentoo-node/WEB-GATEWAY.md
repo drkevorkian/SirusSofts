@@ -36,7 +36,7 @@ no interactive shell, password login or local forwarding.
 ## Installation (no Git required on Gentoo)
 
 Using your signed-in GitHub browser, select repository drkevorkian/SirusSofts,
-branch feature/cms-vhost-distributed-nodes, then Code -> Download ZIP.
+branch main, then Code -> Download ZIP.
 Extract ZIP to Downloads, enter the extracted folder in Terminal and run:
 
     bash gentoo-node/install-web-gateway.sh --check
@@ -56,7 +56,7 @@ It prints its NEW SSH PUBLIC key (never reveal the private SSH key).
 Ubuntu already has /root/SirusSofts as a Git checkout. On Ubuntu:
 
     cd /root/SirusSofts
-    git fetch origin feature/cms-vhost-distributed-nodes
+    git fetch origin main
     git checkout PINNED_TESTED_COMMIT
     bash deploy/ubuntu24/11-install-gentoo-gateway.sh --check
     bash deploy/ubuntu24/11-install-gentoo-gateway.sh --plan
