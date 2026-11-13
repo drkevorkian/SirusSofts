@@ -18,7 +18,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 REPO = "drkevorkian/SirusSofts"
-BRANCH = "feature/cms-vhost-distributed-nodes"
+BRANCH = "main"
 API = "https://api.github.com/repos/" + REPO
 ROOT = Path("/home/sirusweb/web/sirussofts.com/private/sirus-cms/nodes")
 TARGET = ROOT / "source_index.json"
