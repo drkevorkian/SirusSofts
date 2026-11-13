@@ -87,13 +87,13 @@ the live launch audit must pass before announcing the website is online.
 **Never rerun the first-install script** `06-deploy-cms-hestia.sh --deploy`
 on an existing site. It intentionally refuses overwrites.
 
-After reviewing a newer feature-branch commit and fetching it into the VPS,
+After reviewing the tested production commit on `main` and fetching it into the VPS,
 use the dedicated upgrade workflow:
 
 ```bash
 cd /root/SirusSofts
 git status --short
-git fetch origin feature/cms-vhost-distributed-nodes
+git fetch origin main
 git checkout VERIFIED_REVIEWED_COMMIT
 php8.3 CMS/tests/smoke.php
 node --check CMS/assets/cms.js
