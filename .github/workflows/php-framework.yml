@@ -124,4 +124,5 @@ jobs:
           python3 -m unittest discover -s deploy/tests -p 'test_gentoo_ws_proxy_e2e.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_gentoo_websocket_audit.py' -v
           python3 deploy/ubuntu24/audit-gentoo-websocket.py --check
+          python3 -B scripts/promote_devel.py --check
           python3 -m unittest discover -s deploy/tests -p 'test_hestia_nginx_guard.py' -v
