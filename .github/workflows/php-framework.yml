@@ -64,6 +64,8 @@ jobs:
           node --check CMS/assets/live.js
           node --check gentoo-node/dashboard_live.js
           node gentoo-node/tests/dashboard_live_fallback.test.js
+          node gentoo-node/tests/dashboard_live_socket.test.js
+          node gentoo-node/tests/dashboard_live_race.test.js
       - name: GitHub repository importer tests
         run: |
           python3 -m unittest discover -s deploy/release/tests -p 'test_*.py' -v
@@ -86,6 +88,7 @@ jobs:
           bash gentoo-node/install-openrc.sh --check
           bash gentoo-node/install-web-gateway.sh --check
           bash gentoo-node/install-dashboard-live.sh --check
+          python3 gentoo-node/diagnose-websocket.py --check
           bash -n gentoo-node/install-dashboard-live.sh
           bash deploy/ubuntu24/13-install-gentoo-live-route.sh --check
           bash deploy/ubuntu24/11-install-gentoo-gateway.sh --check
@@ -122,4 +125,7 @@ jobs:
           python3 -m unittest discover -s deploy/tests -p 'test_nginx_config.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_gentoo_gateway_nginx.py' -v
           python3 -m unittest discover -s deploy/tests -p 'test_nginx_proxy_e2e.py' -v
+          python3 -m unittest discover -s deploy/tests -p 'test_gentoo_ws_proxy_e2e.py' -v
+          python3 -m unittest discover -s deploy/tests -p 'test_gentoo_websocket_audit.py' -v
+          python3 deploy/ubuntu24/audit-gentoo-websocket.py --check
           python3 -m unittest discover -s deploy/tests -p 'test_hestia_nginx_guard.py' -v

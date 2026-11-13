@@ -182,17 +182,21 @@
       const response = await fetch(new URL("live-token?snapshot=1", base), {
         credentials: "same-origin", cache: "no-store", redirect: "error"
       });
+      // A WebSocket may finish authenticating while an HTTPS fallback
+      // request is still in flight. Never overwrite its connected status.
+      if (disposed || socketReady) return;
       if (!response.ok) {
         label("updates unavailable (HTTP " + response.status + ")");
         return;
       }
       const snapshot = await response.json();
+      if (disposed || socketReady) return;
       if (!snapshot || snapshot.type !== "snapshot")
         throw new Error("Invalid live snapshot");
       render(snapshot);
       label("updating in place (HTTPS fallback)");
     } catch {
-      label("updates unavailable (retrying)");
+      if (!disposed && !socketReady) label("updates unavailable (retrying)");
     } finally {
       pollBusy = false;
     }
@@ -210,7 +214,8 @@
   }
 
   function reconnect() {
-    if (disposed || retry !== null) return;
+    if (disposed || retry !== null ||
+        (socketReady && ws && ws.readyState === WebSocket.OPEN)) return;
     socketReady = false;
     startFallback();
     const delay = Math.min(30000, 1000 * (2 ** Math.min(attempts++, 5)));
@@ -238,7 +243,9 @@
 
       const endpoint = new URL("live", base);
       endpoint.protocol = "wss:";
-      const socket = new WebSocket(endpoint.href);
+      // The existing signed token is offered at handshake time so a
+      // rejected client cannot receive 101 and then close silently.
+      const socket = new WebSocket(endpoint.href, ["sirus-live", "sirus-auth." + data.token]);
       ws = socket;
       socketReady = false;
       // Some reverse proxies silently stall a bad handshake. In that case,
@@ -248,9 +255,12 @@
       }, 8000);
 
       socket.addEventListener("open", () => {
-        if (!disposed) socket.send(JSON.stringify({ token: data.token }));
+        // The server authenticates the signed subprotocol before HTTP 101.
+        // Its first frame will be a ready acknowledgment, not a login prompt.
+        if (socket.protocol !== "sirus-live") socket.close(1002, "Subprotocol mismatch");
       });
       socket.addEventListener("message", event => {
+        if (disposed || ws !== socket) return;
         let payload;
         try { payload = JSON.parse(event.data); } catch { return; }
         if (payload.type === "ready") {
@@ -262,16 +272,20 @@
           label("connected (WebSocket)");
         } else if (payload.type === "snapshot") {
           render(payload);
+          // Recover from any older delayed HTTPS response that might have
+          // overwritten the visible transport label during a reconnect.
+          if (socketReady) label("connected (WebSocket)");
         }
       });
       socket.addEventListener("close", () => {
+        if (ws !== socket) return; // Ignore late closes from an obsolete socket.
         if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
         handshakeTimer = null;
-        if (ws === socket) ws = null;
+        ws = null;
         reconnect();
       });
       socket.addEventListener("error", () => {
-        if (!socketReady) startFallback();
+        if (ws === socket && !socketReady) startFallback();
       });
     } catch {
       reconnect();

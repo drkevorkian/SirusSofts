@@ -32,7 +32,7 @@ class LiveDashboardTests(unittest.TestCase):
         script = (ROOT/"dashboard_live.js").read_text()
         self.assertNotIn("window.location.reload",script)
         self.assertNotIn("location.reload(",script)
-        self.assertIn('new WebSocket(endpoint.href)',script)
+        self.assertIn('new WebSocket(endpoint.href, ["sirus-live", "sirus-auth." + data.token])',script)
         self.assertIn('new URL("live-token?snapshot=1", base)',script)
         self.assertIn("updating in place (HTTPS fallback)",script)
         self.assertIn("startFallback()",script)
@@ -112,21 +112,21 @@ class LiveDashboardTests(unittest.TestCase):
                     "Host: sirussofts.com\r\nOrigin: https://sirussofts.com\r\n"
                     "Upgrade: websocket\r\nConnection: Upgrade\r\n"
                     "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: "+key+
+                    "\r\nSec-WebSocket-Protocol: sirus-live, sirus-auth."+token+
                     "\r\n\r\n").encode())
                 reader=conn.makefile("rb")
                 status=reader.readline()
                 # The previous test only searched for b"101", so it passed
                 # HTTP/1.0 101 (which modern WebSocket clients reject).
                 self.assertEqual(status,b"HTTP/1.1 101 Switching Protocols\r\n")
-                while reader.readline()!=b"\r\n": pass
-                raw=json.dumps({"token":token}).encode()
-                mask=b"abcd"
-                payload=bytes(byte^mask[i%4] for i,byte in enumerate(raw))
-                if len(raw)<126:
-                    header=bytes([0x81,0x80|len(raw)])
-                else:
-                    header=bytes([0x81,0xfe])+len(raw).to_bytes(2,"big")
-                conn.sendall(header+mask+payload)
+                headers=b""
+                while True:
+                    line=reader.readline()
+                    if line==b"\r\n":
+                        break
+                    headers+=line
+                self.assertIn(b"Sec-WebSocket-Protocol: sirus-live\r\n",headers)
+                self.assertIn(b"Upgrade: websocket\r\n",headers)
                 self.assertIn(b'"type":"ready"',self.read_frame(reader))
                 content=self.read_frame(reader)
                 self.assertIn(b'"cpu_pct":22',content)
