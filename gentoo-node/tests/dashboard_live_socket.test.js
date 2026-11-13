@@ -9,7 +9,8 @@ const vm = require("node:vm");
 async function main() {
   const source = fs.readFileSync(path.join(__dirname, "..", "dashboard_live.js"), "utf8");
   const ids = ["live-status", "live-cpu", "live-memory", "live-disk",
-               "live-uptime", "live-history-status", "live-updated"];
+               "live-uptime", "live-history-status", "live-updated",
+               "live-socket-diagnostic"];
   const nodes = Object.fromEntries(ids.map(id => [id, {textContent: ""}]));
   let ws = null, fallbackPolls = 0, interval = null, pagehide = null;
   let lastRequested = "";
@@ -63,6 +64,8 @@ async function main() {
   assert.deepEqual(ws.messagesSent, [], "No insecure post-upgrade auth frame");
   ws.emit("message", {data: JSON.stringify({type:"ready"})});
   assert.equal(nodes["live-status"].textContent, "Live: connected (WebSocket)");
+  assert.equal(nodes["live-socket-diagnostic"].textContent,
+               "WSS diagnostic: connected; signed ready frame received");
   assert.equal(fallbackPolls, 0);
   ws.emit("message", {data: JSON.stringify({
     type:"snapshot",
