@@ -8,7 +8,8 @@ const path = require("node:path");
 async function main() {
   const client = fs.readFileSync(path.join(__dirname, "..", "dashboard_live.js"), "utf8");
   const ids = ["live-status", "live-cpu", "live-memory", "live-disk",
-               "live-uptime", "live-history-status", "live-updated"];
+               "live-uptime", "live-history-status", "live-updated",
+               "live-socket-diagnostic"];
   const nodes = Object.fromEntries(ids.map(id => [id, {textContent: ""}]));
   let interval = null;
   let pagehide = null;
@@ -66,6 +67,8 @@ async function main() {
   assert.equal(nodes["live-cpu"].textContent, "22.0%");
   assert.equal(nodes["live-memory"].textContent, "12.5%");
   assert.match(nodes["live-status"].textContent, /HTTPS fallback/);
+  assert.equal(nodes["live-socket-diagnostic"].textContent,
+               "WSS diagnostic: browser rejected WebSocket constructor");
   assert.deepEqual(setIntervals, [5000]);
   assert.ok(fetched.some(url => url === "https://sirussofts.com/Gentoo/live-token?snapshot=1"));
 
