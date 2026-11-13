@@ -8,7 +8,8 @@ const path = require("node:path");
 async function main() {
   const source = fs.readFileSync(path.join(__dirname, "..", "dashboard_live.js"), "utf8");
   const ids = ["live-status", "live-cpu", "live-memory", "live-disk",
-               "live-uptime", "live-history-status", "live-updated"];
+               "live-uptime", "live-history-status", "live-updated",
+               "live-socket-diagnostic"];
   const nodes = Object.fromEntries(ids.map(id => [id, {textContent:""}]));
   const timeouts = new Map();
   let timerId = 0, intervalId = null, pagehide = null;
