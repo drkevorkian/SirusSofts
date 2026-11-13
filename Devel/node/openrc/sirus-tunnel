@@ -1,0 +1,16 @@
+#!/sbin/openrc-run
+name="SirusSofts persistent reverse SSH tunnel"
+description="Dedicated outbound Gentoo-to-Ubuntu OpenSSH tunnel supervisor"
+supervisor=supervise-daemon
+command="/usr/bin/python3"
+command_args="/opt/sirus-node/tunnel_supervisor.py --config /etc/sirus-node/tunnel.json"
+command_user="sirusnode:sirusnode"
+respawn_delay=5
+respawn_max=0
+
+start_pre() {
+    checkpath --directory --mode 0750 --owner sirusnode:sirusnode /run/sirus-node
+}
+depend() {
+    need net
+}

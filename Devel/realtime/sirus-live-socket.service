@@ -1,0 +1,28 @@
+[Unit]
+Description=SirusSofts authenticated admin WebSocket updates
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=sirusweb
+Group=sirusweb
+UMask=0077
+WorkingDirectory=/usr/local/libexec
+ExecStart=/usr/bin/python3 -B /usr/local/libexec/sirus-live-socket.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET
+MemoryMax=96M
+LimitNOFILE=128
+
+[Install]
+WantedBy=multi-user.target

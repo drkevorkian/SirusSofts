@@ -1,0 +1,13 @@
+[Unit]
+Description=Scan GitHub import queue every two minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+RandomizedDelaySec=10s
+AccuracySec=15s
+Persistent=true
+Unit=sirus-github-import.service
+
+[Install]
+WantedBy=timers.target

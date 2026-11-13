@@ -1,0 +1,131 @@
+name: PHP framework checks
+on:
+  push:
+    branches:
+      - feature/cms-vhost-distributed-nodes
+    paths:
+      - 'CMS/**'
+      - 'node/**'
+      - 'gentoo-node/**'
+      - 'ubuntu-worker/**'
+      - 'deploy/**'
+      - '.github/workflows/php-framework.yml'
+  pull_request:
+    paths:
+      - 'CMS/**'
+      - 'node/**'
+      - 'gentoo-node/**'
+      - 'ubuntu-worker/**'
+      - 'deploy/**'
+      - '.github/workflows/php-framework.yml'
+  workflow_dispatch:
+jobs:
+  php:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP prerequisites
+        run: |
+          php -v
+          php -m | grep -qi pdo_sqlite
+          php -m | grep -qi sodium
+      - name: PHP syntax
+        run: find CMS -name '*.php' -type f -print0 | xargs -0 -n1 php -l
+      - name: Registry and CMS tests
+        run: |
+          php -d zend.assertions=1 -d assert.exception=1 CMS/tests/storage_registry_test.php
+          php CMS/tests/smoke.php
+          php CMS/tests/theme_test.php
+      - name: Storage, backup, and migration tests
+        run: |
+          php CMS/tests/storage_adapter_test.php
+          php CMS/tests/backup_test.php
+          php CMS/tests/storage_migration_test.php
+          php CMS/tests/node_registry_test.php
+          php CMS/tests/storage_cli_test.php
+          php CMS/tests/operations_admin_test.php
+          php CMS/tests/source_release_test.php
+          php CMS/tests/release_schema_migration_test.php
+          php CMS/tests/source_deploy_test.php
+          php CMS/tests/live_events_test.php
+          php CMS/tests/github_projects_test.php
+          php CMS/tests/access_control_test.php
+          php CMS/tests/work_broker_test.php
+          php CMS/tests/hosting_config_test.php
+          php CMS/tests/storage_github_test.php
+      - name: Gentoo agent unit tests
+        run: python3 -m unittest discover -s node/tests -p 'test_*.py' -v
+      - name: OpenRC installer syntax
+        run: bash -n node/install-openrc.sh
+      - name: JavaScript syntax
+        run: |
+          node --check CMS/assets/cms.js
+          node --check CMS/assets/live.js
+          node --check gentoo-node/dashboard_live.js
+          node gentoo-node/tests/dashboard_live_fallback.test.js
+          node gentoo-node/tests/dashboard_live_socket.test.js
+          node gentoo-node/tests/dashboard_live_race.test.js
+      - name: GitHub repository importer tests
+        run: |
+          python3 -m unittest discover -s deploy/release/tests -p 'test_*.py' -v
+          python3 deploy/release/source_executor.py --check
+          python3 deploy/release/ubuntu_controller.py --check
+          bash deploy/release/install-ubuntu.sh --check
+          bash -n deploy/release/install-ubuntu.sh
+          python3 -m unittest discover -s deploy/tests -p 'test_github_source_index.py' -v
+          bash deploy/ubuntu24/12-install-github-source-index.sh --check
+          python3 -m unittest discover -s deploy/tests -p 'test_github_cms_import.py' -v
+          python3 -m unittest discover -s deploy/tests -p 'test_github_source_browser.py' -v
+          python3 deploy/ubuntu24/github-source-browser.py --check
+          python3 -m unittest discover -s realtime/tests -p 'test_*.py' -v
+          python3 realtime/server.py --check
+          bash realtime/install-ubuntu.sh --check
+          bash -n realtime/install-ubuntu.sh
+          python3 -m unittest discover -s gentoo-node/tests -p 'test_*.py' -v
+          python3 -m unittest discover -s ubuntu-worker/tests -p 'test_*.py' -v
+          python3 ubuntu-worker/worker.py --check
+          bash gentoo-node/install-openrc.sh --check
+          bash gentoo-node/install-web-gateway.sh --check
+          bash gentoo-node/install-dashboard-live.sh --check
+          python3 gentoo-node/diagnose-websocket.py --check
+          bash -n gentoo-node/install-dashboard-live.sh
+          bash deploy/ubuntu24/13-install-gentoo-live-route.sh --check
+          bash deploy/ubuntu24/11-install-gentoo-gateway.sh --check
+          bash ubuntu-worker/install.sh --check
+          bash -n gentoo-node/install-openrc.sh gentoo-node/install-web-gateway.sh ubuntu-worker/install.sh
+          php -l CMS/node-work.php
+          php -l CMS/app/work_broker.php
+          python3 deploy/ubuntu24/github-cms-import.py --check
+          bash deploy/ubuntu24/09-install-github-import.sh --check
+      - name: Ubuntu installer syntax and read-only preflight
+        run: |
+          bash -n deploy/install-framework-ubuntu.sh
+          bash deploy/install-framework-ubuntu.sh --check
+      - name: Restricted Nginx vhost agent tests
+        run: python3 -m unittest discover -s deploy/tests -p 'test_nginx_vhost_agent.py' -v
+      - name: Nginx vhost installer read-only preflight
+        run: |
+          bash -n deploy/install-nginx-vhost-agent.sh
+          bash deploy/install-nginx-vhost-agent.sh --check
+      - name: Fresh Ubuntu 24.04 Hestia installer read-only tests
+        run: |
+          for script in deploy/ubuntu24/*.sh; do
+            bash -n "$script"
+            bash "$script" --check
+          done
+          python3 -m unittest discover -s deploy/tests -p 'test_hestia_firewall.py' -v
+          python3 -m unittest discover -s deploy/tests -p 'test_hestia_bootstrap.py' -v
+      - name: Parse generated app and CMS configs with real Nginx
+        run: |
+          if ! command -v nginx >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends nginx
+          fi
+          python3 -m unittest discover -s deploy/tests -p 'test_nginx_config.py' -v
+          python3 -m unittest discover -s deploy/tests -p 'test_gentoo_gateway_nginx.py' -v
+          python3 -m unittest discover -s deploy/tests -p 'test_nginx_proxy_e2e.py' -v
+          python3 -m unittest discover -s deploy/tests -p 'test_gentoo_ws_proxy_e2e.py' -v
+          python3 -m unittest discover -s deploy/tests -p 'test_gentoo_websocket_audit.py' -v
+          python3 deploy/ubuntu24/audit-gentoo-websocket.py --check
+          python3 -m unittest discover -s deploy/tests -p 'test_hestia_nginx_guard.py' -v

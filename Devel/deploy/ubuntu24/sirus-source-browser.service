@@ -1,0 +1,31 @@
+[Unit]
+Description=SirusSofts restricted read-only GitHub source browser
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sirusweb
+Group=sirusweb
+UMask=0077
+RuntimeDirectory=sirussofts-source
+RuntimeDirectoryMode=0700
+LoadCredential=github_token:/etc/sirussofts/github.token
+ExecStart=/usr/bin/python3 /usr/local/libexec/sirus-github-source-browser.py --db /home/sirusweb/web/sirussofts.com/private/sirus-cms/data/cms.sqlite3 --token-file %d/github_token --socket /run/sirussofts-source/bridge.sock
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=192M
+LimitNOFILE=128
+TimeoutStartSec=15
+
+[Install]
+WantedBy=multi-user.target
