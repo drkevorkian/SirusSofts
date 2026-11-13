@@ -9,7 +9,7 @@ request using the **existing** GitHub importer credential, stored as
 PHP, Gentoo, the WebSocket, nor browser clients receive the token.
 
 The checker reads the approved deployment branch
-`drkevorkian/SirusSofts:feature/cms-vhost-distributed-nodes`.
+`drkevorkian/SirusSofts:main`.
 It first resolves an immutable Git commit and retrieves selected files pinned
 to that SHA. For each file, it records a SHA-256 digest in
 `/home/sirusweb/web/sirussofts.com/private/sirus-cms/nodes/source_index.json`.
