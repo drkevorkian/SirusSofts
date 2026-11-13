@@ -6,6 +6,14 @@
   let pollTimer = null, pollBusy = false, handshakeTimer = null;
   const byId = id => document.getElementById(id);
   const base = new URL(".", window.location.href);
+  let socketStage = "initializing";
+
+  // Browser-visible, credential-free connection diagnostics. The browser
+  // extension can inspect this element without privileged DevTools access.
+  function socketDiagnostic(status) {
+    const target = byId("live-socket-diagnostic");
+    if (target) target.textContent = "WSS diagnostic: " + status;
+  }
 
   function label(message) {
     const node = byId("live-status");
@@ -232,11 +240,18 @@
       return;
     }
     connecting = true;
+    socketStage = "requesting signed token";
+    socketDiagnostic(socketStage);
     try {
       const response = await fetch(new URL("live-token", base), {
         credentials: "same-origin", cache: "no-store", redirect: "error"
       });
-      if (!response.ok) throw new Error("Authentication unavailable");
+      if (!response.ok) {
+        socketDiagnostic("token endpoint HTTP " + response.status);
+        socketStage = "token HTTP failure";
+        throw new Error("Authentication unavailable");
+      }
+      socketStage = "reading token response";
       const data = await response.json();
       if (typeof data.token !== "string") throw new Error("Missing live token");
       if (disposed) return;
@@ -245,19 +260,30 @@
       endpoint.protocol = "wss:";
       // The existing signed token is offered at handshake time so a
       // rejected client cannot receive 101 and then close silently.
+      socketStage = "creating WebSocket";
+      socketDiagnostic("token received; attempting WSS handshake");
       const socket = new WebSocket(endpoint.href, ["sirus-live", "sirus-auth." + data.token]);
       ws = socket;
+      socketStage = "awaiting WSS handshake";
       socketReady = false;
       // Some reverse proxies silently stall a bad handshake. In that case,
       // fall back to authenticated HTTPS snapshots rather than a frozen page.
       handshakeTimer = window.setTimeout(() => {
-        if (!socketReady && ws === socket) socket.close();
+        if (!socketReady && ws === socket) {
+          socketDiagnostic("WSS did not deliver ready frame within 8 seconds");
+          socket.close();
+        }
       }, 8000);
 
       socket.addEventListener("open", () => {
         // The server authenticates the signed subprotocol before HTTP 101.
         // Its first frame will be a ready acknowledgment, not a login prompt.
-        if (socket.protocol !== "sirus-live") socket.close(1002, "Subprotocol mismatch");
+        if (socket.protocol !== "sirus-live") {
+          socketDiagnostic("WSS connected but selected unexpected subprotocol");
+          socket.close(1002, "Subprotocol mismatch");
+        } else {
+          socketDiagnostic("HTTP 101 accepted; awaiting ready frame");
+        }
       });
       socket.addEventListener("message", event => {
         if (disposed || ws !== socket) return;
@@ -269,6 +295,7 @@
           if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
           handshakeTimer = null;
           stopFallback();
+          socketDiagnostic("connected; signed ready frame received");
           label("connected (WebSocket)");
         } else if (payload.type === "snapshot") {
           render(payload);
@@ -277,17 +304,30 @@
           if (socketReady) label("connected (WebSocket)");
         }
       });
-      socket.addEventListener("close", () => {
+      socket.addEventListener("close", event => {
         if (ws !== socket) return; // Ignore late closes from an obsolete socket.
+        const code = event && Number.isInteger(event.code) ? event.code : 1006;
+        socketDiagnostic("WSS closed (code " + code +
+                         (socketReady ? ", after ready" : ", before ready") + ")");
         if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
         handshakeTimer = null;
         ws = null;
         reconnect();
       });
       socket.addEventListener("error", () => {
-        if (ws === socket && !socketReady) startFallback();
+        if (ws === socket && !socketReady) {
+          socketDiagnostic("browser reported a WebSocket connection error");
+          startFallback();
+        }
       });
     } catch {
+      if (socketStage === "creating WebSocket") {
+        socketDiagnostic("browser rejected WebSocket constructor");
+      } else if (socketStage === "reading token response") {
+        socketDiagnostic("invalid token response (no signed token available)");
+      } else if (socketStage === "requesting signed token") {
+        socketDiagnostic("token request failed (network, browser policy or login)");
+      }
       reconnect();
     } finally {
       connecting = false;
