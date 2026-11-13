@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - feature/webhook-deployer-v0.1
+      - main
     paths:
       - .github/workflows/external-security-audit.yml
-      - security/external_audit.py
+      - security/**
 
 permissions:
   contents: read
@@ -24,7 +24,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
       - name: Run bounded owner-authorized external checks
-        run: python3 security/external_audit.py
+        run: |
+          python3 -B security/external_audit.py --check
+          python3 -B security/external_audit.py --run
       - name: Upload audit results
         if: always()
         uses: actions/upload-artifact@v4
