@@ -1,6 +1,0 @@
-{
-  "node_id": "gentoo-home",
-  "coordinator_url": "https://sirussofts.org/node-heartbeat.php",
-  "key_file": "/etc/sirus-node/heartbeat.key",
-  "period_seconds": 60
-}

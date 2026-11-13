@@ -1,7 +1,0 @@
-{
-  "host": "74.208.40.187",
-  "ssh_port": 22,
-  "user": "sirus-tunnel",
-  "identity": "/etc/sirus-gentoo-node/tunnel_ed25519",
-  "known_hosts": "/etc/sirus-gentoo-node/tunnel_known_hosts"
-}

@@ -1,14 +1,8 @@
 # SirusSofts — Main website and CMS
 
-## Code locations — main is the ONLY production branch
+## Repository workflow
 
-- **[main](https://github.com/drkevorkian/SirusSofts/tree/main)** — website and production code. Deployment tools must pull or check out `main`; no site URL or webhook needs to know a development branch.
-- **[devel / Devel/](https://github.com/drkevorkian/SirusSofts/tree/devel/Devel)** — visible, full directory copy of the production source, including `CMS/`, Gentoo, deployment scripts, tests and documentation. Experimental work belongs **inside `Devel/`** on branch `devel`; not inside the website.
-- **Publish tested Devel → main:** GitHub Actions **Publish tested Devel to main**. It requires a successful full test run against the *current* `devel` commit, compares the new copy against its last published snapshot, refuses conflicting edits, and moves **only changes to production files** onto `main`. The `Devel/` directory is never copied into the production website.
-
-No untested changes should reach `main`. GitHub `main` promotion alone does not install a release on the Ubuntu/Gentoo machines; your normal production deployment must still update from `main`.
-
-
+**`main` is the only working branch and the sole source for production code.** Make changes directly in their normal project folders (`CMS/`, `gentoo-node/`, `deploy/`, etc.), test them, then commit and push to `main`. No separate development folder, development branch, or promotion workflow is used. A GitHub push alone does not install code on the Ubuntu or Gentoo hosts; deployment remains a separate explicit operation.
 
 **Live VPS:** Ubuntu 24.04 / HestiaCP hosts `sirussofts.com` as `sirusweb`.
 The main CMS, GitHub importer and private source-browser daemon have been
