@@ -11,6 +11,7 @@ on:
       - 'deploy/**'
       - 'docs/**'
       - 'scripts/**'
+      - 'security/**'
       - 'README.md'
       - '.github/workflows/php-framework.yml'
   pull_request:
@@ -22,6 +23,7 @@ on:
       - 'deploy/**'
       - 'docs/**'
       - 'scripts/**'
+      - 'security/**'
       - 'README.md'
       - '.github/workflows/php-framework.yml'
   workflow_dispatch:
@@ -42,6 +44,10 @@ jobs:
           else
             echo 'ShellCheck unavailable on runner; Bash syntax was verified by audit'
           fi
+      - name: Test external audit safety without network access
+        run: |
+          python3 -B security/external_audit.py --check
+          python3 -m unittest discover -s security/tests -p 'test_*.py' -v
       - name: PHP prerequisites
         run: |
           php -v
