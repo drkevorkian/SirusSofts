@@ -69,9 +69,9 @@ If git/curl/CA certs are not on a minimal image, use:
     apt-get update
     apt-get install -y --no-install-recommends ca-certificates curl git openssh-server
 
-Clone/check out the SirusSofts feature branch using your approved GitHub
+Clone/check out the SirusSofts production `main` branch using your approved GitHub
 authentication (SSH deploy key for a private repo, NOT a token in a URL):
-    git clone --branch feature/cms-vhost-distributed-nodes \
+    git clone --branch main \
       git@github.com:drkevorkian/SirusSofts.git /root/SirusSofts
     cd /root/SirusSofts
     git rev-parse HEAD
