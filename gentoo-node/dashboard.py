@@ -290,6 +290,7 @@ assigns jobs and stores the authoritative task history.
 <tbody id="live-job-rows">{rows or '<tr><td colspan="6">No previous jobs</td></tr>'}</tbody></table></div>
 </section><small>Read-only · WebSocket updates without page reloads</small>
 <small id="live-status" role="status" aria-live="polite">Live: connecting</small>
+<small id="live-socket-diagnostic" role="status">WSS diagnostic: waiting for browser</small>
 <small id="live-updated"></small></main>
 <script defer src="./dashboard_live.js"></script></body></html>"""
     return body.encode("utf8")
