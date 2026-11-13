@@ -11,7 +11,7 @@ UBUNTU = ROOT / "deploy" / "ubuntu24"
 class UbuntuHestiaBootstrapTests(unittest.TestCase):
     def test_putty_guide_uses_real_code_blocks_and_public_repository(self):
         document = (UBUNTU / "PUTTY-SSH-QUICKSTART.md").read_text()
-        self.assertIn("git clone --single-branch --branch feature/cms-vhost-distributed-nodes", document)
+        self.assertIn("git clone --single-branch --branch main", document)
         self.assertIn("https://github.com/drkevorkian/SirusSofts.git", document)
         self.assertIn("cd /root/SirusSofts", document)
         self.assertGreaterEqual(document.count(chr(96) * 3 + "bash"), 4)
