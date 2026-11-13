@@ -68,7 +68,7 @@ function cms_release_index(?int $now=null): array {
         throw new InvalidArgumentException('Source version index is unavailable.');
     $index=json_decode((string)file_get_contents($file),true,12,JSON_THROW_ON_ERROR);
     if(!is_array($index) || ($index['repository']??null)!=='drkevorkian/SirusSofts' ||
-       ($index['branch']??null)!=='feature/cms-vhost-distributed-nodes' ||
+       ($index['branch']??null)!=='main' ||
        !is_int($index['checked_at']??null) ||
        $index['checked_at']>$now+120 || $index['checked_at']<$now-86400)
         throw new InvalidArgumentException('GitHub source index is stale or invalid. Check GitHub updates first.');
