@@ -9,6 +9,9 @@ on:
       - 'gentoo-node/**'
       - 'ubuntu-worker/**'
       - 'deploy/**'
+      - 'docs/**'
+      - 'scripts/**'
+      - 'README.md'
       - '.github/workflows/php-framework.yml'
   pull_request:
     paths:
@@ -17,6 +20,9 @@ on:
       - 'gentoo-node/**'
       - 'ubuntu-worker/**'
       - 'deploy/**'
+      - 'docs/**'
+      - 'scripts/**'
+      - 'README.md'
       - '.github/workflows/php-framework.yml'
   workflow_dispatch:
 jobs:
