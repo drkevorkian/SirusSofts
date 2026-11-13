@@ -15,12 +15,12 @@ jobs:
       run:
         working-directory: Devel
     steps:
+      - uses: actions/checkout@v4
       - name: Verify visible Devel copy exists
         run: |
           test -f CMS/index.php
           test -f gentoo-node/dashboard_live.py
           test -f .github/workflows/php-framework.yml
-      - uses: actions/checkout@v4
       - name: PHP prerequisites
         run: |
           php -v
