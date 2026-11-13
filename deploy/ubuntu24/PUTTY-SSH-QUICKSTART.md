@@ -4,10 +4,8 @@
 server and install the website hosting stack.** No Plesk. No VPS credentials
 are needed in the public GitHub clone command.
 
-**Important:** This repo's GitHub feature branch contains the full tested
-installation scripts; the default `main` branch is not the deployment source
-for this installation. The correct command explicitly checks out the
-deployment branch. It does NOT automatically change the live server.
+**Important:** Use the tested `main` branch for all SirusSofts installations.
+This GitHub checkout does NOT automatically change the live server.
 
 Full explanation: [README.md](README.md).
 
