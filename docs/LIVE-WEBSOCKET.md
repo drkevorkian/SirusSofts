@@ -52,9 +52,8 @@ snapshot) to allow other admin components to subscribe without refreshing.
 
 ## Install on the running Ubuntu VPS
 
-1. Merge this branch into the same **deployment branch** used by Ubuntu:
-   `feature/cms-vhost-distributed-nodes`. Confirm `git status --short`
-   and `git pull --ff-only origin feature/cms-vhost-distributed-nodes`.
+1. Use the tested **production branch**, `main`. Confirm `git status --short`
+   and `git pull --ff-only origin main`.
 2. Run tests:
    `python3 -m unittest discover -s realtime/tests -p 'test_*.py' -v`,
    `bash realtime/install-ubuntu.sh --check`.
