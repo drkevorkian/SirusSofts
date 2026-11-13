@@ -39,7 +39,7 @@ lsb_release -a
 apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl git openssh-server
 cd /root
-git clone --single-branch --branch feature/cms-vhost-distributed-nodes https://github.com/drkevorkian/SirusSofts.git /root/SirusSofts
+git clone --single-branch --branch main https://github.com/drkevorkian/SirusSofts.git /root/SirusSofts
 cd /root/SirusSofts
 git status --short --branch
 git rev-parse HEAD
