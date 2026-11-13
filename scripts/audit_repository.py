@@ -65,7 +65,8 @@ def audit() -> tuple[dict[str, int], list[str]]:
             continue
         # Old branch mentions are retained in the historical recovery record,
         # but operational docs, code, and deployment scripts must use main.
-        if OBSOLETE_BRANCH in source and rel != IGNORED_BRANCH_DOCUMENT:
+        if (OBSOLETE_BRANCH in source and rel not in {IGNORED_BRANCH_DOCUMENT,
+                                                     "scripts/audit_repository.py"}):
             errors.append(f"{rel}: references retired deployment branch")
         if suffix == ".md":
             counts["docs"] += 1
