@@ -100,8 +100,8 @@ status and response headers before changing any firewall or SSH setup.
 
 ## Install on Gentoo (local terminal, existing installation)
 
-After the PR is merged into `feature/cms-vhost-distributed-nodes`, use the
-**same reviewed branch** in your Gentoo checkout; do not run the first-time
+After tested changes are committed to `main`, use the
+**same production branch** in your Gentoo checkout; do not run the first-time
 web gateway installer just for this change. With the updated checkout:
 
 ```sh
@@ -144,7 +144,7 @@ On Ubuntu root:
 
 ```sh
 cd /root/SirusSofts
-git pull --ff-only origin feature/cms-vhost-distributed-nodes
+git pull --ff-only origin main
 bash deploy/ubuntu24/13-install-gentoo-live-route.sh --check
 bash deploy/ubuntu24/13-install-gentoo-live-route.sh --plan
 bash deploy/ubuntu24/13-install-gentoo-live-route.sh --install
