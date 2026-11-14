@@ -6,13 +6,17 @@
   let pollTimer = null, pollBusy = false, handshakeTimer = null;
   const byId = id => document.getElementById(id);
   const base = new URL(".", window.location.href);
+  // Only the dashboard on Gentoo's own loopback port can use plaintext WS.
+  // All public sites must continue to use authenticated HTTPS and WSS.
+  const localLoopback = window.location.protocol === "http:" &&
+    window.location.hostname === "127.0.0.1" && window.location.port === "18080";
   let socketStage = "initializing";
 
   // Browser-visible, credential-free connection diagnostics. The browser
   // extension can inspect this element without privileged DevTools access.
   function socketDiagnostic(status) {
     const target = byId("live-socket-diagnostic");
-    if (target) target.textContent = "WSS diagnostic: " + status;
+    if (target) target.textContent = (localLoopback ? "Local WS diagnostic: " : "WSS diagnostic: ") + status;
   }
 
   function label(message) {
@@ -235,7 +239,7 @@
 
   async function connect() {
     if (disposed || connecting || (ws && ws.readyState <= WebSocket.OPEN)) return;
-    if (window.location.protocol !== "https:") {
+    if (window.location.protocol !== "https:" && !localLoopback) {
       label("HTTPS required");
       return;
     }
@@ -257,7 +261,7 @@
       if (disposed) return;
 
       const endpoint = new URL("live", base);
-      endpoint.protocol = "wss:";
+      endpoint.protocol = localLoopback ? "ws:" : "wss:";
       // The existing signed token is offered at handshake time so a
       // rejected client cannot receive 101 and then close silently.
       socketStage = "creating WebSocket";
