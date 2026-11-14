@@ -78,6 +78,29 @@ The existing Ubuntu Nginx config automatically forwards the
 this change requires **only** updating the Gentoo dashboard with
 `install-dashboard-live.sh`. Do not restart the SSH tunnel.
 
+## Direct Gentoo browser diagnostic (loopback only)
+
+On the **Gentoo machine itself**, open `http://127.0.0.1:18080/` and
+log in with the existing dashboard Basic authentication. This page can now
+open the signed `ws://127.0.0.1:18080/live` WebSocket directly, bypassing
+Ubuntu, Nginx and the SSH reverse tunnel. It shows `Local WS diagnostic:`
+and `Live: connected (WebSocket)` when the browser has received the signed
+`ready` frame. The loopback HTTP/WS exception applies **only** to the exact
+origin `http://127.0.0.1:18080`, and the Python dashboard continues to bind
+only `127.0.0.1:18080`. The user must already be authenticated; the WebSocket
+requires a short-lived HMAC token. All public dashboards continue to require
+HTTPS/WSS and their existing strict Origin checks. Other HTTP hosts and LAN
+addresses cannot enable this client exception.
+
+Install the updated files through the usual guarded
+`gentoo-node/install-dashboard-live.sh --install` on Gentoo; an Ubuntu
+reinstallation and any SSH tunnel restart are unnecessary. Compare the
+loopback indicator with `https://sirussofts.com/Gentoo/` on the same browser.
+If loopback WS succeeds and public WSS fails, investigate the Chrome-to-Ubuntu
+path, Nginx upgrade behavior, and browser policies before changing the Gentoo
+application. The local direct test is diagnostic; do not open port 18080
+on the network or publish it outside the host.
+
 ## Browser handshake compatibility
 
 The Gentoo dashboard uses Python's standard `BaseHTTPRequestHandler`.
