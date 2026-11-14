@@ -177,17 +177,17 @@ class LiveDashboardTests(unittest.TestCase):
                 with socket.create_connection(("127.0.0.1",port),timeout=5) as sock:
                     sock.settimeout(5)
                     key=base64.b64encode(os.urandom(16)).decode()
-                    sock.sendall(("GET /live HTTP/1.1\\r\\n"
-                        "Host: 127.0.0.1:18080\\r\\n"
-                        "Origin: "+origin+"\\r\\n"
-                        "Upgrade: websocket\\r\\nConnection: Upgrade\\r\\n"
-                        "Sec-WebSocket-Version: 13\\r\\nSec-WebSocket-Key: "+key+
-                        "\\r\\nSec-WebSocket-Protocol: sirus-live, sirus-auth."+token+
-                        "\\r\\n\\r\\n").encode())
+                    sock.sendall(("GET /live HTTP/1.1\r\n"
+                        "Host: 127.0.0.1:18080\r\n"
+                        "Origin: "+origin+"\r\n"
+                        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                        "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: "+key+
+                        "\r\nSec-WebSocket-Protocol: sirus-live, sirus-auth."+token+
+                        "\r\n\r\n").encode())
                     reader=sock.makefile("rb")
                     status=reader.readline()
                     if status.startswith(b"HTTP/1.1 101"):
-                        while reader.readline()!=b"\\r\\n":
+                        while reader.readline()!=b"\r\n":
                             pass
                         self.assertIn(b'"type":"ready"',self.read_frame(reader))
                         self.assertIn(b'"cpu_pct":42',self.read_frame(reader))
@@ -195,7 +195,7 @@ class LiveDashboardTests(unittest.TestCase):
                     return status
 
             self.assertEqual(handshake("http://127.0.0.1:18080"),
-                             b"HTTP/1.1 101 Switching Protocols\\r\\n")
+                             b"HTTP/1.1 101 Switching Protocols\r\n")
             self.assertTrue(handshake("http://evil.example").startswith(b"HTTP/1.1 403"))
             self.assertTrue(handshake("https://127.0.0.1:18080").startswith(b"HTTP/1.1 403"))
         finally:
