@@ -138,6 +138,71 @@ class LiveDashboardTests(unittest.TestCase):
             server.server_close()
             t.join(timeout=5)
 
+    def test_loopback_only_signed_websocket(self):
+        """Real local HTTP/WS must work without weakening public origin rules."""
+        self.assertEqual(dashboard_live.ALLOWED_ORIGINS["127.0.0.1:18080"],
+                         "http://127.0.0.1:18080")
+        self.assertNotIn("0.0.0.0:18080", dashboard_live.ALLOWED_ORIGINS)
+        server=dashboard.ThreadingHTTPServer(("127.0.0.1",0),dashboard.Handler)
+        server.secret=dashboard.make_hash("example-test-password")
+        server.config={"node_id":"gentoo-home"}
+        server.db="/not-used-here"
+        server.live_state=dashboard_live.LiveState()
+        server.live_slots=threading.BoundedSemaphore(4)
+        server.live_state.publish({"type":"snapshot","metrics":{"cpu_pct":42},
+                                   "hardware":{"node_id":"gentoo-home"},
+                                   "jobs":[],"graph":[],"sync":"Local test"})
+        t=threading.Thread(target=server.serve_forever,daemon=True)
+        t.start()
+        try:
+            port=server.server_port
+            token=dashboard_live.new_token(server.secret)
+            conn=http.client.HTTPConnection("127.0.0.1",port,timeout=5)
+            auth=base64.b64encode(b"admin:example-test-password").decode()
+            conn.request("GET","/live-token",headers={
+                "Host":"127.0.0.1:18080","Authorization":"Basic "+auth})
+            response=conn.getresponse()
+            self.assertEqual(response.status,200)
+            self.assertIn("ws://127.0.0.1:18080",response.getheader("Content-Security-Policy"))
+            response.read()
+            conn.request("GET","/live-token",headers={
+                "Host":"sirussofts.com","Authorization":"Basic "+auth})
+            response=conn.getresponse()
+            self.assertEqual(response.status,200)
+            self.assertNotIn("ws://127.0.0.1:18080",response.getheader("Content-Security-Policy"))
+            response.read()
+            conn.close()
+
+            def handshake(origin):
+                with socket.create_connection(("127.0.0.1",port),timeout=5) as sock:
+                    sock.settimeout(5)
+                    key=base64.b64encode(os.urandom(16)).decode()
+                    sock.sendall(("GET /live HTTP/1.1\\r\\n"
+                        "Host: 127.0.0.1:18080\\r\\n"
+                        "Origin: "+origin+"\\r\\n"
+                        "Upgrade: websocket\\r\\nConnection: Upgrade\\r\\n"
+                        "Sec-WebSocket-Version: 13\\r\\nSec-WebSocket-Key: "+key+
+                        "\\r\\nSec-WebSocket-Protocol: sirus-live, sirus-auth."+token+
+                        "\\r\\n\\r\\n").encode())
+                    reader=sock.makefile("rb")
+                    status=reader.readline()
+                    if status.startswith(b"HTTP/1.1 101"):
+                        while reader.readline()!=b"\\r\\n":
+                            pass
+                        self.assertIn(b'"type":"ready"',self.read_frame(reader))
+                        self.assertIn(b'"cpu_pct":42',self.read_frame(reader))
+                    reader.close()
+                    return status
+
+            self.assertEqual(handshake("http://127.0.0.1:18080"),
+                             b"HTTP/1.1 101 Switching Protocols\\r\\n")
+            self.assertTrue(handshake("http://evil.example").startswith(b"HTTP/1.1 403"))
+            self.assertTrue(handshake("https://127.0.0.1:18080").startswith(b"HTTP/1.1 403"))
+        finally:
+            server.shutdown()
+            server.server_close()
+            t.join(timeout=5)
+
     @staticmethod
     def read_frame(reader):
         h=reader.read(2)
