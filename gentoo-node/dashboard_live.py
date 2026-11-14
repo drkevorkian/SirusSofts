@@ -15,7 +15,14 @@ import struct
 import threading
 import time
 
-ALLOWED_HOSTS = ("sirussofts.com", "gentoo.sirussofts.com")
+# Loopback HTTP/WS is permitted solely for a browser running on Gentoo itself.
+# The service binds 127.0.0.1:18080; the public sites remain HTTPS/WSS only.
+ALLOWED_ORIGINS = {
+    "sirussofts.com": "https://sirussofts.com",
+    "gentoo.sirussofts.com": "https://gentoo.sirussofts.com",
+    "127.0.0.1:18080": "http://127.0.0.1:18080",
+}
+ALLOWED_HOSTS = tuple(ALLOWED_ORIGINS)
 MAX_CONNECTIONS = 12
 MAX_FRAME = 2048
 
@@ -158,8 +165,8 @@ def stream(handler) -> None:
             raw_key = base64.b64decode(key, validate=True)
         except (ValueError, TypeError):
             raw_key = b""
-        if (host not in ALLOWED_HOSTS
-                or origin != "https://" + host
+        if (host not in ALLOWED_ORIGINS
+                or origin != ALLOWED_ORIGINS[host]
                 or handler.request_version != "HTTP/1.1"
                 or headers.get("Upgrade", "").lower() != "websocket"
                 or "upgrade" not in headers.get("Connection", "").lower()
