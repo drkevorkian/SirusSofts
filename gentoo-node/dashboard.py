@@ -314,10 +314,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options","DENY")
         self.send_header("X-Content-Type-Options","nosniff")
         self.send_header("Referrer-Policy","no-referrer")
+        # The loopback-only test uses ws://, but public pages must not gain
+        # permission to open plaintext WebSockets or local device sockets.
+        local_ws = (" ws://127.0.0.1:18080" if
+                    self.headers.get("Host", "").lower() == "127.0.0.1:18080"
+                    else "")
         self.send_header("Content-Security-Policy",
                          "default-src 'none';style-src 'unsafe-inline';"
                          "script-src 'self';connect-src 'self' "
-                         "wss://sirussofts.com wss://gentoo.sirussofts.com;"
+                         "wss://sirussofts.com wss://gentoo.sirussofts.com"
+                         + local_ws + ";"
                          "frame-ancestors 'none';form-action 'none'")
         if authenticate:
             self.send_header("WWW-Authenticate",'Basic realm="SirusSofts Gentoo"')
