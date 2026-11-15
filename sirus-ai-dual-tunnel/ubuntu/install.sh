@@ -4,7 +4,7 @@
 # replaces an existing Gentoo dashboard, tunnel, domain, or public website.
 set -Eeuo pipefail
 fail(){ echo "FAIL: $*" >&2; exit 1; }
-mode="\${1:---check}"
+mode="${1:---check}"
 [[ $# -eq 1 && ( "$mode" == --check || "$mode" == --plan || "$mode" == --install ) ]] || fail 'Usage: bash ubuntu/install.sh --check|--plan|--install'
 base="$(cd "$(dirname "$0")/.." && pwd)"
 for f in ubuntu/gateway.py ubuntu/web/index.html ubuntu/web/app.js ubuntu/web/styles.css ubuntu/nginx.conf_sirusai ubuntu/nginx.ssl.conf_sirusai ubuntu/sirus-ai-gateway.service; do
