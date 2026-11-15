@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 fail(){ echo "FAIL: $*" >&2; exit 1; }
 mode="${1:---check}"
-case "$mode" in --check|--plan|--build-nvidia|--build-amd|--enable-nvidia|--enable-amd|--repair-amd|--status) ;; *) fail 'Usage: gpu-workers.sh --check|--plan|--build-nvidia|--build-amd|--enable-nvidia|--enable-amd|--repair-amd|--status';; esac
+case "$mode" in --check|--plan|--build-nvidia|--build-amd|--enable-nvidia|--enable-amd|--repair-amd|--run-nvidia-vulkan|--status) ;; *) fail 'Usage: gpu-workers.sh --check|--plan|--build-nvidia|--build-amd|--enable-nvidia|--enable-amd|--repair-amd|--run-nvidia-vulkan|--status';; esac
 [[ $# -eq 1 ]] || fail 'Accepts exactly one operation'
 source_dir=/opt/sirus-ai/llama.cpp
 model=/var/lib/sirus-ai/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf
@@ -15,6 +15,8 @@ if [[ "$mode" == --plan ]]; then
   echo 'AMD: separate Vulkan llama-server 127.0.0.1:18487, AMD Radeon device only.'
   echo 'CPU: existing 127.0.0.1:18482 build and service unchanged.'
   echo 'GPU drivers and system packages are not changed automatically.'
+  echo 'NVIDIA comparison: same Vulkan binary with NVIDIA-only ICD, foreground 127.0.0.1:18488 via --run-nvidia-vulkan.'
+  echo 'Do not run the NVIDIA CUDA and NVIDIA Vulkan inference servers simultaneously on the 6GB GTX 1660.'
   exit 0
 fi
 if [[ "$mode" == --check ]]; then
@@ -24,7 +26,7 @@ if [[ "$mode" == --check ]]; then
 fi
 [[ -f /etc/gentoo-release && -d "$source_dir/.git" && -s "$model" ]] || fail 'Gentoo CPU source/model missing'
 if [[ "$mode" == --status ]]; then
-  for entry in 'cpu:18482' 'nvidia:18486' 'amd:18487'; do
+  for entry in 'cpu:18482' 'nvidia-cuda:18486' 'amd-vulkan:18487' 'nvidia-vulkan:18488'; do
     label="${entry%%:*}"; port="${entry##*:}"
     if curl -fsS --max-time 2 "http://127.0.0.1:$port/health" >/dev/null; then echo "$label ONLINE"; else echo "$label OFFLINE"; fi
   done
@@ -35,7 +37,15 @@ if [[ "$mode" == --build-nvidia ]]; then
   command -v nvcc >/dev/null || fail 'NVIDIA nvcc missing'
   command -v nvidia-smi >/dev/null || fail 'NVIDIA driver utilities missing'
   nvidia-smi >/dev/null || fail 'NVIDIA driver unavailable'
-  cmake -S "$source_dir" -B "$nvidia_dir" -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DGGML_VULKAN=OFF
+  # CUDA 12.9.x supports GCC <= 14; never switch Gentoo's system compiler.
+  host_cxx="${CUDAHOSTCXX:-}"
+  if [[ -z "$host_cxx" ]]; then
+    for candidate in /usr/x86_64-pc-linux-gnu/gcc-bin/14/g++ /usr/bin/g++-14 /usr/bin/x86_64-pc-linux-gnu-g++-14; do
+      [[ -x "$candidate" ]] && { host_cxx="$candidate"; break; }
+    done
+  fi
+  [[ -n "$host_cxx" && -x "$host_cxx" ]] || fail 'Install GCC 14 alongside GCC 15, then set CUDAHOSTCXX to the full GCC 14 g++ path'
+  cmake -S "$source_dir" -B "$nvidia_dir" -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DGGML_VULKAN=OFF -DCMAKE_CUDA_ARCHITECTURES=75 -DCMAKE_CUDA_HOST_COMPILER="$host_cxx"
   cmake --build "$nvidia_dir" --target llama-server -j 2
   "$nvidia_dir/bin/llama-server" --list-devices
   echo 'PASS CUDA binary built; verify CUDA0'
@@ -50,6 +60,26 @@ if [[ "$mode" == --build-amd ]]; then
   echo 'PASS Vulkan binary built; verify AMD device'
   exit 0
 fi
+if [[ "$mode" == --run-nvidia-vulkan ]]; then
+  binary="$amd_dir/bin/llama-server"
+  [[ -x "$binary" ]] || fail 'Vulkan binary missing; run --build-amd first'
+  [[ -f /usr/share/vulkan/icd.d/nvidia_icd.json ]] || fail 'NVIDIA Vulkan ICD missing'
+  command -v runuser >/dev/null || fail 'runuser required'
+  command -v ss >/dev/null || fail 'ss required'
+  [[ -z "$(ss -ltnH '( sport = :18486 )')" ]] || fail 'NVIDIA CUDA port 18486 is active. Stop CUDA service before benchmarking NVIDIA Vulkan.'
+  [[ -z "$(ss -ltnH '( sport = :18488 )')" ]] || fail 'NVIDIA Vulkan port 18488 is already occupied'
+  devices="$(runuser -u sirusai -- env -u DISPLAY -u WAYLAND_DISPLAY -u XAUTHORITY -u XDG_RUNTIME_DIR VK_DRIVER_FILES=/usr/share/vulkan/icd.d/nvidia_icd.json "$binary" --list-devices 2>&1)" || fail 'NVIDIA Vulkan device probe failed'
+  printf '%s\n' "$devices"
+  dev="$(printf '%s\n' "$devices" | grep -Ei '^[[:space:]]*Vulkan[0-9]+:.*(NVIDIA|GeForce)' | head -n1 | sed -E 's/^[[:space:]]*(Vulkan[0-9]+):.*/\1/' || true)"
+  [[ "$dev" =~ ^Vulkan[0-9]+$ ]] || fail 'GTX 1660 not found in NVIDIA Vulkan-only device list'
+  echo "Starting temporary headless NVIDIA Vulkan worker ($dev) at 127.0.0.1:18488"
+  echo 'Press Ctrl+C to stop; this does not create or enable an OpenRC service.'
+  exec runuser -u sirusai -- env -u DISPLAY -u WAYLAND_DISPLAY -u XAUTHORITY -u XDG_RUNTIME_DIR \
+    VK_DRIVER_FILES=/usr/share/vulkan/icd.d/nvidia_icd.json "$binary" \
+    --model "$model" --alias sirussofts-coder --host 127.0.0.1 --port 18488 \
+    --device "$dev" --n-gpu-layers 16 --ctx-size 2048 --threads 4 --parallel 1
+fi
+
 if [[ "$mode" == --enable-nvidia ]]; then
   binary="$nvidia_dir/bin/llama-server"
   [[ -x "$binary" ]] || fail 'Run --build-nvidia first'
