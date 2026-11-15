@@ -395,3 +395,9 @@ html:is([data-theme="ghost"],[data-theme="parchment"]) .node-state.is-offline{co
 .node-metric progress{width:100%;height:8px;accent-color:var(--accent)}
 .node-stats h3{font-size:18px;margin:27px 0 9px;color:var(--text)}
 
+
+/* Private AI reference administration */
+.ai-profiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.ai-profile{background:var(--panel-alt);border:1px solid var(--stroke);border-radius:12px;padding:16px}
+.ai-profile label{display:block;margin:12px 0}
+.admin-panel input[type=checkbox]{width:auto;min-height:0;margin-right:8px}

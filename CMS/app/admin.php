@@ -84,6 +84,7 @@ function cms_admin_post(PDO $db,string $path): void {
         cms_change_viewer_password($db);
     }
     cms_need_admin();
+    if($path==='/admin/ai')cms_ai_post($db,$action);
     if($path==='/admin/users' &&
        in_array($action,['create_viewer','set_viewer_status','reset_viewer_password','save_viewer_grants'],true)){
         cms_users_post($db,$action);
@@ -256,7 +257,7 @@ function cms_admin_shell_start(PDO $db,string $title): void {
         <?php foreach([
            '/admin'=>'Overview','/admin/projects'=>'Projects','/admin/pages'=>'Content pages',
            '/admin/hosting'=>'Virtual hosts','/admin/infrastructure'=>'Infrastructure',
-           '/admin/updates'=>'Update Center',
+           '/admin/updates'=>'Update Center','/admin/ai'=>'AI Knowledge & Training',
            '/admin/github'=>'GitHub projects','/admin/users'=>'Users & source access',
            '/admin/source'=>'Source browser','/admin/settings'=>'Site settings','/admin/security'=>'Security',
            '/admin/activity'=>'Activity log'
@@ -389,6 +390,7 @@ function cms_admin_run(PDO $db,string $path): never {
         http_response_code(403);exit('Administrator permission required.');
     }
     if($path==='/admin/logout'){cms_go('/admin');}
+    if($path==='/admin/ai'){cms_ai_page($db,$error);exit;}
     if($path==='/admin/users'){cms_users_page($db,$error);exit;}
     if($path==='/admin/hosting'){cms_vhost_page($db,$error);exit;}
     if($path==='/admin/infrastructure'){cms_operations_page($db);exit;}

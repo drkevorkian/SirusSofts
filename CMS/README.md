@@ -380,3 +380,7 @@ installed with deploy/ubuntu24/11-install-gentoo-gateway.sh and deliberately
 cannot silently replace the original CMS or cPoint hosting. The operator
 must separately provision DNS and TLS before activating the subdomain.
 See [the Gentoo deployment guide](../gentoo-node/WEB-GATEWAY.md).
+
+## AI Knowledge & Training
+
+`/admin/ai` is a private CMS administrator page for curated references and supervised question/answer examples in coding, physics, and time/relativity. Review approval and profile enablement gate every JSONL export. Exports are separate for knowledge retrieval, training, and held-out evaluation; source text stays in the existing non-public CMS SQLite database. This page does not fetch URLs, train weights, execute commands, or send data to Gentoo. After an approved CMS code deployment, run the existing unprivileged `php bin/migrate-schema.php` tool. See `docs/SIRUS_AI_KNOWLEDGE_TRAINING.md` for Gentoo integration.

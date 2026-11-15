@@ -2,6 +2,8 @@
 declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 
+require_once __DIR__.'/ai_training.php';
+
 /** SirusSofts CMS 0.1 — private application code. Never serve this file directly. */
 const SIRUS_CMS_VERSION = '0.6.0-alpha';
 const SIRUS_CMS_DOMAIN = 'sirussofts.com';
@@ -156,6 +158,7 @@ SQL);
     $db->exec('CREATE INDEX IF NOT EXISTS cms_source_permission_repo ON cms_source_permissions(github_id)');
     $db->exec('CREATE INDEX IF NOT EXISTS cms_github_project_link ON cms_github_repositories(project_id)');
     $db->exec('CREATE INDEX IF NOT EXISTS cms_projects_status ON cms_projects(state,sort_order)');
+    cms_ai_schema($db);
 }
 /** Public, allowlisted presentation themes. No user-supplied stylesheets. */
 function cms_theme_options(): array {
