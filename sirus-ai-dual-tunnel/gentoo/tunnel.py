@@ -45,7 +45,7 @@ def ssh_command(config, channel):
               '-o', 'ControlMaster=no',
               '-i', identity, '-p', str(cfg['ssh_port'])]
     if channel == 'input':
-        common += ['-l', 'sirus-ai-in', '-R', '127.0.0.1:18482:127.0.0.1:18082']
+        common += ['-l', 'sirus-ai-in', '-R', '127.0.0.1:18485:127.0.0.1:18082']
     else:
         common += ['-l', 'sirus-ai-out', '-L', '127.0.0.1:18084:127.0.0.1:18483']
     return common + [host]

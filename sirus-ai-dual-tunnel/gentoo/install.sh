@@ -19,7 +19,7 @@ if [[ "$mode" == --plan ]]; then
   echo 'Keep original CPU service on Gentoo 127.0.0.1:18482 unchanged.'
   echo 'Create input API at Gentoo 127.0.0.1:18082; output forward on Gentoo 127.0.0.1:18084.'
   echo 'Two new independently supervised SSH connections to Ubuntu, both using existing PINNED SSH host key.'
-  echo 'Input:  -R Ubuntu:127.0.0.1:18482 -> Gentoo:127.0.0.1:18082'
+  echo 'Input:  -R Ubuntu:127.0.0.1:18485 -> Gentoo:127.0.0.1:18082'
   echo 'Output: -L Gentoo:127.0.0.1:18084 -> Ubuntu:127.0.0.1:18483'
   echo 'No existing tunnel, CPU service, GPU driver, RAID or firewall is changed.'
   echo 'New private keys and output shared secret will be created; tunnel activation is a separate step.'

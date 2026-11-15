@@ -12,7 +12,7 @@
  Ubuntu VPS (Hestia Nginx; existing domain and certificate)
        |  /Gentoo/AI/ → 127.0.0.1:18483 (static chat UI + SSE result reader)
        |
-       |  /Gentoo/AI/api/in/* → 127.0.0.1:18482 (INPUT SSH -R listening on Ubuntu)
+       |  /Gentoo/AI/api/in/* → 127.0.0.1:18485 (INPUT SSH -R listening on Ubuntu)
        |     [SSH connection 1: restricted user sirus-ai-in, keepalive 15s]
        |                       |
        |                       v
@@ -117,12 +117,12 @@ curl -fsS http://127.0.0.1:18084/api/out/health
 On **Ubuntu**:
 
 ```bash
-curl -fsS http://127.0.0.1:18482/api/in/health
+curl -fsS http://127.0.0.1:18485/api/in/health
 curl -fsS http://127.0.0.1:18483/api/out/health
 curl -I https://sirussofts.com/Gentoo/AI/
 ```
 
-The unauthenticated HTTPS `curl -I` should receive a `401` Basic-auth challenge; the browser prompts for a username and password. Open the intended UI at **https://sirussofts.com/Gentoo/AI/**. Both input/output connection indicators should become healthy; CPU availability is separate. Never expose `127.0.0.1:18482` from Gentoo or `127.0.0.1:18483` from Ubuntu as public listeners.
+The unauthenticated HTTPS `curl -I` should receive a `401` Basic-auth challenge; the browser prompts for a username and password. Open the intended UI at **https://sirussofts.com/Gentoo/AI/**. Both input/output connection indicators should become healthy; CPU availability is separate. Never expose `127.0.0.1:18482` from Gentoo or `127.0.0.1:18485` and `127.0.0.1:18483` from Ubuntu as public listeners.
 
 ## 4 — Optional independent NVIDIA and AMD inference workers
 
@@ -155,3 +155,7 @@ The tests exercise the router, SSH tunnel construction with separate identities/
 ## Cleanup/rollback planning
 
 No existing service is overwritten. If you want to roll back the *new* integration, disable and stop the three new Gentoo services (`sirus-ai-input`, `sirus-ai-input-tunnel`, `sirus-ai-output-tunnel`), stop the two optional GPU workers, and disable the new Ubuntu `sirus-ai-gateway` service. Ubuntu's installer prints a private sshd backup path; restore it only after reviewing it and validating SSH access. Remove **only** the newly added `nginx.conf_sirusai` and `nginx.ssl.conf_sirusai` Hestia includes, run `nginx -t`, then reload Nginx. Do not delete the existing Gentoo dashboard, Live WebSocket, original SSH tunnel or CPU model. Keep SQLite state backups if you want task recovery.
+
+## Existing Ubuntu installations with port 18482 collision
+
+If Ubuntu already has `sirus-live-socket.service` bound to `127.0.0.1:18482`, DO NOT restart or remove that service. The new AI INPUT tunnel uses Ubuntu `127.0.0.1:18485` instead; Gentoo's existing CPU inference server remains on its OWN loopback `127.0.0.1:18482`. On an Ubuntu installation that stopped after provisioning SSH/accounts because of the earlier collision, use the reviewed `ubuntu/repair-input-port-18485.sh --check` and `--apply` script after fetching this commit. It changes only the AI SSH input user's forwarding restrictions and the AI HTTPS Nginx include. Then on Gentoo, install the updated `gentoo/tunnel.py` into `/opt/sirus-ai-dual/gentoo/tunnel.py` and restart ONLY `sirus-ai-input-tunnel`. Do not rerun the guarded first-time `--install` scripts.

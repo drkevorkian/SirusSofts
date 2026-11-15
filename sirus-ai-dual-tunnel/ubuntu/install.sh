@@ -24,7 +24,7 @@ nginx -t || fail 'Existing Nginx config invalid'
 ssl=/home/sirusweb/conf/web/sirussofts.com/nginx.ssl.conf_sirusai
 plain=/home/sirusweb/conf/web/sirussofts.com/nginx.conf_sirusai
 if [[ "$mode" == --plan ]]; then
-  echo 'INPUT: restricted key-only SSH account sirus-ai-in, -R 127.0.0.1:18482 -> Gentoo 18082.'
+  echo 'INPUT: restricted key-only SSH account sirus-ai-in, -R 127.0.0.1:18485 -> Gentoo 18082.'
   echo 'OUTPUT: separate restricted key-only SSH account sirus-ai-out, -L Gentoo 18084 -> Ubuntu 127.0.0.1:18483.'
   echo 'Create private Ubuntu output collector (loopback 18483), persistent event database and protected frontend.'
   echo "Add ONLY Hestia includes $ssl and $plain for /Gentoo/AI/; do not alter other routes."
@@ -45,6 +45,16 @@ done
 [[ ! -e /var/lib/sirus-ai-in && ! -e /var/lib/sirus-ai-out ]] || fail 'AI SSH service accounts may already exist; review'
 [[ ! -e /etc/ssh/sshd_config.d/90-sirus-ai.conf ]] || fail 'Unexpected prior SSH AI include'
 for who in sirus-ai-in sirus-ai-out; do ! id "$who" >/dev/null 2>&1 || fail "User $who already exists"; done
+# Refuse to provision if either new Ubuntu loopback port is occupied.
+python3 - <<'PY'
+import socket
+for port in (18485, 18483):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind(('127.0.0.1', port))
+        except OSError as exc:
+            raise SystemExit(f'FAIL: required AI loopback port {port} is unavailable: {exc}')
+PY
 
 read -r in_type in_key _ < /root/input_ed25519.pub
 read -r out_type out_key _ < /root/output_ed25519.pub
@@ -80,7 +90,7 @@ for who in sirus-ai-in sirus-ai-out; do
   passwd -l "$who" >/dev/null
   install -d -m 0700 -o "$who" -g "$who" "/var/lib/$who/.ssh"
 done
-printf 'restrict,port-forwarding,permitlisten="127.0.0.1:18482" ssh-ed25519 %s sirus-ai-input\n' "$in_key" > /var/lib/sirus-ai-in/.ssh/authorized_keys
+printf 'restrict,port-forwarding,permitlisten="127.0.0.1:18485" ssh-ed25519 %s sirus-ai-input\n' "$in_key" > /var/lib/sirus-ai-in/.ssh/authorized_keys
 printf 'restrict,port-forwarding,permitopen="127.0.0.1:18483" ssh-ed25519 %s sirus-ai-output\n' "$out_key" > /var/lib/sirus-ai-out/.ssh/authorized_keys
 for who in sirus-ai-in sirus-ai-out; do
   chown "$who:$who" "/var/lib/$who/.ssh/authorized_keys"
@@ -92,7 +102,7 @@ cat >> /etc/ssh/sshd_config <<'SSH'
 Match User sirus-ai-in
     AllowTcpForwarding remote
     PermitOpen none
-    PermitListen 127.0.0.1:18482
+    PermitListen 127.0.0.1:18485
     GatewayPorts no
     PasswordAuthentication no
     KbdInteractiveAuthentication no
