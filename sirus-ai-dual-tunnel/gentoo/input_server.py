@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import sys
 import threading
 import time
 import urllib.error
@@ -29,6 +30,8 @@ OUTPUT_CHUNK_CHARS = 8192  # Bounded transfer packets, unlimited count per answe
 MAX_CONTEXT_MESSAGES = 20
 STALE_JOB_LIMIT = 30
 VALID_ID = re.compile(r'^[a-f0-9]{32}$')
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from knowledge import KnowledgeManager,PROFILES
 
 
 @contextmanager
@@ -49,7 +52,8 @@ def init_db(path):
         con.executescript('''
         CREATE TABLE IF NOT EXISTS jobs (
           id TEXT PRIMARY KEY, messages TEXT NOT NULL, target TEXT NOT NULL,
-          state TEXT NOT NULL, created REAL NOT NULL, worker TEXT DEFAULT ''
+          state TEXT NOT NULL, created REAL NOT NULL, worker TEXT DEFAULT '',
+          profile TEXT NOT NULL DEFAULT 'auto'
         );
         CREATE TABLE IF NOT EXISTS outbox (
           job_id TEXT NOT NULL, seq INTEGER NOT NULL, type TEXT NOT NULL,
@@ -58,6 +62,8 @@ def init_db(path):
         );
         CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(acked,job_id,seq);
         ''')
+        if 'profile' not in {col[1] for col in con.execute('PRAGMA table_info(jobs)')}:
+            con.execute("ALTER TABLE jobs ADD COLUMN profile TEXT NOT NULL DEFAULT 'auto'")
         # If Gentoo reboots mid-inference, retry the task from the beginning.
         con.execute("UPDATE jobs SET state='queued' WHERE state='running'")
 
@@ -129,33 +135,34 @@ def chat(url, messages, timeout=None):
 
 
 class Engine:
-    def __init__(self, db, secret, gpu_percent=90):
+    def __init__(self, db, secret, gpu_percent=90, knowledge_file=None):
         self.db = db
         self.secret = Path(secret).read_text().strip()
         if len(self.secret) < 32:
             raise RuntimeError('Shared output authentication secret is missing')
         self.gpu_percent = gpu_percent
         self.stop = threading.Event()
+        self.knowledge = KnowledgeManager(knowledge_file) if knowledge_file else None
 
-    def enqueue(self, messages, target):
+    def enqueue(self, messages, target, profile='auto'):
         job_id = uuid.uuid4().hex
         with db_connect(self.db) as con:
             queue_size = con.execute("SELECT count(*) FROM jobs WHERE state IN ('queued','running')").fetchone()[0]
             if queue_size >= STALE_JOB_LIMIT:
                 raise RuntimeError('Inference queue full; try again after current tasks finish')
-            con.execute('INSERT INTO jobs VALUES(?,?,?,?,?,?)',
-                        (job_id, json.dumps(messages), target, 'queued', time.time(), ''))
+            con.execute('INSERT INTO jobs(id,messages,target,state,created,worker,profile) VALUES(?,?,?,?,?,?,?)',
+                        (job_id,json.dumps(messages),target,'queued',time.time(),'',profile))
             add_event(con, job_id, 1, 'queued')
         return job_id
 
     def run_one(self):
         with db_connect(self.db) as con:
             con.execute('BEGIN IMMEDIATE')
-            row = con.execute("SELECT id,messages,target FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
+            row = con.execute("SELECT id,messages,target,profile FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
             if not row:
                 con.execute('COMMIT')
                 return False
-            job_id, raw_messages, target = row
+            job_id,raw_messages,target,profile = row
             con.execute("UPDATE jobs SET state='running' WHERE id=?", (job_id,))
             con.execute('COMMIT')
         worker = ''
@@ -164,8 +171,11 @@ class Engine:
             with db_connect(self.db) as con:
                 con.execute('UPDATE jobs SET worker=? WHERE id=?', (worker, job_id))
                 add_event(con, job_id, 2, 'started', '', worker)
+            prompt_messages=json.loads(raw_messages)
+            if self.knowledge:
+                prompt_messages=self.knowledge.augment_messages(prompt_messages,profile)
             try:
-                answer = chat(url, json.loads(raw_messages))
+                answer = chat(url,prompt_messages)
             except (TimeoutError, OSError, urllib.error.URLError, ValueError, KeyError) as exc:
                 if target != 'auto' or worker == 'cpu' or not worker_healthy(CPU):
                     raise RuntimeError('Inference request failed on ' + worker) from exc
@@ -173,7 +183,7 @@ class Engine:
                 worker = 'cpu'
                 with db_connect(self.db) as con:
                     con.execute('UPDATE jobs SET worker=? WHERE id=?', (worker, job_id))
-                answer = chat(CPU, json.loads(raw_messages))
+                answer = chat(CPU,prompt_messages)
             with db_connect(self.db) as con:
                 con.execute("UPDATE jobs SET state='completed' WHERE id=?", (job_id,))
                 add_completed_events(con, job_id, answer, worker)
@@ -252,6 +262,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             data = json.loads(self.rfile.read(n))
             messages, target = data['messages'], data.get('target', 'auto')
+            profile=data.get('profile','auto')
+            if profile not in PROFILES:raise ValueError('Invalid AI specialization')
             if target not in ('auto', 'cpu', 'nvidia', 'amd'):
                 raise ValueError('Unrecognized worker')
             if not isinstance(messages, list) or not 1 <= len(messages) <= MAX_CONTEXT_MESSAGES:
@@ -262,7 +274,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ValueError('Invalid message format')
             if messages[-1]['role'] != 'user':
                 raise ValueError('Last message must be from the user')
-            job_id = self.server.engine.enqueue(messages, target)
+            job_id = self.server.engine.enqueue(messages,target,profile)
             self.respond(202, {'job_id': job_id, 'status': 'queued', 'output': 'separate-output-tunnel'})
         except (ValueError, KeyError, TypeError) as e:
             self.respond(400, {'error': str(e)[:150]})
@@ -277,11 +289,13 @@ def main():
     ap.add_argument('--secret', default='/etc/sirus-ai-dual/secret')
     ap.add_argument('--gpu-percent', type=int, default=90)
     ap.add_argument('--workers', type=int, default=2)
+    ap.add_argument('--knowledge-file',default=os.environ.get('SIRUS_AI_KNOWLEDGE_FILE',''),
+                    help='Optional local reviewed JSONL knowledge file')
     args = ap.parse_args()
     if not (0 <= args.gpu_percent <= 100 and 1 <= args.workers <= 4):
         ap.error('Invalid GPU percentage or worker count')
     init_db(args.db)
-    engine = Engine(args.db, args.secret, args.gpu_percent)
+    engine = Engine(args.db,args.secret,args.gpu_percent,args.knowledge_file)
     for _ in range(args.workers):
         threading.Thread(target=engine.worker_loop, daemon=True).start()
     threading.Thread(target=engine.dispatch_loop, daemon=True).start()
