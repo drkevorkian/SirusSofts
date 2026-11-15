@@ -126,3 +126,100 @@ the sum of the previously reported rates.
 The runner **does not** change service settings, create remote connections,
 or configure farm nodes. For repeatable comparison, run the same workload
 with the same settings; benchmark concurrency and failover separately.
+
+
+## Progressive Token Saturation Protocol (automatic NEXT)
+
+This suite runs the **user-specified full prompt**, starting with RESPONSE 1 and
+automatically sending NEXT for the chosen number of responses. Unlike the
+original fixed-length speed benchmark, it does not impose a 192-token response
+limit. CLI --cycles accepts 3 through 25; default is 5.
+
+    python3 sirus-ai-dual-tunnel/benchmarks/progressive_benchmark.py \
+      --workers amd-vulkan --cycles 5
+
+Select a different cycle count, subject or workers without changing source:
+
+    python3 sirus-ai-dual-tunnel/benchmarks/progressive_benchmark.py \
+      --workers cpu amd-vulkan nvidia-cuda \
+      --cycles 10 \
+      --subject "Robust distributed AI inference systems"
+
+Workers run **separately**, each with its own independent NEXT history. A
+50-cycle or simultaneous run is not supported by this suite; the separate
+concurrency benchmark measures simultaneous requests.
+
+Each response targets ceil(1500 × 1.75^(cycle−1)): 1500, 2625, 4594, 8040,
+14069, and so on. The target grows exponentially: 25 cycles requests far
+more than any present-day model's context window could hold. Thus every
+cycle reports the *mathematical target*, server's context size from GET /props,
+approximate prompt tokens from POST /tokenize, *effective max_tokens requested*
+and actual output tokens, output rate, finish reason and target achievement.
+A context ceiling is not falsely reported as success. By default responses
+are retained in memory only during the test; JSON stores a short checkpoint,
+output hash, and metrics. --save-transcripts stores full response text.
+
+History mode defaults to checkpoint: the latest response tail is included
+with the instruction NEXT and the full protocol is retained. This is a
+**lossy continuation**; for complete history use --history full but expect
+context exhaustion sooner. Use --checkpoint-chars N to adjust retained text.
+
+The benchmark **does not change the llama.cpp model/server context**. If
+a server advertises 2048 total context tokens, the full protocol prompt may
+leave fewer than 1500 tokens for its first answer. To change this, use the
+explicit per-worker configuration procedure below.
+
+### Remove the old hardcoded 2048 context for new and existing workers
+
+Future GPU installer services no longer inject --ctx-size 2048. They leave
+context selection to llama.cpp unless the operator sets
+SIRUS_AI_CTX_SIZE=N. Setting 0 requests model-native context, which may
+require significantly more host RAM or GPU VRAM. This can fail on current
+6GB/8GB cards; nothing is automatically restarted or upgraded.
+
+To inspect the existing Gentoo CPU, AMD and NVIDIA OpenRC services:
+
+    python3 sirus-ai-dual-tunnel/gentoo/context-config.py --show
+
+Preview replacing the AMD context with 8192 tokens (no modifications):
+
+    python3 sirus-ai-dual-tunnel/gentoo/context-config.py --plan amd-vulkan 8192
+
+Preview model-native context (0) on CPU:
+
+    python3 sirus-ai-dual-tunnel/gentoo/context-config.py --plan cpu model
+
+**Apply only when ready for a short inference service restart**:
+
+    sudo python3 sirus-ai-dual-tunnel/gentoo/context-config.py --apply amd-vulkan 8192
+
+The tool backs up the previous init file, atomically updates its context,
+restarts an already-running worker and checks /health. On startup failure it
+restores the old file and attempts to bring the original service back. A
+stopped worker stays stopped. Existing CPU, GPU and SSH services are not
+reconfigured merely by checking out this repository update.
+
+When launching a fresh worker through the GPU installer, the explicit
+environment option is:
+
+    sudo env SIRUS_AI_CTX_SIZE=8192 bash \
+      sirus-ai-dual-tunnel/gentoo/gpu-workers.sh --enable-amd
+
+For actual model-native context on future larger-memory machines:
+
+    sudo env SIRUS_AI_CTX_SIZE=0 bash \
+      sirus-ai-dual-tunnel/gentoo/gpu-workers.sh --enable-amd
+
+Do **not** rerun a create-only --enable-amd against an existing OpenRC
+service: it intentionally refuses overwriting one. Use context-config.py
+to change an existing service. The CPU service is also supported by the
+context configuration helper.
+
+Important: **model context length is finite**, even with unlimited system RAM.
+More RAM lets larger context/cache and more models run, but doesn't change
+a model's architecture or guarantee useful attention at arbitrarily long
+positions. Long contexts can be slow, can exhaust VRAM/host RAM and should
+be tested for reliability. --ctx-size 0 means "use model's configured
+native context", not "infinite tokens". The benchmark has no arbitrary
+maximum output-token cap; it asks for the minimum of each cycle's target
+and the detected usable context remaining after the prompt.
