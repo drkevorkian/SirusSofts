@@ -2,7 +2,7 @@
 # Gentoo only. Adds services without changing sirus-ai, RAID, or the existing Gentoo tunnel.
 set -Eeuo pipefail
 fail(){ echo "FAIL: $*" >&2; exit 1; }
-mode="\${1:---check}"
+mode="${1:---check}"
 [[ $# -eq 1 && ( "$mode" == --check || "$mode" == --plan || "$mode" == --install || "$mode" == --activate ) ]] || fail 'Usage: bash gentoo/install.sh --check|--plan|--install|--activate'
 base="$(cd "$(dirname "$0")/.." && pwd)"
 [[ -f "$base/gentoo/input_server.py" && -f "$base/gentoo/tunnel.py" ]] || fail 'Missing bundle files'
