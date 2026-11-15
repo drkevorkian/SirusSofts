@@ -1,0 +1,30 @@
+name: SirusSofts AI dual-tunnel validation
+
+on:
+  push:
+    paths:
+      - 'sirus-ai-dual-tunnel/**'
+      - '.github/workflows/sirus-ai-dual-tunnel.yml'
+  pull_request:
+    paths:
+      - 'sirus-ai-dual-tunnel/**'
+      - '.github/workflows/sirus-ai-dual-tunnel.yml'
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax and unit integration tests
+        run: |
+          cd sirus-ai-dual-tunnel
+          python3 -m compileall -q gentoo ubuntu tests
+          python3 -m unittest discover -s tests -v
+      - name: Shell syntax
+        run: |
+          bash -n sirus-ai-dual-tunnel/gentoo/install.sh
+          bash -n sirus-ai-dual-tunnel/gentoo/gpu-workers.sh
+          bash -n sirus-ai-dual-tunnel/ubuntu/install.sh
+      - name: Browser JavaScript syntax
+        run: node --check sirus-ai-dual-tunnel/ubuntu/web/app.js

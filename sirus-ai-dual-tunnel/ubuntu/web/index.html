@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>SirusSofts AI — Gentoo</title>
+  <link rel="stylesheet" href="./assets/styles.css">
+  <script defer src="./assets/app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="/Gentoo/AI/" aria-label="SirusSofts AI home"><span class="mark">S</span><span><b>SirusSofts</b><small>AI // GENTOO</small></span></a>
+      <button id="newChat" class="new" type="button">+ New conversation</button>
+      <div class="side-heading">Conversations</div>
+      <nav id="conversations" aria-label="Recent conversations"></nav>
+      <div class="sidebar-foot">Local conversation history on this browser<br>Secure HTTPS gateway → Gentoo compute</div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="titleline"><span class="glow"></span><div><h1>SirusSofts AI</h1><p>Dual-channel inference console</p></div></div>
+        <div class="links"><a href="/Gentoo/">Gentoo dashboard</a><a href="/">SirusSofts</a></div>
+      </header>
+      <section class="statusbar" aria-label="Connection status">
+        <span id="inStatus" class="status">◯ Input checking</span>
+        <span id="outStatus" class="status">◯ Output checking</span>
+        <span id="cpuStatus" class="status">CPU —</span>
+        <span id="nvStatus" class="status">NVIDIA —</span>
+        <span id="amdStatus" class="status">AMD —</span>
+      </section>
+      <section id="messages" class="messages" aria-live="polite">
+        <div class="welcome"><div class="hero-logo">S</div><h2>What are we building?</h2><p>Send a coding question, investigate a system issue, or start a new idea. Input and output use separate, persistent SSH channels.</p></div>
+      </section>
+      <div id="progress" class="progress" role="status" aria-live="polite"></div>
+      <form id="composer" class="composer">
+        <label class="sr-only" for="prompt">Message SirusSofts AI</label>
+        <textarea id="prompt" rows="3" maxlength="16000" placeholder="Message SirusSofts AI…  (Enter to send, Shift+Enter for newline)" required></textarea>
+        <div class="controls">
+          <label for="worker">Compute</label>
+          <select id="worker" aria-label="Inference worker">
+            <option value="auto">Auto · 90% GPU target</option>
+            <option value="nvidia">NVIDIA · CUDA</option>
+            <option value="amd">AMD · Vulkan</option>
+            <option value="cpu">Ryzen · CPU</option>
+          </select>
+          <button id="send" type="submit">Send →</button>
+        </div>
+      </form>
+      <footer>Model: sirussofts-coder · Results persist across tunnel interruptions · GPU choices activate when workers are online</footer>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,3 @@
+# HTTP is never allowed to operate the AI. Authenticate over HTTPS only.
+location = /Gentoo/AI { return 308 https://sirussofts.com/Gentoo/AI/; }
+location ^~ /Gentoo/AI/ { return 308 https://sirussofts.com$request_uri; }
