@@ -59,11 +59,11 @@ function cms_ai_export_records(PDO $db,string $kind):Generator {
             'source'=>$d['source_url'],'text'=>$d['content'],
             'sha256'=>hash('sha256',$d['content']),'reviewed'=>true];
     } else {
-        $st=$db->prepare('SELECT e.prompt,e.response FROM cms_ai_examples e
+        $st=$db->prepare('SELECT e.profile,e.prompt,e.response FROM cms_ai_examples e
             JOIN cms_ai_profiles p ON p.slug=e.profile
             WHERE p.enabled=1 AND e.reviewed=1 AND e.split=? ORDER BY e.id');
         $st->execute([$kind]);
-        while($e=$st->fetch(PDO::FETCH_ASSOC))yield ['messages'=>[
+        while($e=$st->fetch(PDO::FETCH_ASSOC))yield ['profile'=>$e['profile'],'messages'=>[
             ['role'=>'user','content'=>$e['prompt']],['role'=>'assistant','content'=>$e['response']]]];
     }
 }

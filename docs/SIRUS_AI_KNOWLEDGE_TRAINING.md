@@ -78,3 +78,17 @@ training commands and the Gentoo worker never changes weights.
 
 This work introduces no background job, remote model download, auto-training,
 GPU driver installation, system restart or live model change.
+
+## Opt-in offline QLoRA trainer
+
+A training runner is included at sirus-ai-dual-tunnel/training/qlora_train.py. With no --run flag it reads local reviewed train/eval exports, validates their conversational shape, selects a profile, checks exact prompt overlap between train and eval, prints counts and hashes, and does not load ML dependencies or write anything. With --run and a separate absolute new output directory it trains an adapter using a locally stored original Hugging Face checkpoint, compatible NVIDIA CUDA stack, Transformers, PEFT, TRL, datasets, accelerate and bitsandbytes. It rejects GGUF input and refuses hardware below 12 GiB VRAM unless deliberately overridden. Even with more VRAM, memory use depends on sequence length and model; 16-24+ GiB is a more practical target for the 7B model. No training has been run or validated on an actual GPU by this code update.
+
+Example preflight with reviewed export files in private storage:
+
+    python3 sirus-ai-dual-tunnel/training/qlora_train.py --train-jsonl /absolute/train.jsonl --eval-jsonl /absolute/eval.jsonl --profile physics
+
+Explicit training only after checking your hardware, dependencies and licensing:
+
+    python3 sirus-ai-dual-tunnel/training/qlora_train.py --train-jsonl /absolute/train.jsonl --eval-jsonl /absolute/eval.jsonl --profile physics --model-dir /absolute/local/qwen2.5-coder --output-dir /absolute/new/physics-adapter --run
+
+The command is intentionally NOT called from PHP, HTTP handlers, the CMS or the live inference service. Train in an isolated environment, then evaluate and convert the adapter separately. Training examples are now exported with profile metadata so you can train one subject at a time.
