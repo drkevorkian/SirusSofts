@@ -156,5 +156,68 @@ class TestSirusAI(unittest.TestCase):
                 engine.stop.set(); s_in.shutdown(); s_in.server_close(); model.shutdown(); model.server_close()
                 ai.CPU,ai.NVIDIA,ai.AMD,ai.OUT=old
 
+    def test_long_inference_response_transport_preserves_content(self):
+        # A completion larger than the old 16,000-character limit must survive
+        # the Gentoo SQLite outbox, Ubuntu gateway and event storage exactly.
+        with tempfile.TemporaryDirectory() as td:
+            input_db = str(Path(td, 'input.sqlite3'))
+            output_db = str(Path(td, 'events.sqlite3'))
+            ai.init_db(input_db)
+            out.init_db(output_db)
+            job_id = 'd' * 32
+            content = 'Large response: ' + ('AI-' * 17000)
+            with ai.db_connect(input_db) as con:
+                ai.add_completed_events(con, job_id, content, 'amd')
+                rows = con.execute('SELECT seq,type,content,worker FROM outbox ORDER BY seq').fetchall()
+            self.assertGreater(len(rows), 3)
+            self.assertTrue(all(len(row[2]) <= ai.OUTPUT_CHUNK_CHARS for row in rows))
+            self.assertEqual(rows[-1][1], 'completed')
+            self.assertEqual(rows[-1][2], '')
+            self.assertEqual(''.join(row[2] for row in rows if row[1] == 'chunk'), content)
+            gateway = server(out.Handler)
+            gateway.db = output_db
+            gateway.secret = 'a' * 64
+            try:
+                for seq, kind, fragment, worker in rows:
+                    status, _ = request('http://127.0.0.1:%d/internal/push' % gateway.server_port,
+                                        {'job_id': job_id, 'seq': seq, 'type': kind,
+                                         'content': fragment, 'worker': worker},
+                                        {'X-Sirus-AI-Token': gateway.secret})
+                    self.assertEqual(status, 200)
+                with out.connect(output_db) as con:
+                    received = con.execute(
+                        'SELECT seq,kind,content FROM events WHERE job_id=? ORDER BY seq',
+                        (job_id,)).fetchall()
+                self.assertEqual(len(received), len(rows))
+                self.assertEqual(''.join(row[2] for row in received if row[1] == 'chunk'), content)
+                self.assertEqual(received[-1][1], 'completed')
+            finally:
+                gateway.shutdown()
+                gateway.server_close()
+
+    def test_long_generation_does_not_set_fixed_max_tokens(self):
+        seen = {}
+        class CaptureModel(MockModel):
+            def do_POST(self):
+                size = int(self.headers['Content-Length'])
+                data = json.loads(self.rfile.read(size))
+                seen.update(data)
+                raw = json.dumps({'choices':[{'message':{'content':'OK'}}]}).encode()
+                self.send_response(200)
+                self.send_header('Content-Length',str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+        model = server(CaptureModel)
+        try:
+            answer = ai.chat('http://127.0.0.1:%d' % model.server_port,
+                             [{'role':'user', 'content':'Generate long response'}],timeout=10)
+            self.assertEqual(answer,'OK')
+            self.assertNotIn('max_tokens',seen)
+            self.assertNotIn('max_completion_tokens',seen)
+        finally:
+            model.shutdown()
+            model.server_close()
+
+
 
 if __name__=='__main__': unittest.main(verbosity=2)

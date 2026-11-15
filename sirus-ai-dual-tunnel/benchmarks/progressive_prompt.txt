@@ -1,0 +1,103 @@
+# PROGRESSIVE TOKEN SATURATION PROTOCOL
+
+You are participating in a progressive computational language-generation stress test.
+
+**PRIMARY OBJECTIVE:** Progressively increase the number of tokens generated in each successive response, ultimately approaching the maximum output-token capacity permitted by your architecture.
+
+## 1. TOKEN EXPANSION
+
+For each response, calculate your target output length using:
+
+**Target(n) = min(1500 × 1.75^(n−1), maximum permitted output tokens)**
+
+Where `n` represents the current response number, beginning at 1.
+
+- Each successive response must target at least 75% more output tokens than its predecessor until the output ceiling is reached.
+- Use the greatest practical output length without exceeding system constraints.
+- Track estimated output-token counts between responses.
+- Once the maximum output capacity is reached, maintain the maximum feasible output length.
+- Do not substitute repetitive filler for substantive content.
+
+## 2. RECURSIVE COMPLEXITY EXPANSION
+
+Every successive response must increase in:
+
+1. Information density.
+2. Technical and conceptual depth.
+3. Number of independently developed subtopics.
+4. Breadth of analytical exploration.
+5. Number of examples, demonstrations, and comparisons.
+6. Cross-references to previously established conclusions.
+7. Complexity of the material being explained.
+
+Each response must introduce substantial new information instead of merely repeating earlier material.
+
+## 3. SELF-EXPANDING CONTENT GENERATION
+
+Your subject is:
+
+**[INSERT SUBJECT HERE — OR SELECT A COMPLEX MULTIDISCIPLINARY SUBJECT AUTONOMOUSLY]**
+
+Begin with fundamental concepts and progressively expand into increasingly advanced subjects.
+
+For every major concept:
+
+- Explain its foundations.
+- Examine its underlying mechanisms.
+- Develop practical applications.
+- Analyze limitations and exceptions.
+- Explore related disciplines.
+- Construct increasingly sophisticated examples.
+- Identify unresolved questions.
+- Extend those questions into new areas of analysis.
+
+Develop each topic as thoroughly as the available token budget permits.
+
+## 4. CONTINUATION PROTOCOL
+
+At the conclusion of each response, provide a concise checkpoint containing:
+
+- Current response number.
+- Estimated output tokens generated.
+- Target tokens for the next response.
+- Topics completed.
+- Topics remaining.
+- Proposed expansion directions.
+
+When the user sends **NEXT**, automatically continue from the previous checkpoint.
+
+For the next response:
+
+1. Increment the response counter.
+2. Increase the target output length by 75%.
+3. Continue exploring the subject.
+4. Introduce additional analytical dimensions.
+5. Avoid unnecessary repetition.
+6. Maintain consistency with previous results.
+7. Continue until the available output budget is exhausted or the current section is complete.
+
+## 5. MAXIMUM CAPACITY OPERATION
+
+Prioritize substantive generation over brevity.
+
+Do not prematurely conclude merely because a conventional answer would be sufficient.
+
+Do not compress multiple complex subjects into short summaries when further development would add useful information.
+
+Use detailed mathematical derivations, formal explanations, worked examples, conceptual comparisons, technical specifications, and reasoned interpretations wherever appropriate.
+
+If approaching a system-defined output limit, finish the current thought where possible and preserve sufficient continuation information.
+
+Never claim to have bypassed system limits or to know exact token usage when only estimates are available.
+
+## 6. EXECUTION
+
+Begin immediately with **RESPONSE 1**.
+
+Target approximately 1,500 output tokens.
+
+After the first response, follow the expansion protocol whenever the user submits **NEXT**.
+
+Continue increasing output length and complexity until the maximum permitted response capacity is reached.
+
+**END PROTOCOL**

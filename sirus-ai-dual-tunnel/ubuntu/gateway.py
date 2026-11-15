@@ -17,6 +17,9 @@ from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).resolve().parent / 'web'
 ID = re.compile(r'^[0-9a-f]{32}$')
+# Bounded chunks allow a large answer to span many durable events.
+# SQLite signed 64-bit sequence is the transport bound, not the model output cap.
+MAX_EVENT_SEQ = (1 << 63) - 1
 
 
 @contextmanager
@@ -87,12 +90,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             content = data.get('content', '')
             if not isinstance(job, str) or not ID.fullmatch(job):
                 raise ValueError('Invalid job identifier')
-            if type(seq) is not int or seq not in (1, 2, 3):
+            if type(seq) is not int or not 1 <= seq <= MAX_EVENT_SEQ:
                 raise ValueError('Invalid event number')
-            if kind not in ('queued', 'started', 'completed', 'error'):
+            if kind not in ('queued', 'started', 'chunk', 'completed', 'error'):
                 raise ValueError('Invalid event type')
-            if (seq == 1 and kind != 'queued') or (seq == 2 and kind != 'started') or (seq == 3 and kind not in ('completed','error')):
+            if (seq == 1 and kind != 'queued') or (seq == 2 and kind != 'started') or (
+                    seq >= 3 and kind not in ('chunk', 'completed', 'error')):
                 raise ValueError('Invalid event sequence')
+            # Limit each authenticated packet, not the complete response.
             if not isinstance(content, str) or len(content) > 16000 or worker not in ('','cpu','nvidia','amd'):
                 raise ValueError('Invalid event content')
             with connect(self.server.db) as db:
@@ -122,7 +127,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 after = int(parse_qs(parts.query).get('after', ['0'])[0])
             except ValueError:
                 return self.json(400, {'error': 'Invalid event cursor'})
-            if not 0 <= after <= 3:
+            if not 0 <= after <= MAX_EVENT_SEQ:
                 return self.json(400, {'error': 'Invalid event cursor'})
             return self.events(job, after)
         names = {'/': ('index.html', 'text/html; charset=utf-8'),

@@ -82,14 +82,21 @@ function watchJob(jobId) {
   const c = selected(); if (!c) return;
   pending = true; $('send').disabled = true; $('progress').textContent = 'Queued · waiting for the output channel…';
   let highest = 0;
+  const chunks = [];
   eventSource = new EventSource(BASE + 'api/out/events/' + encodeURIComponent(jobId) + '?after=0');
   eventSource.addEventListener('update', e => {
     let ev; try { ev = JSON.parse(e.data); } catch (_) { return; }
     if (ev.job_id !== jobId || ev.seq <= highest) return;
     highest = ev.seq;
     if (ev.type === 'started') $('progress').textContent = 'Running on ' + (ev.worker || 'worker').toUpperCase() + ' · separate output tunnel…';
+    if (ev.type === 'chunk') {
+      chunks.push(ev.content || '');
+      $('progress').textContent = 'Receiving AI output · ' + chunks.length + ' chunk(s)…';
+    }
     if (ev.type === 'completed' || ev.type === 'error') {
-      c.messages.push({role: 'assistant', content: ev.content || '(empty response)', worker: ev.worker, error: ev.type === 'error'});
+      const completedText = ev.type === 'completed'
+        ? chunks.join('') + (ev.content || '') : ev.content || '';
+      c.messages.push({role: 'assistant', content: completedText || '(empty response)', worker: ev.worker, error: ev.type === 'error'});
       c.pendingJob = null;
       persist(); render(); finish();
     }
