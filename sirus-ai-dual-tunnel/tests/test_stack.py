@@ -76,7 +76,7 @@ class TestSirusAI(unittest.TestCase):
             cfg={'host':'74.208.40.187','ssh_port':22, 'known_hosts':td+'/known',
                  'input_identity':td+'/in','output_identity':td+'/out'}
             inp=tunnel.ssh_command(cfg,'input'); outp=tunnel.ssh_command(cfg,'output')
-            self.assertIn('127.0.0.1:18482:127.0.0.1:18082',inp)
+            self.assertIn('127.0.0.1:18485:127.0.0.1:18082',inp)
             self.assertIn('127.0.0.1:18084:127.0.0.1:18483',outp)
             self.assertIn('-R',inp)
             self.assertIn('-L',outp)
