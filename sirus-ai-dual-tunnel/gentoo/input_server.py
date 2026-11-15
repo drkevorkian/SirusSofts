@@ -24,7 +24,8 @@ NVIDIA = 'http://127.0.0.1:18486'
 AMD = 'http://127.0.0.1:18487'
 OUT = 'http://127.0.0.1:18084/internal/push'
 MAX_BYTES = 128 * 1024
-MAX_TEXT = 16000
+MAX_TEXT = 16000  # Existing input message validation; not an output limit.
+OUTPUT_CHUNK_CHARS = 8192  # Bounded transfer packets, unlimited count per answer.
 MAX_CONTEXT_MESSAGES = 20
 STALE_JOB_LIMIT = 30
 VALID_ID = re.compile(r'^[a-f0-9]{32}$')
@@ -93,9 +94,33 @@ def add_event(con, job_id, seq, kind, content='', worker=''):
                 (job_id, seq, kind, content, worker))
 
 
-def chat(url, messages, timeout=240):
+def add_completed_events(con, job_id, answer, worker):
+    """Durable, ordered output fragments for arbitrarily long model answers.
+
+    Preserve the v1 one-event completion for short responses, while long
+    responses use sequential chunk events and a final completed sentinel.
+    The output gateway must support chunks before this agent is deployed.
+    """
+    if len(answer) <= OUTPUT_CHUNK_CHARS:
+        add_event(con, job_id, 3, 'completed', answer, worker)
+        return
+    seq = 3
+    for offset in range(0, len(answer), OUTPUT_CHUNK_CHARS):
+        add_event(con, job_id, seq, 'chunk',
+                  answer[offset:offset + OUTPUT_CHUNK_CHARS], worker)
+        seq += 1
+    add_event(con, job_id, seq, 'completed', '', worker)
+
+
+def chat(url, messages, timeout=None):
+    # Context capacity is chosen by the model server, not fixed to 768 tokens here.
+    # Long generations need a configurable timeout; this is not an output cap.
+    if timeout is None:
+        timeout = int(os.environ.get('SIRUS_AI_REQUEST_TIMEOUT', '1800'))
+    if timeout <= 0:
+        raise ValueError('SIRUS_AI_REQUEST_TIMEOUT must be positive')
     payload = json.dumps({'model': 'sirussofts-coder', 'messages': messages,
-                          'temperature': 0.55, 'max_tokens': 768, 'stream': False}).encode()
+                          'temperature': 0.55, 'stream': False}).encode()
     req = urllib.request.Request(url + '/v1/chat/completions', data=payload,
                                  headers={'Content-Type': 'application/json'}, method='POST')
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -151,7 +176,7 @@ class Engine:
                 answer = chat(CPU, json.loads(raw_messages))
             with db_connect(self.db) as con:
                 con.execute("UPDATE jobs SET state='completed' WHERE id=?", (job_id,))
-                add_event(con, job_id, 3, 'completed', answer[:MAX_TEXT], worker)
+                add_completed_events(con, job_id, answer, worker)
         except Exception as exc:
             with db_connect(self.db) as con:
                 con.execute("UPDATE jobs SET state='error' WHERE id=?", (job_id,))
