@@ -81,6 +81,8 @@ def request_cycle(base, messages, requested_tokens, timeout):
         raise ValueError("No completion returned")
     choice = response["choices"][0]
     body = str((choice.get("message") or {}).get("content") or "")
+    if not body.strip():
+        raise ValueError("Completion was empty")
     usage = response.get("usage") or {}
     timings = response.get("timings") or {}
     actual = usage.get("completion_tokens")
@@ -223,7 +225,10 @@ def run_worker(worker, args, protocol):
             else:
                 result["status"] = "target-reached"
             result["target_achievement_ratio"] = round(actual / target, 6)
-            history.append(body)
+            if args.history == "checkpoint":
+                history = [body]  # avoid retaining all previous outputs in RAM
+            else:
+                history.append(body)
             print(f"    actual={actual:,} tok; {metrics['wall_seconds']:.2f}s;"
                   f" {metrics['generation_tokens_per_second']} tok/s;"
                   f" {metrics['finish_reason']}; {result['status']}", flush=True)
