@@ -37,6 +37,13 @@
         <label class="sr-only" for="prompt">Message SirusSofts AI</label>
         <textarea id="prompt" rows="3" maxlength="16000" placeholder="Message SirusSofts AI…  (Enter to send, Shift+Enter for newline)" required></textarea>
         <div class="controls">
+          <label for="profile">Knowledge</label>
+          <select id="profile" aria-label="AI specialization">
+            <option value="auto">Auto</option>
+            <option value="coding">Coding</option>
+            <option value="physics">Physics</option>
+            <option value="time">Time &amp; relativity</option>
+          </select>
           <label for="worker">Compute</label>
           <select id="worker" aria-label="Inference worker">
             <option value="auto">Auto · 90% GPU target</option>

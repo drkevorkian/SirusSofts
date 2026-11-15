@@ -119,7 +119,7 @@ async function send(e) {
   const history = c.messages.slice(-20).map(({role, content}) => ({role, content}));
   try {
     const r = await fetch(BASE + 'api/in/jobs', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({messages: history, target: $('worker').value})});
+      body: JSON.stringify({messages: history, target: $('worker').value, profile: $('profile').value})});
     const data = await r.json();
     if (!r.ok || !data.job_id) throw Error(data.error || 'Input queue unavailable');
     c.pendingJob = data.job_id;

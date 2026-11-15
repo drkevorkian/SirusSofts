@@ -159,3 +159,7 @@ No existing service is overwritten. If you want to roll back the *new* integrati
 ## Existing Ubuntu installations with port 18482 collision
 
 If Ubuntu already has `sirus-live-socket.service` bound to `127.0.0.1:18482`, DO NOT restart or remove that service. The new AI INPUT tunnel uses Ubuntu `127.0.0.1:18485` instead; Gentoo's existing CPU inference server remains on its OWN loopback `127.0.0.1:18482`. On an Ubuntu installation that stopped after provisioning SSH/accounts because of the earlier collision, use the reviewed `ubuntu/repair-input-port-18485.sh --check` and `--apply` script after fetching this commit. It changes only the AI SSH input user's forwarding restrictions and the AI HTTPS Nginx include. Then on Gentoo, install the updated `gentoo/tunnel.py` into `/opt/sirus-ai-dual/gentoo/tunnel.py` and restart ONLY `sirus-ai-input-tunnel`. Do not rerun the guarded first-time `--install` scripts.
+
+## Offline specialist knowledge (optional)
+
+The new `gentoo/knowledge.py` module reads a local, approved CMS JSONL knowledge export and injects source-cited references at each request boundary. It is OFF unless the input server is given `--knowledge-file /absolute/private/path.jsonl` (or `SIRUS_AI_KNOWLEDGE_FILE`). The web composer now allows Auto, Coding, Physics or Time specialization independent of CPU/GPU selection. No source file is transmitted to external sites. See `../docs/SIRUS_AI_KNOWLEDGE_TRAINING.md`. Existing installations require a separately reviewed, backed-up upgrade; the original installer does not overwrite deployed services.

@@ -6,7 +6,7 @@ mode="${1:---check}"
 [[ $# -eq 1 && ( "$mode" == --check || "$mode" == --plan || "$mode" == --install || "$mode" == --activate ) ]] || fail 'Usage: bash gentoo/install.sh --check|--plan|--install|--activate'
 base="$(cd "$(dirname "$0")/.." && pwd)"
 [[ -f "$base/gentoo/input_server.py" && -f "$base/gentoo/tunnel.py" ]] || fail 'Missing bundle files'
-python3 -m py_compile "$base/gentoo/input_server.py" "$base/gentoo/tunnel.py"
+python3 -m py_compile "$base/gentoo/input_server.py" "$base/gentoo/knowledge.py" "$base/gentoo/tunnel.py"
 [[ "$mode" == --check ]] && { echo 'PASS Gentoo AI components compile (no system changes)'; exit 0; }
 [[ "$(id -u)" == 0 ]] || fail 'Gentoo root required'
 [[ -f /etc/gentoo-release ]] || fail 'Not a Gentoo host'
@@ -36,6 +36,7 @@ if [[ "$mode" == --install ]]; then
   id sirusai >/dev/null || fail 'Existing sirusai user missing'
   install -d -m 0755 "$app" "$app/gentoo"
   install -m 0644 "$base/gentoo/input_server.py" "$app/gentoo/input_server.py"
+  install -m 0644 "$base/gentoo/knowledge.py" "$app/gentoo/knowledge.py"
   install -m 0644 "$base/gentoo/tunnel.py" "$app/gentoo/tunnel.py"
   install -d -o root -g root -m 0711 "$conf"
   install -d -o sirusai -g sirusai -m 0700 "$storage"
