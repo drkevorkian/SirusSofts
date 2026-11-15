@@ -2,7 +2,7 @@
 # Optional per-GPU build. Keeps the working CPU build unchanged.
 set -Eeuo pipefail
 fail(){ echo "FAIL: $*" >&2; exit 1; }
-mode="\${1:---check}"
+mode="${1:---check}"
 case "$mode" in --check|--plan|--build-nvidia|--build-amd|--enable-nvidia|--enable-amd|--status) ;; *) fail 'Usage: gpu-workers.sh --check|--plan|--build-nvidia|--build-amd|--enable-nvidia|--enable-amd|--status';; esac
 [[ $# -eq 1 ]] || fail 'Accepts exactly one operation'
 source_dir=/opt/sirus-ai/llama.cpp
@@ -25,7 +25,7 @@ fi
 [[ -f /etc/gentoo-release && -d "$source_dir/.git" && -s "$model" ]] || fail 'Gentoo CPU source/model missing'
 if [[ "$mode" == --status ]]; then
   for entry in 'cpu:18482' 'nvidia:18486' 'amd:18487'; do
-    label="\${entry%%:*}"; port="\${entry##*:}"
+    label="${entry%%:*}"; port="${entry##*:}"
     if curl -fsS --max-time 2 "http://127.0.0.1:$port/health" >/dev/null; then echo "$label ONLINE"; else echo "$label OFFLINE"; fi
   done
   exit 0
