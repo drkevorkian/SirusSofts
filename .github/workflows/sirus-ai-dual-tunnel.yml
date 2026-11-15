@@ -26,5 +26,6 @@ jobs:
           bash -n sirus-ai-dual-tunnel/gentoo/install.sh
           bash -n sirus-ai-dual-tunnel/gentoo/gpu-workers.sh
           bash -n sirus-ai-dual-tunnel/ubuntu/install.sh
+        bash -n sirus-ai-dual-tunnel/ubuntu/repair-input-port-18485.sh
       - name: Browser JavaScript syntax
         run: node --check sirus-ai-dual-tunnel/ubuntu/web/app.js
