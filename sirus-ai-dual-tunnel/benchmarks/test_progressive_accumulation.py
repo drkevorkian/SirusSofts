@@ -37,13 +37,13 @@ def response(tokens, text):
 
 
 class AccumulationTests(unittest.TestCase):
-    def run_fake(self, mock_call, args=None, estimated_tokens=(50, 12)):
+    def run_fake(self, mock_call, args=None, estimated_tokens=(50, 12), target_value=10):
         args = args or settings()
         with tempfile.TemporaryDirectory() as directory:
             report_file = Path(directory) / "progress.json"
             with mock.patch.object(prog.baseline, "healthy", return_value=True), \
                     mock.patch.object(prog, "server_context", return_value=(8192, "server-/props")), \
-                    mock.patch.object(prog, "cycle_target", side_effect=lambda _: 10), \
+                    mock.patch.object(prog, "cycle_target", side_effect=lambda _: target_value), \
                     mock.patch.object(prog, "approx_prompt_tokens", return_value=estimated_tokens), \
                     mock.patch.object(prog, "request_cycle", side_effect=mock_call), \
                     mock.patch.object(prog, "report_path", return_value=report_file):
@@ -86,21 +86,24 @@ class AccumulationTests(unittest.TestCase):
         args = settings()
         args.stall_limit = 2
         status, data = self.run_fake(
-            lambda *_: response(10, "same response repeated"), args=args,
-            estimated_tokens=(10, 5),
+            lambda *_: response(10, "same response repeated"),
+            args=args, target_value=50,
         )
         self.assertEqual(status, 0)
-        self.assertTrue(all(c["status"] == "target-reached" for c in data["cycles"]))
-        # Target 10 is reached in the first segment; ensure the stall check only
-        # triggers for incomplete cycle targets in a separate scenario.
-        self.assertEqual(len(data["cycles"][0]["segments"]), 1)
+        self.assertEqual(data["state"], "completed-with-limits")
+        self.assertTrue(all(c["status"] == "repeated-output" for c in data["cycles"]))
+        self.assertEqual([c["actual_completion_tokens"] for c in data["cycles"]],
+                         [20, 20, 20])
+        self.assertEqual([len(c["segments"]) for c in data["cycles"]], [2, 2, 2])
 
     def test_low_progress_stops_cycle(self):
         args = settings()
         args.stall_limit = 2
-        status, data = self.run_fake(
-            lambda *_: response(2, "new response " + str(object())),
-            args=args)
+        number = [0]
+        def fake(*_):
+            number[0] += 1
+            return response(2, "new response part " + str(number[0]))
+        status, data = self.run_fake(fake, args=args)
         self.assertEqual(status, 0)
         self.assertEqual(data["state"], "completed-with-limits")
         self.assertTrue(all(c["status"] == "low-progress" for c in data["cycles"]))
