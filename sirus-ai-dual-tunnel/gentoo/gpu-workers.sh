@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 fail(){ echo "FAIL: $*" >&2; exit 1; }
 mode="${1:---check}"
-case "$mode" in --check|--plan|--build-nvidia|--build-amd|--enable-nvidia|--enable-amd|--status) ;; *) fail 'Usage: gpu-workers.sh --check|--plan|--build-nvidia|--build-amd|--enable-nvidia|--enable-amd|--status';; esac
+case "$mode" in --check|--plan|--build-nvidia|--build-amd|--enable-nvidia|--enable-amd|--repair-amd|--status) ;; *) fail 'Usage: gpu-workers.sh --check|--plan|--build-nvidia|--build-amd|--enable-nvidia|--enable-amd|--repair-amd|--status';; esac
 [[ $# -eq 1 ]] || fail 'Accepts exactly one operation'
 source_dir=/opt/sirus-ai/llama.cpp
 model=/var/lib/sirus-ai/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf
@@ -81,37 +81,64 @@ RC
   echo 'PASS NVIDIA worker online'
   exit 0
 fi
-if [[ "$mode" == --enable-amd ]]; then
+if [[ "$mode" == --enable-amd || "$mode" == --repair-amd ]]; then
   binary="$amd_dir/bin/llama-server"
   [[ -x "$binary" ]] || fail 'Run --build-amd first'
-  devices="$("$binary" --list-devices 2>&1)"
+  command -v runuser >/dev/null || fail 'runuser is required for service-user GPU preflight'
+  command -v ss >/dev/null || fail 'ss is required to detect port conflicts'
+  [[ -f /usr/share/vulkan/icd.d/radeon_icd.x86_64.json ]] || fail 'AMD RADV Vulkan ICD missing'
+  # Probe as the actual daemon account with exactly the same headless, AMD-only environment.
+  devices="$(runuser -u sirusai -- env -u DISPLAY -u WAYLAND_DISPLAY -u XAUTHORITY -u XDG_RUNTIME_DIR VK_DRIVER_FILES=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json "$binary" --list-devices 2>&1)" || fail 'Cannot enumerate AMD Vulkan devices as sirusai'
   matches="$(printf '%s\n' "$devices" | grep -Ei '^[[:space:]]*Vulkan[0-9]+:.*(AMD|Radeon)' || true)"
-  [[ -n "$matches" ]] || fail 'No AMD Radeon Vulkan device found'
+  [[ -n "$matches" ]] || fail 'No AMD Radeon Vulkan device visible to sirusai'
   device="$(printf '%s\n' "$matches" | head -n1 | sed -E 's/^[[:space:]]*(Vulkan[0-9]+):.*/\1/')"
   [[ "$device" =~ ^Vulkan[0-9]+$ ]] || fail 'Invalid Vulkan device name'
   service=/etc/init.d/sirus-ai-amd
-  [[ ! -e "$service" ]] || fail 'AMD service already exists'
-  cat > "$service" <<RC
+  if [[ "$mode" == --repair-amd ]]; then
+    [[ -f "$service" && ! -L "$service" ]] || fail 'Existing AMD OpenRC service is missing or is a symlink'
+    grep -Fxq 'name="SirusSofts AI AMD Vulkan worker"' "$service" || fail 'Refusing to replace an unrecognized AMD OpenRC service'
+    grep -Fq '/opt/sirus-ai/llama.cpp/build-sirus-amd/bin/llama-server' "$service" || fail 'AMD service executable differs from expected'
+    grep -Fq -- '--port 18487' "$service" || fail 'AMD service does not use expected port 18487'
+    if rc-service sirus-ai-amd status >/dev/null 2>&1; then
+      fail 'Stop the existing AMD OpenRC service before repair'
+    fi
+  else
+    [[ ! -e "$service" && ! -L "$service" ]] || fail 'AMD service already exists; use --repair-amd'
+  fi
+  # Never start a second server while an interactive diagnostic server owns the port.
+  [[ -z "$(ss -ltnH '( sport = :18487 )')" ]] || fail 'Port 18487 is occupied. Stop the foreground AMD llama-server with Ctrl+C before continuing.'
+  if [[ "$mode" == --repair-amd ]]; then
+    backup="$(mktemp /root/sirus-ai-amd.init.XXXXXXXX)"
+    cp -p "$service" "$backup"
+    echo "Backup of previous AMD service: $backup"
+  fi
+  tmp="$(mktemp /etc/init.d/.sirus-ai-amd.XXXXXXXX)"
+  cat > "$tmp" <<RC
 #!/sbin/openrc-run
 name="SirusSofts AI AMD Vulkan worker"
 supervisor=supervise-daemon
-command="/opt/sirus-ai/llama.cpp/build-sirus-amd/bin/llama-server"
+# Isolate RADV, and strip graphical session variables in this headless worker.
+command="/usr/bin/env"
 command_user="sirusai:sirusai"
-command_args="--model /var/lib/sirus-ai/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf --alias sirussofts-coder --host 127.0.0.1 --port 18487 --device $device --n-gpu-layers 99 --ctx-size 2048 --threads 4 --parallel 1"
+command_args="-u DISPLAY -u WAYLAND_DISPLAY -u XAUTHORITY -u XDG_RUNTIME_DIR VK_DRIVER_FILES=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json /opt/sirus-ai/llama.cpp/build-sirus-amd/bin/llama-server --model /var/lib/sirus-ai/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf --alias sirussofts-coder --host 127.0.0.1 --port 18487 --device $device --n-gpu-layers 99 --ctx-size 2048 --threads 4 --parallel 1"
 respawn_delay=5
 respawn_period=30
 respawn_max=3
 depend() { need net; }
 RC
-  chmod 0755 "$service"
-  rc-service sirus-ai-amd start
+  chmod 0755 "$tmp"
+  mv -f "$tmp" "$service"
+  rc-service sirus-ai-amd start || fail 'AMD service did not start'
   healthy=0
   for i in $(seq 1 30); do
     if curl -fsS --max-time 2 http://127.0.0.1:18487/health >/dev/null 2>&1; then healthy=1; break; fi
     sleep 2
   done
-  [[ "$healthy" == 1 ]] || fail 'AMD worker health check failed'
+  if [[ "$healthy" != 1 ]]; then
+    rc-service sirus-ai-amd status || true
+    fail 'AMD worker health check failed; service not enabled at boot'
+  fi
   rc-update add sirus-ai-amd default
-  echo "PASS AMD worker online ($device)"
+  echo "PASS AMD worker online ($device) with dedicated RADV Vulkan ICD"
   exit 0
 fi
