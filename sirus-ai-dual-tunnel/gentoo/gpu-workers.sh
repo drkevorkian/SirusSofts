@@ -9,12 +9,23 @@ source_dir=/opt/sirus-ai/llama.cpp
 model=/var/lib/sirus-ai/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf
 nvidia_dir="$source_dir/build-sirus-nvidia"
 amd_dir="$source_dir/build-sirus-amd"
+# Leave context unconstrained by this installer unless an explicit size is requested.
+# 0 = llama.cpp's model-native context (may exceed available RAM/VRAM).
+ctx_arg=""
+ctx_args=()
+if [[ -n "${SIRUS_AI_CTX_SIZE:-}" ]]; then
+  [[ "$SIRUS_AI_CTX_SIZE" =~ ^[0-9]+$ ]] || fail 'SIRUS_AI_CTX_SIZE must be a nonnegative integer (0=model-native)'
+  ctx_arg="--ctx-size $SIRUS_AI_CTX_SIZE"
+  ctx_args=(--ctx-size "$SIRUS_AI_CTX_SIZE")
+fi
 [[ "$mode" == --check || "$mode" == --plan ]] || [[ "$(id -u)" == 0 ]] || fail 'Root required to operate GPU workers'
 if [[ "$mode" == --plan ]]; then
   echo 'NVIDIA: separate CUDA llama-server 127.0.0.1:18486, starting at 16 GPU layers for GTX 1660 6GB.'
   echo 'AMD: separate Vulkan llama-server 127.0.0.1:18487, AMD Radeon device only.'
   echo 'CPU: existing 127.0.0.1:18482 build and service unchanged.'
   echo 'GPU drivers and system packages are not changed automatically.'
+  echo 'No fixed context size is imposed: default is llama.cpp default, or set SIRUS_AI_CTX_SIZE=0 for model-native context.'
+  echo 'Use gentoo/context-config.py --plan to preview changing an existing running worker.'
   echo 'NVIDIA comparison: same Vulkan binary with NVIDIA-only ICD, foreground 127.0.0.1:18488 via --run-nvidia-vulkan.'
   echo 'Do not run the NVIDIA CUDA and NVIDIA Vulkan inference servers simultaneously on the 6GB GTX 1660.'
   exit 0
@@ -77,7 +88,7 @@ if [[ "$mode" == --run-nvidia-vulkan ]]; then
   exec runuser -u sirusai -- env -u DISPLAY -u WAYLAND_DISPLAY -u XAUTHORITY -u XDG_RUNTIME_DIR \
     VK_DRIVER_FILES=/usr/share/vulkan/icd.d/nvidia_icd.json "$binary" \
     --model "$model" --alias sirussofts-coder --host 127.0.0.1 --port 18488 \
-    --device "$dev" --n-gpu-layers 16 --ctx-size 2048 --threads 4 --parallel 1
+    --device "$dev" --n-gpu-layers 16 "${ctx_args[@]}" --threads 4 --parallel 1
 fi
 
 if [[ "$mode" == --enable-nvidia ]]; then
@@ -87,13 +98,13 @@ if [[ "$mode" == --enable-nvidia ]]; then
   grep -Eq '^[[:space:]]*CUDA0:' <<< "$devices" || fail 'CUDA0 not found'
   service=/etc/init.d/sirus-ai-nvidia
   [[ ! -e "$service" ]] || fail 'NVIDIA service already exists'
-  cat > "$service" <<'RC'
+  cat > "$service" <<RC
 #!/sbin/openrc-run
 name="SirusSofts AI NVIDIA CUDA worker"
 supervisor=supervise-daemon
 command="/opt/sirus-ai/llama.cpp/build-sirus-nvidia/bin/llama-server"
 command_user="sirusai:sirusai"
-command_args="--model /var/lib/sirus-ai/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf --alias sirussofts-coder --host 127.0.0.1 --port 18486 --device CUDA0 --n-gpu-layers 16 --ctx-size 2048 --threads 4 --parallel 1"
+command_args="--model /var/lib/sirus-ai/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf --alias sirussofts-coder --host 127.0.0.1 --port 18486 --device CUDA0 --n-gpu-layers 16 $ctx_arg --threads 4 --parallel 1"
 respawn_delay=5
 respawn_period=30
 respawn_max=3
@@ -150,7 +161,7 @@ supervisor=supervise-daemon
 # Isolate RADV, and strip graphical session variables in this headless worker.
 command="/usr/bin/env"
 command_user="sirusai:sirusai"
-command_args="-u DISPLAY -u WAYLAND_DISPLAY -u XAUTHORITY -u XDG_RUNTIME_DIR VK_DRIVER_FILES=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json /opt/sirus-ai/llama.cpp/build-sirus-amd/bin/llama-server --model /var/lib/sirus-ai/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf --alias sirussofts-coder --host 127.0.0.1 --port 18487 --device $device --n-gpu-layers 99 --ctx-size 2048 --threads 4 --parallel 1"
+command_args="-u DISPLAY -u WAYLAND_DISPLAY -u XAUTHORITY -u XDG_RUNTIME_DIR VK_DRIVER_FILES=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json /opt/sirus-ai/llama.cpp/build-sirus-amd/bin/llama-server --model /var/lib/sirus-ai/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf --alias sirussofts-coder --host 127.0.0.1 --port 18487 --device $device --n-gpu-layers 99 $ctx_arg --threads 4 --parallel 1"
 respawn_delay=5
 respawn_period=30
 respawn_max=3
