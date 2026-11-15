@@ -223,3 +223,62 @@ be tested for reliability. --ctx-size 0 means "use model's configured
 native context", not "infinite tokens". The benchmark has no arbitrary
 maximum output-token cap; it asks for the minimum of each cycle's target
 and the detected usable context remaining after the prompt.
+
+
+## Progressive accumulation: CONTINUE within a logical cycle (v2)
+
+The progressive test now defaults to **accumulate** mode. This differs from
+the earlier one-completion-per-cycle test:
+
+- The initial request uses the user's Progressive Token Saturation Protocol.
+  Between logical cycles, **NEXT** begins the new numbered response.
+- When the model ends its reply early (including finish_reason=stop),
+  the benchmark sends **CONTINUE RESPONSE n, PART k** in the same cycle.
+- Real completion-token counts are summed across segments until the target
+  is reached or a measured condition stops further generation. Each segment
+  is bounded by the remaining live worker context, not 2048 or 768 tokens.
+- The default checkpoint history retains the full protocol plus the last
+  generated tail across segments. This rolling checkpoint is *lossy* and
+  measures accumulated output capacity, not a giant single context.
+  Use --history full to measure complete history; that exhausts context sooner.
+- Identical repeated segments or very short segments eventually stop a cycle
+  with a labeled repeated-output / low-progress status (configurable).
+- Version 2 JSON reports preserve segment request budgets, actual tokens,
+  wall times, finish reasons, output fingerprints, cycle totals, progress
+  ratios and stop reasons, saved atomically after each segment. The optional
+  --save-transcripts flag embeds full text and can generate enormous JSON files.
+
+Five AMD cycles with automatic continuation:
+
+    python3 sirus-ai-dual-tunnel/benchmarks/progressive_benchmark.py \
+      --workers amd-vulkan --cycles 5 --mode accumulate
+
+Old single-response behavior for comparison:
+
+    python3 sirus-ai-dual-tunnel/benchmarks/progressive_benchmark.py \
+      --workers amd-vulkan --cycles 5 --mode single
+
+Ten cycles can request hundreds of thousands of output tokens. Default run
+budgets avoid unintentional multi-day generation: 900 seconds per logical
+cycle and 3600 seconds per worker (workers are benchmarked sequentially).
+These are **time budgets**, not model output-token caps. To disable:
+
+    python3 sirus-ai-dual-tunnel/benchmarks/progressive_benchmark.py \
+      --workers amd-vulkan --cycles 10 --mode accumulate \
+      --max-cycle-seconds 0 --max-worker-seconds 0
+
+Run that uncapped-time example only when actively monitoring the machine.
+Other operator options include --max-segments-per-cycle (0 means unlimited),
+--max-output-tokens (optional per-request cap), --stall-limit (default 3),
+--min-progress-tokens (default 32), and --checkpoint-chars (default 2400).
+
+A cycle can finish as target-reached, cycle-time-budget, context-exhausted,
+repeated-output, or low-progress, among other truthful statuses. Partial
+cycles do not count as achieving the requested target. The runner may
+continue to the next cycle for data unless the whole worker budget expires
+or a request fails.
+
+**Ctrl+C now aborts all remaining workers** after saving completed segments,
+rather than moving from an interrupted CPU run to the GPU workers.
+This update only changes benchmark scripts; it does not restart any worker,
+change GPU fans or drivers, or alter SSH tunnels.
