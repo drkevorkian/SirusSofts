@@ -45,6 +45,16 @@ done
 [[ ! -e /var/lib/sirus-ai-in && ! -e /var/lib/sirus-ai-out ]] || fail 'AI SSH service accounts may already exist; review'
 [[ ! -e /etc/ssh/sshd_config.d/90-sirus-ai.conf ]] || fail 'Unexpected prior SSH AI include'
 for who in sirus-ai-in sirus-ai-out; do ! id "$who" >/dev/null 2>&1 || fail "User $who already exists"; done
+# Refuse to provision if either new Ubuntu loopback port is occupied.
+python3 - <<'PY'
+import socket
+for port in (18485, 18483):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind(('127.0.0.1', port))
+        except OSError as exc:
+            raise SystemExit(f'FAIL: required AI loopback port {port} is unavailable: {exc}')
+PY
 
 read -r in_type in_key _ < /root/input_ed25519.pub
 read -r out_type out_key _ < /root/output_ed25519.pub
