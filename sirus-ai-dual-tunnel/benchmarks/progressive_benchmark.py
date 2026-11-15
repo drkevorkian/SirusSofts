@@ -174,7 +174,7 @@ def continuation_instruction(cycle, next_segment, cumulative, target):
 
 
 def make_segment_messages(protocol, history, segments, mode, checkpoint_chars,
-                          cycle, target, generated):
+                          cycle, target, generated, segment_count=None):
     """Retain full history if requested; otherwise only the latest text tail.
 
     The original protocol stays in the prompt. NEXT is sent only between
@@ -193,7 +193,8 @@ def make_segment_messages(protocol, history, segments, mode, checkpoint_chars,
             last = segments[-1]["body"]
             messages.append({"role": "assistant", "content": last[-checkpoint_chars:]})
             messages.append({"role": "user", "content": continuation_instruction(
-                cycle, len(segments) + 1, generated, target)})
+                cycle, (segment_count if segment_count is not None else len(segments)) + 1,
+                generated, target)})
     return messages
 
 
@@ -276,7 +277,7 @@ def run_worker(worker, args, protocol):
                 generated = result["actual_completion_tokens"]
                 messages = make_segment_messages(
                     protocol, history, parts, args.history, args.checkpoint_chars,
-                    cycle, target, generated)
+                    cycle, target, generated, len(result["segments"]))
                 try:
                     prompt_tokens, margin = approx_prompt_tokens(base, messages)
                 except (OSError, ValueError, urllib.error.URLError) as exc:
@@ -407,7 +408,9 @@ def run_worker(worker, args, protocol):
             finished_all = len(report["cycles"]) == args.cycles
             met_all = finished_all and all(
                 cycle["status"] == "target-reached" for cycle in report["cycles"])
+            errored = any(cycle["status"] == "error" for cycle in report["cycles"])
             report["state"] = (
+                "error" if errored else
                 "completed" if met_all else
                 "completed-with-limits" if finished_all else "budget-exhausted")
     except KeyboardInterrupt:
