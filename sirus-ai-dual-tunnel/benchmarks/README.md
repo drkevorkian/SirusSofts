@@ -98,3 +98,31 @@ network RTT, and total requests/minute.
 - RX 590 vs GTX 1660 comparison on identical prompts and quantization.
 - Re-run after DDR4 RAM expansion; system RAM does not increase GPU VRAM.
 - Keep sirus-ai, sirus-ai-input, and both SSH tunnels operational.
+
+## Simultaneous multi-worker baseline (CPU + AMD + NVIDIA CUDA)
+
+Run this **only when** the CPU worker (18482), AMD Vulkan worker (18487)
+and NVIDIA CUDA worker (18486) are online. Keep the temporary NVIDIA Vulkan
+server (18488) **stopped** so that both NVIDIA backends do not contend for
+the same GTX 1660.
+
+    python3 sirus-ai-dual-tunnel/benchmarks/concurrent_benchmark.py \
+      --workers cpu amd-vulkan nvidia-cuda \
+      --suite coding --repeats 3 --warmups 1
+
+The runner starts one request on each selected backend per round, measures
+from the first submission until the last completion, and saves a JSON report
+containing each worker's completion status and token counts. Its combined
+generation rate is:
+
+    sum(all workers' generated tokens) / concurrent round wall time
+
+This is actual completed-request throughput, not a sum of independent
+single-worker benchmarks. It includes request overhead and prompt processing.
+CPU work from partially offloaded CUDA inference can compete with the
+standalone CPU worker, so aggregate throughput is not expected to equal
+the sum of the previously reported rates.
+
+The runner **does not** change service settings, create remote connections,
+or configure farm nodes. For repeatable comparison, run the same workload
+with the same settings; benchmark concurrency and failover separately.
