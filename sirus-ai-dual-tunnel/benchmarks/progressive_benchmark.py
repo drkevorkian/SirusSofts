@@ -51,18 +51,25 @@ def server_context(base, override=None):
 
 
 def approx_prompt_tokens(base, messages):
-    """Tokenize conversation text; allow for additional chat template overhead."""
-    parts = []
-    for message in messages:
-        parts.append(f"[{message['role']}]\n{message['content']}\n")
+    """Use llama.cpp's own chat-template renderer and tokenizer when available."""
+    try:
+        status, applied = baseline.get_json(
+            base + "/apply-template", {"messages": messages}, timeout=30)
+        if status != 200 or not isinstance(applied.get("prompt"), str):
+            raise ValueError("Invalid /apply-template response")
+        rendered_prompt = applied["prompt"]
+        template_margin = 8  # small safety allowance for server/template variance
+    except (OSError, ValueError, KeyError, urllib.error.HTTPError):
+        # Older llama.cpp servers may not implement /apply-template.
+        # This fallback is approximate, so reserve role/template overhead.
+        rendered_prompt = "\n".join(
+            f"[{message['role']}]\n{message['content']}\n" for message in messages)
+        template_margin = 16 * len(messages) + 16
     status, result = baseline.get_json(
-        base + "/tokenize", {"content": "\n".join(parts)}, timeout=30)
+        base + "/tokenize", {"content": rendered_prompt}, timeout=30)
     if status != 200 or not isinstance(result, dict) or not isinstance(result.get("tokens"), list):
         raise ValueError("Unable to tokenize prompt; cannot calculate safe context budget")
-    token_count = len(result["tokens"])
-    # Reserve for chat-template role markers and special tokens, not a fixed output ceiling.
-    template_margin = 16 * len(messages) + 16
-    return token_count, template_margin
+    return len(result["tokens"]), template_margin
 
 
 def request_cycle(base, messages, requested_tokens, timeout):
