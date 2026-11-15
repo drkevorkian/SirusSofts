@@ -1,0 +1,24 @@
+[Unit]
+Description=SirusSofts AI private output receiver and frontend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sirusaiout
+Group=sirusaiout
+ExecStart=/usr/bin/python3 /opt/sirus-ai-dual/ubuntu/gateway.py --port 18483 --db /var/lib/sirus-ai-dual/events.sqlite3 --secret /etc/sirus-ai-dual/secret
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sirus-ai-dual
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
