@@ -54,7 +54,7 @@ if [[ "$mode" == --enable-nvidia ]]; then
   binary="$nvidia_dir/bin/llama-server"
   [[ -x "$binary" ]] || fail 'Run --build-nvidia first'
   devices="$("$binary" --list-devices 2>&1)"
-  grep -Eq '^CUDA0:' <<< "$devices" || fail 'CUDA0 not found'
+  grep -Eq '^[[:space:]]*CUDA0:' <<< "$devices" || fail 'CUDA0 not found'
   service=/etc/init.d/sirus-ai-nvidia
   [[ ! -e "$service" ]] || fail 'NVIDIA service already exists'
   cat > "$service" <<'RC'
@@ -85,9 +85,9 @@ if [[ "$mode" == --enable-amd ]]; then
   binary="$amd_dir/bin/llama-server"
   [[ -x "$binary" ]] || fail 'Run --build-amd first'
   devices="$("$binary" --list-devices 2>&1)"
-  matches="$(printf '%s\n' "$devices" | grep -Ei '^Vulkan[0-9]+:.*(AMD|Radeon)' || true)"
+  matches="$(printf '%s\n' "$devices" | grep -Ei '^[[:space:]]*Vulkan[0-9]+:.*(AMD|Radeon)' || true)"
   [[ -n "$matches" ]] || fail 'No AMD Radeon Vulkan device found'
-  device="$(printf '%s\n' "$matches" | head -n1 | cut -d: -f1)"
+  device="$(printf '%s\n' "$matches" | head -n1 | sed -E 's/^[[:space:]]*(Vulkan[0-9]+):.*/\1/')"
   [[ "$device" =~ ^Vulkan[0-9]+$ ]] || fail 'Invalid Vulkan device name'
   service=/etc/init.d/sirus-ai-amd
   [[ ! -e "$service" ]] || fail 'AMD service already exists'
