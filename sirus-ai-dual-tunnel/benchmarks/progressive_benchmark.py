@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
-"""Run the exact progressive prompt and automatically send NEXT for 3-25 cycles.
+"""Run progressive prompt with automatic NEXT and intra-cycle CONTINUE (3–25 cycles).
 
-No artificial fixed output cap: each cycle requests the 1500*1.75**(n-1)
-target up to the *live* llama.cpp context capacity reported by /props.
-The context length is finite and configured on each server, not in this
-benchmark. Reports clearly distinguish target, request cap, and actual usage.
-Runs only against existing 127.0.0.1 inference services. No restarts/installs.
+In accumulate mode, the target is the SUM of actual tokens from multiple
+requests; each fits the live server context and rolling checkpoint.
+Single mode preserves a one-completion-per-cycle measurement. Time budgets
+prevent unbounded runs on current hardware and can be disabled by the user.
+No inference services, drivers, or OpenRC state are modified.
 """
 import argparse
 import datetime as dt
@@ -160,105 +159,292 @@ def write_report(path, report):
     tmp.replace(path)
 
 
+def continuation_instruction(cycle, next_segment, cumulative, target):
+    """Differentiate continuing a response from NEXT (which starts another cycle)."""
+    return (
+        f"CONTINUE RESPONSE {cycle}, PART {next_segment}. Stay in the SAME response "
+        f"cycle. You have generated {cumulative} of the {target} output tokens "
+        "targeted for this response across its earlier parts. "
+        "Continue the substantive technical discussion from the last sentence. "
+        "Introduce new specific analysis, derivations, and examples. Do not repeat "
+        "the checkpoint or earlier text, do not declare the response finished, "
+        "and do not start the next numbered RESPONSE until you receive NEXT. "
+        "Produce as much new meaningful content as your current request allows."
+    )
+
+
+def make_segment_messages(protocol, history, segments, mode, checkpoint_chars,
+                          cycle, target, generated, segment_count=None):
+    """Retain full history if requested; otherwise only the latest text tail.
+
+    The original protocol stays in the prompt. NEXT is sent only between
+    logical cycles; CONTINUE requests further segments of the *same* cycle.
+    """
+    messages = make_messages(protocol, history, mode, checkpoint_chars)
+    if segments:
+        if mode == "full":
+            past = 0
+            for index, item in enumerate(segments, 1):
+                past += item["tokens"]
+                messages.append({"role": "assistant", "content": item["body"]})
+                messages.append({"role": "user", "content": continuation_instruction(
+                    cycle, index + 1, past, target)})
+        else:
+            last = segments[-1]["body"]
+            messages.append({"role": "assistant", "content": last[-checkpoint_chars:]})
+            messages.append({"role": "user", "content": continuation_instruction(
+                cycle, (segment_count if segment_count is not None else len(segments)) + 1,
+                generated, target)})
+    return messages
+
+
+def accumulation_stall_reason(last_hashes, short_streak, stall_limit):
+    """Detect model repetition or too-short responses, never fake progress."""
+    if len(last_hashes) >= stall_limit and len(set(last_hashes[-stall_limit:])) == 1:
+        return "repeated-output"
+    if short_streak >= stall_limit:
+        return "low-progress"
+    return None
+
+
 def run_worker(worker, args, protocol):
     base = baseline.WORKERS[worker]
     if not baseline.healthy(base):
         raise RuntimeError(f"{worker} is offline or loading")
     context, context_source = server_context(base, args.context_override)
     report = {
-        "schema": "sirus-progressive-benchmark-v1",
+        "schema": "sirus-progressive-benchmark-v2",
         "timestamp_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "host": platform.node(),
         "worker": worker,
         "url": base,
         "model": "sirussofts-coder",
+        "mode": args.mode,
         "cycles_requested": args.cycles,
         "context_tokens": context,
         "context_source": context_source,
         "history_mode": args.history,
         "subject": args.subject,
         "growth": "ceil(1500 * (7/4)**(cycle-1))",
-        "user_output_cap": args.max_output_tokens,
+        "user_output_cap_per_segment": args.max_output_tokens,
+        "max_cycle_seconds": args.max_cycle_seconds,
+        "max_worker_seconds": args.max_worker_seconds,
+        "max_segments_per_cycle": args.max_segments_per_cycle,
         "cycles": [],
         "state": "running",
     }
     path = report_path(args.output, worker)
     history = []
-    print(f"\n{worker}: context {context} tokens ({context_source}); {args.cycles} cycles",
-          flush=True)
+    worker_start = time.monotonic()
+    interrupted = False
+    print(f"\n{worker}: context {context} tokens ({context_source}); "
+          f"{args.cycles} cycles; mode={args.mode}", flush=True)
     try:
         for cycle in range(1, args.cycles + 1):
             target = cycle_target(cycle)
-            messages = make_messages(protocol, history, args.history, args.checkpoint_chars)
-            prompt_tokens, margin = approx_prompt_tokens(base, messages)
-            request_tokens, limit = cap_budget(
-                target, context, prompt_tokens, margin, args.max_output_tokens)
             result = {
                 "cycle": cycle,
                 "mathematical_target_tokens": target,
-                "estimated_prompt_tokens": prompt_tokens,
-                "template_margin_tokens": margin,
-                "effective_requested_tokens": request_tokens,
-                "limit_source": limit,
+                "segments": [],
+                "actual_completion_tokens": 0,
+                "wall_seconds": 0.0,
+                "status": "running",
             }
             report["cycles"].append(result)
-            if request_tokens < 1:
-                result["status"] = "context-exhausted"
-                report["state"] = "context-exhausted"
-                print(f"  cycle {cycle}: no context remaining for generation; stop", flush=True)
-                break
-            print(f"  cycle {cycle}/{args.cycles}: target={target:,}; request={request_tokens:,}"
-                  f" ({limit}); prompt≈{prompt_tokens:,}", flush=True)
-            started = time.perf_counter()
-            try:
-                body, metrics = request_cycle(base, messages, request_tokens, args.timeout)
-            except (OSError, ValueError, KeyError, urllib.error.HTTPError) as exc:
-                result["status"] = "error"
-                result["error"] = f"{type(exc).__name__}: {exc}"
-                result["elapsed_before_error_seconds"] = round(time.perf_counter() - started, 3)
-                report["state"] = "error"
-                print(f"    ERROR {result['error']}", flush=True)
-                break
-            result.update(metrics)
-            actual = metrics["completion_tokens"]
-            if limit == "context":
-                result["status"] = "context-limited"
-            elif limit == "user-limit":
-                result["status"] = "user-limited"
-            elif actual < target and metrics["finish_reason"] != "length":
-                result["status"] = "early-stop"
-            elif actual < target:
-                result["status"] = "output-limited"
-            else:
-                result["status"] = "target-reached"
-            result["target_achievement_ratio"] = round(actual / target, 6)
-            if args.history == "checkpoint":
-                history = [body]  # avoid retaining all previous outputs in RAM
-            else:
-                history.append(body)
-            print(f"    actual={actual:,} tok; {metrics['wall_seconds']:.2f}s;"
-                  f" {metrics['generation_tokens_per_second']} tok/s;"
-                  f" {metrics['finish_reason']}; {result['status']}", flush=True)
-            if args.save_transcripts:
-                result["response_text"] = body
-            else:
-                result["checkpoint_excerpt"] = body[-min(args.checkpoint_chars, len(body)):]
+            cycle_start = time.monotonic()
+            # Only keep the latest fragment in checkpoint mode. Full mode
+            # intentionally retains complete content and can exhaust context.
+            parts = []
+            recent_hashes = []
+            short_streak = 0
+            print(f"  cycle {cycle}/{args.cycles}: target={target:,}", flush=True)
             write_report(path, report)
-        else:
-            report["state"] = "completed"
+
+            while result["actual_completion_tokens"] < target:
+                cycle_elapsed = time.monotonic() - cycle_start
+                worker_elapsed = time.monotonic() - worker_start
+                if args.max_worker_seconds and worker_elapsed >= args.max_worker_seconds:
+                    result["status"] = "worker-time-budget"
+                    break
+                if args.max_cycle_seconds and cycle_elapsed >= args.max_cycle_seconds:
+                    result["status"] = "cycle-time-budget"
+                    break
+                if (args.max_segments_per_cycle and
+                        len(result["segments"]) >= args.max_segments_per_cycle):
+                    result["status"] = "segment-budget"
+                    break
+
+                generated = result["actual_completion_tokens"]
+                messages = make_segment_messages(
+                    protocol, history, parts, args.history, args.checkpoint_chars,
+                    cycle, target, generated, len(result["segments"]))
+                try:
+                    prompt_tokens, margin = approx_prompt_tokens(base, messages)
+                except (OSError, ValueError, urllib.error.URLError) as exc:
+                    result["status"] = "error"
+                    result["error"] = f"Prompt tokenization failed: {type(exc).__name__}: {exc}"
+                    break
+                remaining = target - generated
+                requested, limiting = cap_budget(
+                    remaining, context, prompt_tokens, margin, args.max_output_tokens)
+                if requested < 1:
+                    result["status"] = "context-exhausted"
+                    break
+
+                elapsed_budget = [
+                    seconds - elapsed for seconds, elapsed in (
+                        (args.max_cycle_seconds, cycle_elapsed),
+                        (args.max_worker_seconds, worker_elapsed)
+                    ) if seconds
+                ]
+                request_timeout = min([float(args.timeout)] + elapsed_budget)
+                if request_timeout <= 0:
+                    result["status"] = "cycle-time-budget"
+                    break
+
+                segment_number = len(result["segments"]) + 1
+                record = {
+                    "segment": segment_number,
+                    "remaining_before": remaining,
+                    "estimated_prompt_tokens": prompt_tokens,
+                    "template_margin_tokens": margin,
+                    "effective_requested_tokens": requested,
+                    "limit_source": limiting,
+                }
+                print(f"    segment {segment_number}: request={requested:,} "
+                      f"remaining={remaining:,} prompt≈{prompt_tokens:,} "
+                      f"({limiting})", flush=True)
+                started = time.monotonic()
+                try:
+                    body, metrics = request_cycle(
+                        base, messages, requested, request_timeout)
+                except (OSError, ValueError, KeyError, urllib.error.URLError) as exc:
+                    record["status"] = "error"
+                    record["error"] = f"{type(exc).__name__}: {exc}"
+                    record["elapsed_before_error_seconds"] = round(
+                        time.monotonic() - started, 3)
+                    result["segments"].append(record)
+                    # If the deadline expired, report the time-budget cause,
+                    # not an unsupported claim of a model context failure.
+                    if (args.max_cycle_seconds and
+                            time.monotonic() - cycle_start >= args.max_cycle_seconds):
+                        result["status"] = "cycle-time-budget"
+                    elif (args.max_worker_seconds and
+                          time.monotonic() - worker_start >= args.max_worker_seconds):
+                        result["status"] = "worker-time-budget"
+                    else:
+                        result["status"] = "error"
+                    break
+
+                record.update(metrics)
+                actual = metrics["completion_tokens"]
+                record["status"] = "ok"
+                result["segments"].append(record)
+                result["actual_completion_tokens"] += actual
+                result["wall_seconds"] = round(
+                    result["wall_seconds"] + metrics["wall_seconds"], 4)
+                record["target_achievement_ratio"] = round(
+                    min(1.0, result["actual_completion_tokens"] / target), 6)
+                if args.save_transcripts:
+                    record["response_text"] = body
+                else:
+                    record["checkpoint_excerpt"] = body[-args.checkpoint_chars:]
+                # Even for mode=full, only retain the full answer in memory
+                # when selected; default checkpoint has constant memory use.
+                if args.history == "checkpoint":
+                    parts = [{"body": body[-args.checkpoint_chars:], "tokens": actual}]
+                else:
+                    parts.append({"body": body, "tokens": actual})
+
+                digest = hashlib.sha256(body.strip().encode("utf-8")).hexdigest()
+                recent_hashes.append(digest)
+                recent_hashes = recent_hashes[-args.stall_limit:]
+                short_streak = short_streak + 1 if actual < args.min_progress_tokens else 0
+                print(f"      +{actual:,} tokens -> "
+                      f"{result['actual_completion_tokens']:,}/{target:,}; "
+                      f"{metrics['wall_seconds']:.2f}s; "
+                      f"{metrics['finish_reason']}", flush=True)
+                write_report(path, report)
+
+                if result["actual_completion_tokens"] >= target:
+                    result["status"] = "target-reached"
+                    break
+                if args.mode == "single":
+                    # Preserves the old measurement: one completion per cycle.
+                    result["status"] = (
+                        "context-limited" if limiting == "context"
+                        else "user-limited" if limiting == "user-limit"
+                        else "early-stop" if metrics["finish_reason"] != "length"
+                        else "output-limited")
+                    break
+                stall = accumulation_stall_reason(
+                    recent_hashes, short_streak, args.stall_limit)
+                if stall:
+                    result["status"] = stall
+                    break
+
+            if result["status"] == "running":
+                result["status"] = "target-reached" if (
+                    result["actual_completion_tokens"] >= target) else "stopped"
+            result["target_achievement_ratio"] = round(
+                min(1.0, result["actual_completion_tokens"] / target), 6)
+            result["generation_tokens_per_wall_second"] = round(
+                result["actual_completion_tokens"] / result["wall_seconds"], 3
+            ) if result["wall_seconds"] > 0 else None
+            # Preserve a finite tail across cycles. In full mode the entire
+            # cycle output remains available; high memory cost is opt-in.
+            if parts:
+                if args.history == "checkpoint":
+                    history = [parts[-1]["body"]]
+                else:
+                    history.append("".join(part["body"] for part in parts))
+            print(f"    cycle result: {result['status']}; "
+                  f"{result['actual_completion_tokens']:,}/{target:,} tokens; "
+                  f"{len(result['segments'])} segment(s)", flush=True)
+            write_report(path, report)
+            if result["status"] in ("worker-time-budget", "error"):
+                break
+        if report["state"] == "running":
+            finished_all = len(report["cycles"]) == args.cycles
+            met_all = finished_all and all(
+                cycle["status"] == "target-reached" for cycle in report["cycles"])
+            errored = any(cycle["status"] == "error" for cycle in report["cycles"])
+            report["state"] = (
+                "error" if errored else
+                "completed" if met_all else
+                "completed-with-limits" if finished_all else "budget-exhausted")
     except KeyboardInterrupt:
+        interrupted = True
         report["state"] = "interrupted"
-        print("\nInterrupted; saving completed cycle metrics.", flush=True)
+        if report["cycles"] and report["cycles"][-1]["status"] == "running":
+            report["cycles"][-1]["status"] = "interrupted"
+        print("\nInterrupted; stopping all remaining workers and saving metrics.",
+              flush=True)
     finally:
         write_report(path, report)
         print(f"  saved: {path}", flush=True)
-    return 0 if report["state"] == "completed" else 1
+    if interrupted:
+        return 130
+    return 1 if report["state"] in ("budget-exhausted",) or any(
+        c["status"] == "error" for c in report["cycles"]) else 0
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workers", nargs="+", choices=baseline.WORKERS,
                         default=["amd-vulkan"], help="Worker(s), benchmarked separately")
+    parser.add_argument("--mode", choices=("accumulate", "single"), default="accumulate",
+                        help="Accumulate CONTINUE segments per cycle (default) or test one response")
+    parser.add_argument("--max-cycle-seconds", type=float, default=900,
+                        help="Time budget per logical cycle; 0 disables (default: 900s)")
+    parser.add_argument("--max-worker-seconds", type=float, default=3600,
+                        help="Total time budget per worker; 0 disables (default: 3600s)")
+    parser.add_argument("--max-segments-per-cycle", type=int, default=0,
+                        help="Optional segment count limit per cycle; 0 disables")
+    parser.add_argument("--min-progress-tokens", type=int, default=32,
+                        help="Below this count a segment is considered low-progress")
+    parser.add_argument("--stall-limit", type=int, default=3,
+                        help="Stop a cycle after N identical or low-progress segments")
     parser.add_argument("--cycles", type=int, choices=range(3, 26), metavar="3..25",
                         default=5, help="Automatic responses per worker (default: 5)")
     parser.add_argument("--subject", default=DEFAULT_SUBJECT)
@@ -275,6 +461,10 @@ def main():
     parser.add_argument("--save-transcripts", action="store_true",
                         help="Save full model outputs in report (can create huge files)")
     args = parser.parse_args()
+    if (args.max_cycle_seconds < 0 or args.max_worker_seconds < 0 or
+            args.max_segments_per_cycle < 0 or args.min_progress_tokens < 1 or
+            args.stall_limit < 2):
+        parser.error("Time/segment limits must be nonnegative, min-progress >=1, stall-limit >=2")
     if args.checkpoint_chars < 100 or args.timeout < 10:
         parser.error("--checkpoint-chars must be >=100, --timeout >=10")
     if args.max_output_tokens is not None and args.max_output_tokens < 1:
@@ -292,7 +482,12 @@ def main():
     failures = 0
     for worker in args.workers:
         try:
-            failures += run_worker(worker, args, protocol)
+            status = run_worker(worker, args, protocol)
+            if status == 130:
+                return 130  # Ctrl+C aborts *all* remaining workers
+            failures += status
+        except KeyboardInterrupt:
+            return 130
         except (OSError, RuntimeError, ValueError, urllib.error.HTTPError) as error:
             print(f"{worker}: FAIL {type(error).__name__}: {error}", file=sys.stderr)
             failures += 1
