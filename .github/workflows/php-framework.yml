@@ -62,6 +62,7 @@ jobs:
           php -d zend.assertions=1 -d assert.exception=1 CMS/tests/storage_registry_test.php
           php CMS/tests/ai_training_test.php
           php CMS/tests/ai_pdf_pipeline_test.php
+          php CMS/tests/gentoo_pdf_admin_test.php
           php CMS/tests/ai_workspace_test.php
           php CMS/tests/session_auth_test.php
           php CMS/tests/smoke.php
@@ -92,6 +93,10 @@ jobs:
           bash gentoo-node/prepare-sirus-storage.sh --check
           bash -n gentoo-node/install-pdf-ingest.sh
           bash gentoo-node/install-pdf-ingest.sh --check
+          bash -n gentoo-node/install-pdf-admin-bridge.sh
+          bash gentoo-node/install-pdf-admin-bridge.sh --check
+          python3 gentoo-node/pdf_admin_probe.py --check
+          python3 -m unittest discover -s gentoo-node/tests -p 'test_pdf_admin.py' -v
           python3 gentoo-node/pdf_ingest.py --check
           python3 -m unittest discover -s gentoo-node/tests -p 'test_pdf_ingest.py' -v
       - name: JavaScript syntax
@@ -100,6 +105,7 @@ jobs:
           node --check CMS/assets/live.js
           node --check sirus-ai-dual-tunnel/ubuntu/web/app.js
           node --check gentoo-node/dashboard_live.js
+          node --check CMS/assets/gentoo-pdf-admin.js
           node gentoo-node/tests/dashboard_live_fallback.test.js
           node gentoo-node/tests/dashboard_live_socket.test.js
           node gentoo-node/tests/dashboard_live_race.test.js

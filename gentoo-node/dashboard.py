@@ -21,6 +21,7 @@ import time
 from urllib.parse import urlsplit
 import client
 import dashboard_live
+import pdf_admin
 
 HOST, PORT = "127.0.0.1", 18080
 AUTH = "/etc/sirus-gentoo-node/dashboard.auth"
@@ -330,6 +331,34 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def do_POST(self):
+        # The website PHP administrator proxies through Ubuntu's loopback SSH
+        # tunnel. A node-scoped, HMAC-signed request is mandatory here; Basic
+        # dashboard passwords and public browser requests are not sufficient.
+        if urlsplit(self.path).path != "/internal/pdf-admin":
+            return self.send(404,b"Not found","text/plain; charset=utf-8")
+        length = self.headers.get("Content-Length", "")
+        if (self.headers.get("Transfer-Encoding") or not length.isdecimal() or
+                not 0 < int(length) <= pdf_admin.MAX_BODY):
+            return self.send(413,b"Invalid request size","text/plain; charset=utf-8")
+        raw = self.rfile.read(int(length))
+        try:
+            payload = pdf_admin.process(
+                raw,self.headers.get("X-Sirus-Pdf-Signature",""),
+                self.server.pdf_key,self.server.config["node_id"])
+            result = json.dumps(payload,separators=(",",":"),ensure_ascii=True).encode()
+            if len(result)>120000:
+                raise pdf_admin.PDFAdminError("PDF response too large")
+            return self.send(200,result,"application/json; charset=utf-8")
+        except pdf_admin.PDFAdminError as error:
+            print("Gentoo PDF control rejected:",str(error)[:130],flush=True)
+            return self.send(403,b'{"ok":false,"error":"PDF control request rejected"}',
+                             "application/json; charset=utf-8")
+        except (OSError,sqlite3.Error,ValueError) as error:
+            print("Gentoo PDF control unavailable:",type(error).__name__,flush=True)
+            return self.send(503,b'{"ok":false,"error":"Gentoo PDF database unavailable"}',
+                             "application/json; charset=utf-8")
+
     def do_GET(self):
         uri=urlsplit(self.path).path
         if uri=="/healthz":
@@ -406,6 +435,7 @@ def main(argv=None):
     threading.Thread(target=sample_loop,args=(str(db_path),stop),daemon=True).start()
     server=ThreadingHTTPServer((HOST,PORT),Handler)
     server.config,server.secret,server.db=config,secret,str(db_path)
+    server.pdf_key=client.load_key(config["key_file"])
     server.live_state=dashboard_live.LiveState()
     server.live_slots=threading.BoundedSemaphore(dashboard_live.MAX_CONNECTIONS)
     threading.Thread(target=live_loop,args=(server,stop),daemon=True).start()

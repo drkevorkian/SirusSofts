@@ -249,6 +249,7 @@ function cms_ai_page(PDO $db,?string $error=null):void {
         </form><?php endforeach;?>
       </div>
     </div>
+    <?php cms_gentoo_pdf_panel($db); ?>
     <?php cms_ai_import_panel($db); ?>
     <div class="admin-panel"><h2>Profiles</h2>
       <div class="ai-profiles"><?php foreach($profiles as $p):?>

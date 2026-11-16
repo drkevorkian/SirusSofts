@@ -6,6 +6,7 @@ require_once __DIR__.'/operations.php';
 require_once __DIR__.'/source_releases.php';
 require_once __DIR__.'/github_projects.php';
 require_once __DIR__.'/access.php';
+require_once __DIR__.'/ai_gentoo.php';
 require_once __DIR__.'/source.php';
 
 /** Mint a short-lived, admin-only proof for the local WebSocket service. */
@@ -84,6 +85,8 @@ function cms_admin_post(PDO $db,string $path): void {
         cms_change_viewer_password($db);
     }
     cms_need_admin();
+    if($path==='/admin/ai' && str_starts_with($action,'gentoo_pdf_'))
+        cms_gentoo_pdf_post($db,$action);
     if($path==='/admin/ai')cms_ai_post($db,$action);
     if($path==='/admin/users' &&
        in_array($action,['create_viewer','set_viewer_status','reset_viewer_password','save_viewer_grants'],true)){
@@ -394,6 +397,7 @@ function cms_admin_run(PDO $db,string $path): never {
         http_response_code(403);exit('Administrator permission required.');
     }
     if($path==='/admin/logout'||$path==='/admin/account'){cms_go('/admin');}
+    if($path==='/admin/ai/gentoo-status'){cms_gentoo_pdf_status_json();exit;}
     if($path==='/admin/ai'){cms_ai_page($db,$error);exit;}
     if($path==='/admin/users'){cms_users_page($db,$error);exit;}
     if($path==='/admin/hosting'){cms_vhost_page($db,$error);exit;}
