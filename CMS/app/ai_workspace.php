@@ -97,6 +97,10 @@ function cms_ai_quota_used(PDO $db,string $account): int {
 function cms_ai_charge(PDO $db,string $account,int $delta): void {
     if(abs($delta)>CMS_AI_MEMORY_QUOTA) throw new InvalidArgumentException('Invalid memory charge.');
     $db->prepare('INSERT OR IGNORE INTO cms_ai_usage(account,bytes_used) VALUES(?,0)')->execute([$account]);
+    $check=$db->prepare('SELECT bytes_used FROM cms_ai_usage WHERE account=?');
+    $check->execute([$account]);$current=(int)$check->fetchColumn();
+    if($current+$delta<0 || $current+$delta>CMS_AI_MEMORY_QUOTA)
+        throw new RuntimeException('2 GiB conversation/memory quota exceeded.');
     $st=$db->prepare('UPDATE cms_ai_usage SET bytes_used=bytes_used+?
        WHERE account=? AND bytes_used+? BETWEEN 0 AND ?');
     $st->execute([$delta,$account,$delta,CMS_AI_MEMORY_QUOTA]);
