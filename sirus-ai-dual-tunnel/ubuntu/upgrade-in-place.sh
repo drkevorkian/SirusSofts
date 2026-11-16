@@ -105,12 +105,30 @@ curl -fsS --max-time 3 'http://127.0.0.1:18483/healthz' >/dev/null ||
 # Verify the real domain's HTTPS vhost with its trusted certificate and DNS.
 # Ignore shell HTTP(S)_PROXY so an external proxy cannot mask local failures.
 systemctl reload nginx || fail 'Nginx reload failed'
-status_ui="$(curl -sS --max-time 8 --noproxy '*' \
-  -o /dev/null -w '%{http_code}' https://sirussofts.com/Gentoo/AI/)"
-[[ "$status_ui" == 200 ]] || fail "Public AI interface returned HTTP $status_ui, expected 200"
-status_internal="$(curl -sS --max-time 8 --noproxy '*' \
-  -o /dev/null -w '%{http_code}' https://sirussofts.com/Gentoo/AI/api/in/health)"
-[[ "$status_internal" == 404 ]] || fail "Internal inference route exposed or unavailable incorrectly: $status_internal"
+# A successful systemctl reload only confirms Nginx received the reload
+# request. Old workers can still answer with the previous Basic-auth route
+# briefly. Allow the replacement configuration to become active before
+# deciding whether to roll back.
+ready=0
+status_ui=000
+status_internal=000
+for attempt in {1..30}; do
+  status_ui="$(curl --silent --noproxy '*' --connect-timeout 2 --max-time 5 \
+    -o /dev/null -w '%{http_code}' https://sirussofts.com/Gentoo/AI/ || true)"
+  status_internal="$(curl --silent --noproxy '*' --connect-timeout 2 --max-time 5 \
+    -o /dev/null -w '%{http_code}' https://sirussofts.com/Gentoo/AI/api/in/health || true)"
+  if [[ "$status_ui" == 200 && "$status_internal" == 404 ]]; then
+    ready=1
+    break
+  fi
+  if (( attempt == 1 || attempt % 10 == 0 )); then
+    echo "Waiting for Nginx to activate new AI routes: UI HTTP $status_ui; private HTTP $status_internal (attempt $attempt/30)"
+  fi
+  sleep 1
+done
+[[ "$ready" == 1 ]] ||
+  fail "New Nginx AI routes did not activate: UI HTTP $status_ui (expected 200), private HTTP $status_internal (expected 404); previous configuration will be restored"
+
 curl -fsS --max-time 8 --noproxy '*' \
   'https://sirussofts.com/ai/api/state' |
   python3 -c 'import json,sys; v=json.load(sys.stdin); assert v["local_only"] is True and v["role"]=="guest"' ||
