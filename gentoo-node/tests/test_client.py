@@ -111,8 +111,9 @@ class DelegationTests(unittest.TestCase):
             for name in ("sshd","sirus-gentoo-node","sirus-gentoo-tunnel"):
                 (root/name).touch()
             (root/"unsafe name").touch()
+            (root/"sirus-ai").symlink_to("/nonexistent/never-follow")
             result=client.gentoo_services(root)
-            self.assertEqual(result,["sirus-gentoo-node","sirus-gentoo-tunnel","sshd"])
+            self.assertEqual(result,["sirus-ai","sirus-gentoo-node","sirus-gentoo-tunnel","sshd"])
 
     def test_application_health_probes_only_loopback(self):
         from unittest.mock import MagicMock
@@ -158,6 +159,28 @@ class DelegationTests(unittest.TestCase):
             self.assertEqual(result[0]["usage_pct"],8.0)
             self.assertEqual(result[0]["temp_c"],41.0)
             self.assertEqual(result[0]["vram_total_bytes"],8589934592)
+
+    def test_nvidia_smi_partial_readings_filled_from_nvml(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            drm=Path(folder)
+            vendor=drm/"card0"/"device"/"vendor"
+            vendor.parent.mkdir(parents=True)
+            vendor.write_text("0x10de\n")
+            smi=[{"vendor":"0x10de","name":"GTX 1660",
+                "usage_pct":11.0,"temp_c":None,
+                "vram_used_bytes":None,"vram_total_bytes":None}]
+            nvml=[{"vendor":"0x10de","name":"NVIDIA GPU",
+                "usage_pct":10.0,"temp_c":54.0,
+                "vram_used_bytes":1024,"vram_total_bytes":6144}]
+            with patch.object(client,"nvidia_smi_samples",return_value=smi), \
+                 patch.object(client,"nvml_samples",return_value=nvml), \
+                 patch.object(client,"pci_model",return_value=None):
+                result=client.gpu_devices(drm, drm / 'empty-pci')
+            self.assertEqual(result[0]["name"],"GTX 1660")
+            self.assertEqual(result[0]["usage_pct"],11.0)
+            self.assertEqual(result[0]["temp_c"],54.0)
+            self.assertEqual(result[0]["vram_total_bytes"],6144)
 
     def test_nvidia_sysfs_detection_survives_missing_driver_tools(self):
         import tempfile

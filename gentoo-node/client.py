@@ -404,7 +404,21 @@ def gpu_devices(drm_root: Path = Path("/sys/class/drm"),
         devices.append(collect(device, vendor))
 
     # NVIDIA driver data enriches the PCI inventory but cannot replace it.
-    nvidia = nvidia_smi_samples() or nvml_samples()
+    # nvidia-smi can identify a card but return N/A for individual sensors.
+    # Merge missing readings from NVML instead of skipping it for a nonempty list.
+    nvidia = nvidia_smi_samples()
+    needed = ("usage_pct", "temp_c", "vram_used_bytes", "vram_total_bytes")
+    if not nvidia or any(any(item.get(field) is None for field in needed) for item in nvidia):
+        fallback = nvml_samples()
+        for idx, source in enumerate(fallback):
+            if idx >= len(nvidia):
+                nvidia.append(source)
+                continue
+            for field in ("name", *needed):
+                if nvidia[idx].get(field) is None or (
+                    field == "name" and nvidia[idx].get(field) == "NVIDIA GPU"):
+                    if source.get(field) is not None:
+                        nvidia[idx][field] = source[field]
     detected = [gpu for gpu in devices if gpu["vendor"] == "0x10de"]
     for index, source in enumerate(nvidia):
         if index < len(detected):
@@ -422,7 +436,9 @@ def gentoo_services(root: Path = Path("/run/openrc/started")) -> list[str]:
     services = []
     try:
         for item in sorted(root.iterdir()):
-            if (item.is_symlink() or not item.is_file()) and not item.is_dir():
+            # OpenRC may publish started-service marker symlinks. We only
+            # report the entry *name*, never follow its target or read it.
+            if not (item.is_symlink() or item.is_file() or item.is_dir()):
                 continue
             if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}", item.name):
                 services.append(item.name)
