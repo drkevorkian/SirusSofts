@@ -23,10 +23,11 @@ catch(InvalidArgumentException $expected){}
 $invalidDraft=$validDraft;$invalidDraft['sha256']=str_repeat('0',64);
 try{cms_ai_parse_draft(json_encode($invalidDraft));ai_assert(false,'PDF source checksum');}
 catch(InvalidArgumentException $expected){}
-ai_assert(CMS_AI_PDF_MAX_BYTES===200*1024*1024,'200 MiB PDF limit');
-ai_assert(CMS_AI_PDF_BATCH_MAX_BYTES===200*1024*1024,'200 MiB request limit');
-ai_assert(cms_ai_pdf_size_valid(200*1024*1024),'maximum individual PDF accepted');
-ai_assert(!cms_ai_pdf_size_valid(200*1024*1024+1),'oversized PDF rejected');
+ai_assert(CMS_AI_PDF_MAX_BYTES===1024*1024*1024,'1 GiB PDF limit');
+ai_assert(CMS_AI_PDF_BATCH_MAX_BYTES===1024*1024*1024,'1 GiB request limit');
+ai_assert(cms_ai_pdf_size_valid(350*1024*1024),'350 MiB manuals accepted');
+ai_assert(cms_ai_pdf_size_valid(1024*1024*1024),'maximum individual PDF accepted');
+ai_assert(!cms_ai_pdf_size_valid(1024*1024*1024+1),'oversized PDF rejected');
 ai_assert(!cms_ai_pdf_size_valid(-1),'invalid PDF size rejected');
 ai_assert(cms_ai_depth('50')===50,'default depth');
 ai_assert(cms_ai_depth('5000')===5000,'maximum depth');

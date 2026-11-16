@@ -2,10 +2,10 @@
 declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 
-/** Admin-only staging: PDFs are never served from public_html or executed. */
-const CMS_AI_PDF_MAX_BYTES = 200 * 1024 * 1024;
-// Bound aggregate requests on the 2 GiB VPS; upload large manuals in separate batches.
-const CMS_AI_PDF_BATCH_MAX_BYTES = 200 * 1024 * 1024;
+require_once __DIR__.'/ai_pdf_pipeline.php';
+/** Admin-only staged PDFs, including large BRP service manuals. */
+const CMS_AI_PDF_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB per PDF
+const CMS_AI_PDF_BATCH_MAX_BYTES = 1024 * 1024 * 1024; // Combined request cap
 function cms_ai_pdf_size_valid(mixed $size):bool {
     return is_int($size)&&$size>=32&&$size<=CMS_AI_PDF_MAX_BYTES;
 }
@@ -32,7 +32,7 @@ function cms_ai_import_schema(PDO $db):void {
         batch_id INTEGER NOT NULL REFERENCES cms_ai_manual_batches(id) ON DELETE CASCADE,
         document_id INTEGER NOT NULL REFERENCES cms_ai_documents(id) ON DELETE CASCADE,
         PRIMARY KEY(batch_id,document_id))");
-
+    cms_ai_pdf_pipeline_schema($db);
 }
 function cms_ai_depth(mixed $raw):int {
     if(!is_string($raw)||!preg_match('/^[1-9][0-9]{0,3}$/D',$raw)
@@ -96,6 +96,12 @@ function cms_ai_upload_pdf(PDO $db,array $file,string $profile):void {
     if(!in_array($mime,['application/pdf','application/octet-stream'],true))
         throw new InvalidArgumentException('Uploaded content is not a PDF.');
     $folder=cms_ai_pdf_directory();
+    $free=disk_free_space($folder);
+    if($free===false||$free-(int)$bytes<5*1024*1024*1024)
+        throw new RuntimeException('Not enough free VPS storage for this upload (5 GiB reserve required).');
+    $used=(int)$db->query('SELECT COALESCE(SUM(bytes),0) FROM cms_ai_pdf_uploads')->fetchColumn();
+    if($used+(int)$bytes>20*1024*1024*1024)
+        throw new RuntimeException('20 GiB private manual storage capacity reached; attach additional storage.');
     $key=bin2hex(random_bytes(20)).'.pdf';
     $dst=$folder.'/'.$key;
     if(!move_uploaded_file($tmp,$dst))throw new RuntimeException('Could not store PDF.');
@@ -138,7 +144,7 @@ function cms_ai_upload_manuals(PDO $db):never {
         foreach($fileKeys as $key)$one[$key]=$source[$key][$i];
         cms_ai_upload_pdf($db,$one,$profile);
     }
-    cms_flash($count.' PDFs staged privately. Export/transfer for Gentoo extraction; nothing was automatically approved.');
+    cms_flash($count.' PDFs stored privately and queued for background extraction. Review extracted text before approving.');
     cms_go('/admin/ai');
 }
 function cms_ai_download_pdf(PDO $db):never {
@@ -239,6 +245,12 @@ function cms_ai_import_post(PDO $db,string $action):never {
     if($action==='ai_import_manual_draft')cms_ai_import_manual_draft($db);
     if($action==='ai_approve_manual_batch')cms_ai_approve_manual_batch($db);
     if($action==='ai_download_pdf')cms_ai_download_pdf($db);
+    if($action==='ai_retry_pdf'){
+        cms_ai_pdf_pipeline_retry($db,cms_get_int($_POST['id']??null));
+        cms_audit($db,'ai-pdf-retry',(string)($_POST['id']??''));
+        cms_flash('PDF requeued for automatic extraction.');
+        cms_go('/admin/ai');
+    }
     if($action==='ai_research_settings'){
         $depth=cms_ai_depth($_POST['depth']??null);
         $engines=cms_ai_engine_selection($_POST['engines']??null);
@@ -264,12 +276,11 @@ function cms_ai_import_panel(PDO $db):void {
     $settings=$db->query('SELECT depth,engines FROM cms_ai_research_config WHERE id=1')
                  ->fetch(PDO::FETCH_ASSOC);
     $selected=explode(',',$settings['engines']);
-    $pdfs=$db->query('SELECT id,profile,original_name,bytes,status,created_at
-        FROM cms_ai_pdf_uploads ORDER BY id DESC LIMIT 100')->fetchAll(PDO::FETCH_ASSOC);
+    $pdfs=cms_ai_pdf_pipeline_rows($db);
     ?>
     <div class="admin-panel"><h2>Upload service manuals (PDF)</h2>
-      <p>Upload up to ten PDF files per batch; each PDF may be up to 200 MiB, with a maximum of 200 MiB total per request. Files are stored privately on Ubuntu, never in the public website. Files are staged, not executed, analyzed, approved, or sent automatically.</p>
-      <p class="muted">For 200 MiB uploads, configure the site's PHP-FPM upload_max_filesize to 200M and post_max_size to at least 220M; verify effective Hestia Nginx/Apache request limits. Large manuals should be uploaded one at a time.</p>
+      <p>Upload PDFs once. Each file may be up to <strong>1 GiB</strong> with a combined 1 GiB per batch. Original files stay private. A restricted background worker extracts page-attributed text automatically; you review and approve it here.</p>
+      <p class="muted">Large uploads require the separate per-site PHP and Nginx configuration. Manuals near 1 GiB should be uploaded individually. Parsing never runs within a web request.</p>
       <form method="post" enctype="multipart/form-data" action="/admin/ai">
         <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
         <input type="hidden" name="action" value="ai_upload_pdfs">
@@ -277,13 +288,41 @@ function cms_ai_import_panel(PDO $db):void {
           <option value="<?=cms_esc($slug)?>" <?=$slug==='mechanics'?'selected':''?>><?=cms_esc($title)?></option>
           <?php endforeach;?></select></label>
         <label>PDF manuals<input type="file" name="manuals[]" accept="application/pdf,.pdf" multiple required></label>
-        <button type="submit" class="btn primary">Stage PDFs privately</button>
+        <button type="submit" class="btn primary">Upload &amp; queue PDFs</button>
       </form>
-      <p class="muted">Gentoo extraction, page-level indexing, and an AI summary are separate, reviewed processing steps. Do not treat a staged file as searchable knowledge.</p>
-      <div class="table-scroll"><table><thead><tr><th>Manual</th><th>Expertise</th><th>Size</th><th>Status</th><th>Download</th></tr></thead><tbody>
+      <p class="muted">PDF extraction runs privately on Ubuntu without reuploading or transferring to Gentoo. A scan without selectable text will show an error and can be retried after review/OCR support is added. Unapproved material is never used as AI knowledge.</p>
+      <div class="table-scroll"><table><thead><tr><th>Manual</th><th>Expertise</th><th>Size</th><th>Progress</th><th>Review / approve</th><th>Original</th></tr></thead><tbody>
         <?php foreach($pdfs as $pdf):?><tr><td><?=cms_esc($pdf['original_name'])?></td>
-        <td><?=cms_esc($pdf['profile'])?></td><td><?=(int)$pdf['bytes']?> B</td>
-        <td><?=cms_esc($pdf['status'])?></td><td>
+        <td><?=cms_esc($pdf['profile'])?></td><td><?=number_format((int)$pdf['bytes']/1048576,1)?> MiB</td>
+        <td><?=cms_esc(cms_ai_pdf_pipeline_label($pdf))?>
+          <?php if((int)($pdf['pages']??0)>0):?><small><?= (int)$pdf['pages']?> pages / <?=(int)$pdf['excerpts']?> excerpts</small><?php endif;?>
+          <?php if(!empty($pdf['error'])):?><p class="form-error"><?=cms_esc($pdf['error'])?></p><?php endif;?>
+        </td><td>
+        <?php if($pdf['job_status']==='ready' && (int)($pdf['batch_approved']??0)===0):?>
+          <details><summary>Preview extracted text</summary>
+            <?php $preview=$db->prepare('SELECT title,substr(content,1,700) AS content FROM cms_ai_documents WHERE id IN (SELECT document_id FROM cms_ai_manual_batch_docs WHERE batch_id=?) ORDER BY id LIMIT 6');
+            $preview->execute([(int)$pdf['batch_id']]);
+            foreach($preview->fetchAll(PDO::FETCH_ASSOC) as $excerpt):?>
+              <p><strong><?=cms_esc($excerpt['title'])?></strong> — <?=cms_esc($excerpt['content'])?></p>
+            <?php endforeach;?>
+            <p class="muted">Compare technical values, diagrams and page references against the original PDF before approval.</p>
+          </details>
+          <form method="post" action="/admin/ai" class="inline-action" data-confirm="Approve this manual's extracted text as AI knowledge? Confirm you reviewed the source.">
+            <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+            <input type="hidden" name="action" value="ai_approve_manual_batch">
+            <input type="hidden" name="batch_id" value="<?=(int)$pdf['batch_id']?>">
+            <input type="hidden" name="confirm" value="APPROVE MANUAL">
+            <button class="btn small" type="submit">Approve text</button>
+          </form>
+        <?php elseif($pdf['job_status']==='failed'):?>
+          <form method="post" action="/admin/ai" class="inline-action">
+            <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+            <input type="hidden" name="action" value="ai_retry_pdf">
+            <input type="hidden" name="id" value="<?=(int)$pdf['id']?>">
+            <button class="btn small" type="submit">Retry</button>
+          </form>
+        <?php else:?>—<?php endif;?>
+        </td><td>
         <form method="post" action="/admin/ai" class="inline-action">
           <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
           <input type="hidden" name="action" value="ai_download_pdf">
@@ -291,8 +330,8 @@ function cms_ai_import_panel(PDO $db):void {
           <button class="btn small" type="submit">Download</button>
         </form></td></tr><?php endforeach;?></tbody></table></div>
     </div>
-      <div class="admin-panel"><h2>Import extracted manual text for review</h2>
-        <p>After transferring a PDF to Gentoo and running manual_ingest.py, upload its unapproved JSONL here. The file is validated, hashed and inserted as unreviewed page-attributed knowledge. Up to 1000 excerpts / 8 MiB per batch.</p>
+      <details class="admin-panel"><summary>Advanced: import an existing JSONL manual draft (optional)</summary>
+        <p>Legacy compatibility only. Normal PDF uploads are extracted automatically without downloading or uploading again.</p>
         <form method="post" enctype="multipart/form-data" action="/admin/ai">
           <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
           <input type="hidden" name="action" value="ai_import_manual_draft">
@@ -300,7 +339,7 @@ function cms_ai_import_panel(PDO $db):void {
           <label>Unapproved extraction JSONL<input type="file" name="manual_draft" accept=".jsonl,application/x-ndjson" required></label>
           <button class="btn primary" type="submit">Import as unreviewed</button>
         </form>
-      </div>
+      </details>
       <div class="admin-panel"><h2>Manual review batches</h2>
         <p>Review the original PDF pages and the extracted references before bulk approval. Scanned diagrams, torque units, and tables may be missing or misread.</p>
         <div class="table-scroll"><table><thead><tr><th>Batch</th><th>Excerpts</th><th>Approved</th><th>Action</th></tr></thead><tbody>

@@ -313,7 +313,7 @@ function cms_ai_document_enqueue(PDO $db,array $identity,array $file,string $pro
     $tmp=$file['tmp_name']??null;
     if(($file['error']??-1)!==UPLOAD_ERR_OK || !cms_ai_pdf_size_valid($file['size']??null) ||
        !is_string($tmp)||!is_uploaded_file($tmp)||!cms_ai_pdf_header($tmp))
-        throw new InvalidArgumentException('Select a valid PDF (maximum 200 MiB).');
+        throw new InvalidArgumentException('Select a valid PDF (maximum 1 GiB).');
     if(!in_array((new finfo(FILEINFO_MIME_TYPE))->file($tmp),['application/pdf','application/octet-stream'],true))
         throw new InvalidArgumentException('Uploaded file is not PDF.');
     $sha=hash_file('sha256',$tmp);

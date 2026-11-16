@@ -1,0 +1,31 @@
+[Unit]
+Description=SirusSofts private PDF review extraction (one file per run)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=sirusweb
+Group=sirusweb
+UMask=0077
+WorkingDirectory=/home/sirusweb/web/sirussofts.com/public_html
+ExecStart=/usr/bin/flock -n /home/sirusweb/web/sirussofts.com/private/sirus-cms/data/ai-pdf-worker.lock /usr/bin/php8.3 /home/sirusweb/web/sirussofts.com/public_html/bin/ai-staged-pdf-worker.php
+TimeoutStartSec=360
+MemoryMax=900M
+TasksMax=40
+CPUQuota=90%
+NoNewPrivileges=true
+PrivateNetwork=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/sirusweb/web/sirussofts.com/private/sirus-cms
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native

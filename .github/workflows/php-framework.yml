@@ -61,6 +61,7 @@ jobs:
         run: |
           php -d zend.assertions=1 -d assert.exception=1 CMS/tests/storage_registry_test.php
           php CMS/tests/ai_training_test.php
+          php CMS/tests/ai_pdf_pipeline_test.php
           php CMS/tests/ai_workspace_test.php
           php CMS/tests/session_auth_test.php
           php CMS/tests/smoke.php
