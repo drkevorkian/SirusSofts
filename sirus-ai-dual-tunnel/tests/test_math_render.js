@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const math = require('../ubuntu/web/render_math.js');
-const parts = math.splitSegments('Inline \\(x^2 + y^2\\) then \\[E=mc^2\\] and $\\alpha+\\beta$.');
+const parts = math.splitSegments('Inline \\(x^2 + y^2\\) then \\[E=mc^2\\] and $$\\alpha+\\beta$$.');
 assert.deepEqual(parts.filter(p => p.type === 'math').map(p => p.display), [false, true, true]);
 assert.equal(parts.filter(p => p.type === 'math').length, 3);
 assert.equal(math.splitSegments('Cost $100 and $200.').filter(p => p.type === 'math').length, 0);
