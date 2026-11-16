@@ -20,6 +20,17 @@ class WebResearchTests(unittest.TestCase):
         for bad in ["https://searx.org/search","http://192.168.1.1:8888/search",
                     "http://127.0.0.1:8888/private","http://127.0.0.1:8888/search?x=1"]:
             with self.assertRaises(ValueError):lib.endpoint_guard(bad)
+    def test_config_import(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            p=Path(td,"research.json")
+            p.write_text(json.dumps({"schema":"sirus-ai-research-v1","depth":5000,
+                                     "engines":["google","duckduckgo"]}))
+            self.assertEqual(lib.read_config(str(p)),(5000,("google","duckduckgo")))
+            p.write_text(json.dumps({"schema":"sirus-ai-research-v1","depth":5001,
+                                     "engines":["google"]}))
+            with self.assertRaises(ValueError):lib.read_config(str(p))
     def test_rank_engines_duplicate_and_budget(self):
         def fake(query,engines,page):
             if page==1:return {"results":[

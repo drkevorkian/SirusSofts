@@ -142,13 +142,28 @@ def discover(query,depth=DEFAULT_DEPTH,engines=ENGINES,fetch=None,delay=1.0,
             "errors":errors,"complete":len(seen)>=depth,
             "results":ranked(list(seen.values()),query)[:depth]}
 
+def read_config(path):
+    p=Path(path)
+    if not p.is_absolute() or p.is_symlink() or not p.is_file() or p.stat().st_size>4096:
+        raise ValueError("Research configuration must be a small absolute regular file")
+    obj=json.loads(p.read_text(encoding="utf-8"))
+    if not isinstance(obj,dict) or obj.get("schema")!="sirus-ai-research-v1":
+        raise ValueError("Unknown research configuration format")
+    depth=valid_depth(obj.get("depth"))
+    names=obj.get("engines")
+    if not isinstance(names,list) or not names or len(names)>20 or any(
+        name not in ENGINES for name in names) or len(names)!=len(set(names)):
+        raise ValueError("Research configuration engine selection invalid")
+    return depth,tuple(names)
+
 def main():
     ap=argparse.ArgumentParser(description="SirusSofts private Gentoo multi-engine discovery")
     ap.add_argument("--check",action="store_true")
     ap.add_argument("--query",default="")
-    ap.add_argument("--depth",type=int,default=DEFAULT_DEPTH)
+    ap.add_argument("--depth",type=int,default=None)
+    ap.add_argument("--config",help="Private CMS-exported research settings JSON")
     ap.add_argument("--profile",choices=PROFILES,default="auto")
-    ap.add_argument("--engines",default=",".join(ENGINES))
+    ap.add_argument("--engines",default=None)
     ap.add_argument("--searx-url",default="http://127.0.0.1:8888/search")
     ap.add_argument("--max-pages",type=int,default=None)
     ap.add_argument("--delay",type=float,default=1.0)
@@ -158,8 +173,12 @@ def main():
         print("PASS: default depth 50, max 5000; no network calls or writes")
         return
     endpoint=endpoint_guard(args.searx_url)
-    engines=tuple(x.strip() for x in args.engines.split(",") if x.strip())
-    results=discover(args.query,args.depth,engines,
+    depth,engines=(DEFAULT_DEPTH,ENGINES)
+    if args.config:depth,engines=read_config(args.config)
+    if args.depth is not None:depth=valid_depth(args.depth)
+    if args.engines is not None:
+        engines=tuple(x.strip() for x in args.engines.split(",") if x.strip())
+    results=discover(args.query,depth,engines,
         fetch=lambda q,e,p:search_page(endpoint,q,e,p),
         delay=args.delay,max_pages=args.max_pages,profile=args.profile)
     output=json.dumps(results,indent=2,ensure_ascii=False)+"\n"
