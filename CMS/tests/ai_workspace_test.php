@@ -72,4 +72,18 @@ check(cms_ai_account_documents($db,$bob)[0]['profile']==='science',
     'Canonical document is reused without inheriting first uploader category');
 check(count(cms_ai_api_knowledge($db,$member,'mechanics'))===1,
     'Other accounts cannot override owner document category');
+// On FTS5-enabled builds, old conversations remain searchable beyond the latest 250 rows.
+$legacy=cms_ai_conversation_new($db,$alice,'Long-term history');
+cms_ai_message_add($db,$alice,$legacy,'user','Unique 1940s carburetor research finding.');
+for($i=0;$i<275;$i++)
+    cms_ai_message_add($db,$alice,$legacy,'user','Other maintenance note number '.$i);
+$fresh=cms_ai_conversation_new($db,$alice,'New recall session');
+$hasFts=(bool)$db->query("SELECT 1 FROM sqlite_master
+    WHERE type='table' AND name='cms_ai_message_fts'")->fetchColumn();
+if($hasFts) {
+    check(str_contains(cms_ai_recall($db,$alice,'carburetor research',$fresh),'carburetor'),
+          'FTS5 finds context from beyond 250 older messages');
+    check(cms_ai_recall($db,$bob,'carburetor research')==='',
+          'FTS5 retrieval remains account-isolated');
+}
 echo "PASS: account isolation, quota, category ACL, private document and recall tests\n";
