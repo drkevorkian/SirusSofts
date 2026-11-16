@@ -31,8 +31,9 @@ class WebResearchTests(unittest.TestCase):
             return {"results":[]}
         out=lib.discover("gamma science",50,("google","bing","yahoo"),fake,0,6,"physics")
         self.assertEqual(out["discovered"],3)
-        self.assertEqual(out["results"][0]["url"],"https://mit.edu/a")
-        self.assertEqual(out["results"][1]["engines"],["bing","google"])
+        self.assertEqual(out["results"][0]["url"],"https://nasa.gov/a")
+        self.assertEqual(out["results"][1]["url"],"https://mit.edu/a")
+        self.assertEqual(out["results"][0]["engines"],["bing","google"])
         self.assertEqual(out["unresponsive_engines"],["yahoo"])
         large=lib.discover("service manual",5000,("google",),
                            lambda *args:{"results":[]},0,5)
