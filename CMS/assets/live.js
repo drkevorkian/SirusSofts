@@ -309,17 +309,32 @@
       });
       const gpuPanel = Array.from(document.querySelectorAll("[data-live-gpus]"))
         .find(el => el.dataset.liveGpus === node.node_id);
-      if (gpuPanel && Array.isArray(metrics.gpus)) {
+      if (gpuPanel) {
         const fragment = document.createDocumentFragment();
-        for (const gpu of metrics.gpus) {
+        const readings = Array.isArray(metrics.gpus) ? metrics.gpus : null;
+        if (!readings) {
+          fragment.appendChild(element("p", "GPU inventory not reported by this agent version."));
+        } else if (!readings.length) {
+          fragment.appendChild(element("p", "No GPUs in latest reported inventory."));
+        }
+        for (const gpu of (readings || [])) {
           const card = element("div");
           card.className = "node-metric";
           card.appendChild(element("span", String(gpu.name || "GPU")));
-          card.appendChild(element("strong", node.online && typeof gpu.usage_pct === "number"
-            ? gpu.usage_pct.toFixed(1) + "% GPU" : "GPU load unavailable"));
-          card.appendChild(element("small", "Temperature: " +
-            (node.online && typeof gpu.temp_c === "number"
-              ? gpu.temp_c.toFixed(1) + " °C" : "Unavailable")));
+          const percent = typeof gpu.usage_pct === "number" ? gpu.usage_pct.toFixed(1) + "%" : "Unavailable";
+          const temperature = typeof gpu.temp_c === "number" ? gpu.temp_c.toFixed(1) + " °C" : "Unavailable";
+          const vram = typeof gpu.vram_total_bytes === "number"
+            ? (typeof gpu.vram_used_bytes === "number" ? fmtGiB(gpu.vram_used_bytes) : "Unknown") +
+              " / " + fmtGiB(gpu.vram_total_bytes) : "Unavailable";
+          card.appendChild(element("strong", "GPU load: " + percent));
+          card.appendChild(element("small", "Temperature: " + temperature));
+          card.appendChild(element("small", "VRAM: " + vram));
+          if (!node.online) {
+            card.appendChild(element("small", "Historical readings — node heartbeat stale."));
+          } else if (gpu.vendor === "0x10de" && typeof gpu.temp_c !== "number" &&
+                     typeof gpu.vram_total_bytes !== "number") {
+            card.appendChild(element("small", "PCI card detected; check Gentoo nvidia-smi/NVML access."));
+          }
           fragment.appendChild(card);
         }
         gpuPanel.replaceChildren(fragment);
@@ -330,12 +345,17 @@
         const metrics = node.metrics && typeof node.metrics === "object" ? node.metrics : {};
         const running = Array.isArray(metrics.services) ? metrics.services : [];
         const apps = Array.isArray(metrics.applications) ? metrics.applications : [];
-        const summary = element("p", node.online
-          ? "OpenRC running: " + (running.join(", ") || "None reported")
-          : "Latest known OpenRC services (host offline): " + (running.join(", ") || "None reported"));
-        const appSummary = element("p", "Local applications: " +
-          (apps.map(app => String(app.name || "app") + ": " +
-            (node.online && app.healthy ? "Healthy" : "Unavailable")).join(" · ") || "None reported"));
+        const servicesLabel = !Array.isArray(metrics.services)
+          ? "Inventory not reported by installed agent"
+          : (running.join(", ") || "None detected");
+        const appsLabel = !Array.isArray(metrics.applications)
+          ? "Health probes not reported by installed agent"
+          : (apps.map(app => String(app.name || "app") + ": " +
+              (node.online ? (app.healthy ? "Healthy" : "Unhealthy") : "Last-known status")).join(" · ") ||
+             "No applications in configured health probes");
+        const summary = element("p", (node.online ? "OpenRC running: " :
+          "Last reported OpenRC services (node offline): ") + servicesLabel);
+        const appSummary = element("p", "Local applications: " + appsLabel);
         services.replaceChildren(summary, appSummary);
       }
     }
