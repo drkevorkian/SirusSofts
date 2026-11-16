@@ -53,7 +53,9 @@ function render() {
       block.className = 'message ' + (msg.role === 'user' ? 'user' : 'assistant') + (msg.error ? ' error' : '');
       const heading = document.createElement('div'); heading.className = 'meta';
       heading.textContent = msg.role === 'user' ? 'You' : 'SirusSofts AI' + (msg.worker ? ' · ' + msg.worker.toUpperCase() : '');
-      const text = document.createElement('div'); text.textContent = msg.content;
+      const text = document.createElement('div');
+      if (msg.role === 'assistant') SirusMath.renderMathText(text, msg.content);
+      else text.textContent = msg.content;
       block.append(heading, text); area.append(block);
     }
   }

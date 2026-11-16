@@ -132,7 +132,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.events(job, after)
         names = {'/': ('index.html', 'text/html; charset=utf-8'),
                  '/assets/app.js': ('app.js', 'application/javascript; charset=utf-8'),
-                 '/assets/styles.css': ('styles.css', 'text/css; charset=utf-8')}
+                 '/assets/styles.css': ('styles.css', 'text/css; charset=utf-8'),
+                 '/assets/math.css': ('math.css', 'text/css; charset=utf-8'),
+                 '/assets/render_math.js': ('render_math.js', 'application/javascript; charset=utf-8'),
+                 '/assets/temml.min.js': ('temml.min.js', 'application/javascript; charset=utf-8')}
         if path not in names:
             return self.json(404, {'error': 'Not found'})
         name, ctype = names[path]
