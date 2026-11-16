@@ -85,8 +85,11 @@ jobs:
           php CMS/tests/storage_github_test.php
       - name: Gentoo agent unit tests
         run: python3 -m unittest discover -s node/tests -p 'test_*.py' -v
-      - name: OpenRC installer syntax
-        run: bash -n node/install-openrc.sh
+      - name: OpenRC installer syntax and Gentoo storage dry check
+        run: |
+          bash -n node/install-openrc.sh
+          bash -n gentoo-node/prepare-sirus-storage.sh
+          bash gentoo-node/prepare-sirus-storage.sh --check
       - name: JavaScript syntax
         run: |
           node --check CMS/assets/cms.js
