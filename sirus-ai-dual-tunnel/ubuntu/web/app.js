@@ -19,7 +19,11 @@ function draw(){
   root.append(w);return;}
  for(const m of s.msgs){const b=el('article','');b.className='message '+m.role;
  const h=el('div',m.role==='user'?'You':'SirusSofts AI');h.className='meta';
- b.append(h,el('div',m.content));root.append(b);}
+ const body=el('div','');
+ if(m.role==='assistant' && typeof window.SirusMath?.renderMathText==='function')
+   window.SirusMath.renderMathText(body,m.content);
+ else body.textContent=m.content;
+ b.append(h,body);root.append(b);}
  root.scrollTop=root.scrollHeight;
 }
 function nav(){
