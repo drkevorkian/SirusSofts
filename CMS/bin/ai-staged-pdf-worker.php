@@ -4,7 +4,9 @@ declare(strict_types=1);
 if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
 define('SIRUS_CMS_BOOTSTRAPPED',true);
 require dirname(__DIR__).'/app/core.php';
-require dirname(__DIR__).'/app/ai_pdf_pipeline.php';
+// core.php already loads the pipeline through ai_training.php -> ai_imports.php.
+// Never redeclare pipeline functions in the standalone service.
+require_once dirname(__DIR__).'/app/ai_pdf_pipeline.php';
 if(get_current_user()==='root' || (function_exists('posix_geteuid')&&posix_geteuid()===0))
     throw new RuntimeException('Refusing to parse PDFs as root.');
 $db=cms_db();

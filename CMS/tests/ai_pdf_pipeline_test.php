@@ -3,6 +3,14 @@ declare(strict_types=1);
 if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
 define('SIRUS_CMS_BOOTSTRAPPED',true);
 require dirname(__DIR__).'/app/core.php';
+// Regression for the live systemd worker's original duplicate-include crash.
+$workerCode=file_get_contents(dirname(__DIR__).'/bin/ai-staged-pdf-worker.php');
+if(!is_string($workerCode)||!str_contains($workerCode,"require_once dirname(__DIR__).'/app/ai_pdf_pipeline.php';")){
+    fwrite(STDERR,"FAIL: PDF worker must require_once the pipeline (already loaded by core.php).\\n");
+    exit(1);
+}
+require_once dirname(__DIR__).'/app/ai_pdf_pipeline.php';
+
 function verify_pdf(bool $value,string $reason):void{
     if(!$value){fwrite(STDERR,"FAIL: ".$reason."\n");exit(1);}
 }
