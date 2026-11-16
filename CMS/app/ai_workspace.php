@@ -53,8 +53,8 @@ CREATE TABLE IF NOT EXISTS cms_ai_document_objects (
 );
 CREATE TABLE IF NOT EXISTS cms_ai_document_access (
     object_id INTEGER NOT NULL REFERENCES cms_ai_document_objects(id) ON DELETE CASCADE,
-    account TEXT NOT NULL, title TEXT NOT NULL,
-    created_at TEXT NOT NULL, PRIMARY KEY(object_id,account)
+    account TEXT NOT NULL, profile TEXT NOT NULL, title TEXT NOT NULL,
+    created_at TEXT NOT NULL, PRIMARY KEY(object_id,account,profile)
 );
 CREATE INDEX IF NOT EXISTS cms_ai_doc_owner ON cms_ai_document_access(account);
 CREATE TABLE IF NOT EXISTS cms_ai_document_chunks (
@@ -270,8 +270,8 @@ function cms_ai_document_enqueue(PDO $db,array $identity,array $file,string $pro
     $st=$db->prepare('SELECT id,status FROM cms_ai_document_objects WHERE sha256=?');
     $st->execute([$sha]);$existing=$st->fetch(PDO::FETCH_ASSOC);
     if($existing) {
-        $db->prepare('INSERT OR IGNORE INTO cms_ai_document_access(object_id,account,title,created_at)
-            VALUES(?,?,?,?)')->execute([(int)$existing['id'],$account,$name,cms_now()]);
+        $db->prepare('INSERT OR IGNORE INTO cms_ai_document_access(object_id,account,profile,title,created_at)
+            VALUES(?,?,?,?,?)')->execute([(int)$existing['id'],$account,$profile,$name,cms_now()]);
         // PHP removes the untouched upload from its temporary directory after request.
         return ['id'=>(int)$existing['id'],'status'=>$existing['status'],'duplicate'=>true];
     }
@@ -287,7 +287,7 @@ function cms_ai_document_enqueue(PDO $db,array $identity,array $file,string $pro
         $fresh=$db->prepare('SELECT id,status,staging_key FROM cms_ai_document_objects WHERE sha256=?');
         $fresh->execute([$sha]);$row=$fresh->fetch(PDO::FETCH_ASSOC);
         $db->prepare('INSERT OR IGNORE INTO cms_ai_document_access(object_id,account,title,created_at)
-            VALUES(?,?,?,?)')->execute([(int)$row['id'],$account,$name,cms_now()]);
+            VALUES(?,?,?,?)')->execute([(int)$row['id'],$account,$profile,$name,cms_now()]);
         $db->commit();
         if($row['staging_key']!==$key)unlink($destination); // race: another upload won
         return ['id'=>(int)$row['id'],'status'=>$row['status'],
@@ -299,7 +299,7 @@ function cms_ai_document_enqueue(PDO $db,array $identity,array $file,string $pro
     }
 }
 function cms_ai_account_documents(PDO $db,string $account): array {
-    $st=$db->prepare('SELECT o.id,o.sha256,o.profile,o.status,o.pages,o.error,a.title
+    $st=$db->prepare('SELECT o.id,o.sha256,a.profile,o.status,o.pages,o.error,a.title
         FROM cms_ai_document_access a JOIN cms_ai_document_objects o ON o.id=a.object_id
         WHERE a.account=? ORDER BY a.created_at DESC LIMIT 200');
     $st->execute([$account]);return $st->fetchAll(PDO::FETCH_ASSOC);
