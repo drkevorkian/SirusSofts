@@ -236,11 +236,19 @@ function cms_ai_api_collect(PDO $db,string $actor,string $job):array {
                     }
                     $state=$kind==='completed'?'completed':($kind==='error'?'error':'running');
                     if($kind==='completed'&&$current['conversation_id']!=='') {
-                        cms_ai_charge($db,$actor,strlen($output));
-                        $db->prepare('INSERT INTO cms_ai_messages
-                           (conversation_id,account,role,content,bytes,created_at)
-                           VALUES(?,?,?,?,?,?)')->execute([
-                             $current['conversation_id'],$actor,'assistant',$output,strlen($output),cms_now()]);
+                        $used=cms_ai_quota_used($db,$actor);
+                        if($used+strlen($output)>CMS_AI_MEMORY_QUOTA){
+                            // Do not strand the job at a permanently failing quota check.
+                            // Preserve prior user messages, terminate this output safely.
+                            $state='error';
+                            $output='Conversation/memory quota reached; response not saved.';
+                        }else{
+                            cms_ai_charge($db,$actor,strlen($output));
+                            $db->prepare('INSERT INTO cms_ai_messages
+                               (conversation_id,account,role,content,bytes,created_at)
+                               VALUES(?,?,?,?,?,?)')->execute([
+                                 $current['conversation_id'],$actor,'assistant',$output,strlen($output),cms_now()]);
+                        }
                     }
                     $db->prepare('UPDATE cms_ai_requests
                        SET state=?,last_seq=?,output=?,worker=?,updated_at=? WHERE job_id=?')
