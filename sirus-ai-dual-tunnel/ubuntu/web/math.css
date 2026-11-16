@@ -1,0 +1,6 @@
+/* Self-hosted math display; uses installed system math fonts. No CDNs. */
+.message .math-inline { display: inline; }
+.message .math-display { display: block; margin: .65rem 0; padding: .25rem 0; overflow-x: auto; overflow-y: hidden; }
+.message math { font-family: "Cambria Math", "STIX Two Math", "Noto Sans Math", serif; color: inherit; font-size: 1.08em; }
+.message .math-display > math { display: block; max-width: 100%; }
+@media (prefers-reduced-motion: reduce) { .message .math-display { scroll-behavior: auto; } }
