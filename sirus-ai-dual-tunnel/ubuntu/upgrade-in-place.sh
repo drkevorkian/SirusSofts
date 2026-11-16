@@ -101,14 +101,17 @@ for _ in 1 2 3 4 5 6; do
 done
 curl -fsS --max-time 3 'http://127.0.0.1:18483/healthz' >/dev/null ||
   fail 'Output gateway health check failed'
+# Hestia often binds HTTPS only to the VPS public IP, not 127.0.0.1.
+# Verify the real domain's HTTPS vhost with its trusted certificate and DNS.
+# Ignore shell HTTP(S)_PROXY so an external proxy cannot mask local failures.
 systemctl reload nginx || fail 'Nginx reload failed'
-status_ui="$(curl -sS --max-time 8 --resolve sirussofts.com:443:127.0.0.1 \
+status_ui="$(curl -sS --max-time 8 --noproxy '*' \
   -o /dev/null -w '%{http_code}' https://sirussofts.com/Gentoo/AI/)"
 [[ "$status_ui" == 200 ]] || fail "Public AI interface returned HTTP $status_ui, expected 200"
-status_internal="$(curl -sS --max-time 8 --resolve sirussofts.com:443:127.0.0.1 \
+status_internal="$(curl -sS --max-time 8 --noproxy '*' \
   -o /dev/null -w '%{http_code}' https://sirussofts.com/Gentoo/AI/api/in/health)"
 [[ "$status_internal" == 404 ]] || fail "Internal inference route exposed or unavailable incorrectly: $status_internal"
-curl -fsS --max-time 8 --resolve sirussofts.com:443:127.0.0.1 \
+curl -fsS --max-time 8 --noproxy '*' \
   'https://sirussofts.com/ai/api/state' |
   python3 -c 'import json,sys; v=json.load(sys.stdin); assert v["local_only"] is True and v["role"]=="guest"' ||
   fail 'CMS anonymous local-only state route failed'
