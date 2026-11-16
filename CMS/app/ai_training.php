@@ -121,7 +121,7 @@ function cms_ai_export(PDO $db,string $kind):never {
 function cms_ai_post(PDO $db,string $action):never {
     cms_need_admin();
     if(str_starts_with($action,'export_'))cms_ai_export($db,substr($action,7));
-    if(in_array($action,['ai_upload_pdfs','ai_download_pdf','ai_research_settings','ai_export_research_config'],true))
+    if(in_array($action,['ai_upload_pdfs','ai_download_pdf','ai_research_settings','ai_export_research_config','ai_import_manual_draft','ai_approve_manual_batch'],true))
         cms_ai_import_post($db,$action);
     if($action==='ai_add_document'){
         $fields=cms_ai_valid_document($_POST);

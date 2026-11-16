@@ -17,6 +17,15 @@ function cms_ai_import_schema(PDO $db):void {
         CHECK(depth BETWEEN 1 AND 5000),
         engines TEXT NOT NULL DEFAULT 'google,bing,yahoo,duckduckgo,brave,mojeek')");
     $db->exec('INSERT OR IGNORE INTO cms_ai_research_config(id) VALUES(1)');
+    $db->exec("CREATE TABLE IF NOT EXISTS cms_ai_manual_batches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,
+        document_count INTEGER NOT NULL,approved INTEGER NOT NULL DEFAULT 0
+        CHECK(approved IN (0,1)),created_at TEXT NOT NULL)");
+    $db->exec("CREATE TABLE IF NOT EXISTS cms_ai_manual_batch_docs (
+        batch_id INTEGER NOT NULL REFERENCES cms_ai_manual_batches(id) ON DELETE CASCADE,
+        document_id INTEGER NOT NULL REFERENCES cms_ai_documents(id) ON DELETE CASCADE,
+        PRIMARY KEY(batch_id,document_id))");
+
 }
 function cms_ai_depth(mixed $raw):int {
     if(!is_string($raw)||!preg_match('/^[1-9][0-9]{0,3}$/D',$raw)
@@ -139,9 +148,83 @@ function cms_ai_download_pdf(PDO $db):never {
     readfile($file);
     exit;
 }
+/** Parse Gentoo page-extraction drafts; every imported row is UNREVIEWED. */
+function cms_ai_parse_draft(string $raw):array {
+    if($raw===''||strlen($raw)>8*1024*1024)
+        throw new InvalidArgumentException('Draft JSONL must be 1 byte to 8 MiB.');
+    $lines=explode("\n",$raw);$out=[];
+    foreach($lines as $line){
+        if(trim($line)==='')continue;
+        if(count($out)>=1000)throw new InvalidArgumentException('At most 1000 excerpts per import.');
+        try{$row=json_decode($line,true,12,JSON_THROW_ON_ERROR);}
+        catch(JsonException $e){throw new InvalidArgumentException('Invalid draft JSONL.');}
+        if(!is_array($row)||($row['kind']??null)!=='sirus-ai-document-v1'
+           ||($row['reviewed']??null)!==false
+           ||!is_int($row['pdf_page']??null)||$row['pdf_page']<1)
+            throw new InvalidArgumentException('Only unapproved, page-attributed manual records can be imported.');
+        $fields=cms_ai_valid_document(['profile'=>$row['profile']??null,
+            'title'=>$row['title']??null,'source_url'=>$row['source']??'',
+            'content'=>$row['text']??null,'reviewed'=>'0']);
+        if(!is_string($row['sha256']??null)
+           ||!hash_equals(hash('sha256',$fields[3]),$row['sha256']))
+            throw new InvalidArgumentException('Manual excerpt integrity check failed.');
+        $out[]=$fields;
+    }
+    if(!$out)throw new InvalidArgumentException('Draft contains no excerpts.');
+    return $out;
+}
+function cms_ai_import_manual_draft(PDO $db):never {
+    $file=$_FILES['manual_draft']??null;
+    if(!is_array($file)||($file['error']??null)!==UPLOAD_ERR_OK
+       ||!is_int($file['size']??null)||$file['size']>8*1024*1024
+       ||!is_uploaded_file((string)($file['tmp_name']??'')))
+        throw new InvalidArgumentException('Upload a valid Gentoo draft JSONL under 8 MiB.');
+    $raw=file_get_contents($file['tmp_name']);
+    if(!is_string($raw))throw new RuntimeException('Could not read draft.');
+    $records=cms_ai_parse_draft($raw);
+    $title=cms_text($_POST['batch_title']??null,160,'manual batch title',true);
+    $db->beginTransaction();
+    try{
+        $db->prepare('INSERT INTO cms_ai_manual_batches(title,document_count,created_at)
+            VALUES(?,?,?)')->execute([$title,count($records),cms_now()]);
+        $batch=(int)$db->lastInsertId();
+        $doc=$db->prepare('INSERT INTO cms_ai_documents
+            (profile,title,source_url,content,reviewed,created_at)
+            VALUES(?,?,?,?,0,?)');
+        $relation=$db->prepare('INSERT INTO cms_ai_manual_batch_docs(batch_id,document_id) VALUES(?,?)');
+        foreach($records as $fields){
+            $doc->execute([$fields[0],$fields[1],$fields[2],$fields[3],cms_now()]);
+            $relation->execute([$batch,$db->lastInsertId()]);
+        }
+        $db->commit();
+    }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
+    cms_audit($db,'ai-manual-import',$batch.':'.count($records));
+    cms_flash(count($records).' unreviewed manual excerpts imported. Review their source pages before approving the batch.');
+    cms_go('/admin/ai');
+}
+function cms_ai_approve_manual_batch(PDO $db):never {
+    $id=cms_get_int($_POST['batch_id']??null);
+    if(($_POST['confirm']??null)!=='APPROVE MANUAL')
+        throw new InvalidArgumentException('Explicit APPROVE MANUAL confirmation is required.');
+    $db->beginTransaction();
+    try{
+        $st=$db->prepare('UPDATE cms_ai_manual_batches SET approved=1 WHERE id=? AND approved=0');
+        $st->execute([$id]);
+        if($st->rowCount()!==1)throw new InvalidArgumentException('Batch not found or already approved.');
+        $db->prepare('UPDATE cms_ai_documents SET reviewed=1 WHERE id IN
+            (SELECT document_id FROM cms_ai_manual_batch_docs WHERE batch_id=?)')->execute([$id]);
+        $db->commit();
+    }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
+    cms_audit($db,'ai-manual-approve',(string)$id);
+    cms_flash('Reviewed manual batch approved. Export Knowledge for RAG to update Gentoo.');
+    cms_go('/admin/ai');
+}
+
 function cms_ai_import_post(PDO $db,string $action):never {
     cms_need_admin();
     if($action==='ai_upload_pdfs')cms_ai_upload_manuals($db);
+    if($action==='ai_import_manual_draft')cms_ai_import_manual_draft($db);
+    if($action==='ai_approve_manual_batch')cms_ai_approve_manual_batch($db);
     if($action==='ai_download_pdf')cms_ai_download_pdf($db);
     if($action==='ai_research_settings'){
         $depth=cms_ai_depth($_POST['depth']??null);
@@ -195,6 +278,34 @@ function cms_ai_import_panel(PDO $db):void {
           <button class="btn small" type="submit">Download</button>
         </form></td></tr><?php endforeach;?></tbody></table></div>
     </div>
+      <div class="admin-panel"><h2>Import extracted manual text for review</h2>
+        <p>After transferring a PDF to Gentoo and running manual_ingest.py, upload its unapproved JSONL here. The file is validated, hashed and inserted as unreviewed page-attributed knowledge. Up to 1000 excerpts / 8 MiB per batch.</p>
+        <form method="post" enctype="multipart/form-data" action="/admin/ai">
+          <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+          <input type="hidden" name="action" value="ai_import_manual_draft">
+          <label>Manual batch label<input type="text" name="batch_title" maxlength="160" required placeholder="Can-Am HD11 workshop manual, pages 1–200"></label>
+          <label>Unapproved extraction JSONL<input type="file" name="manual_draft" accept=".jsonl,application/x-ndjson" required></label>
+          <button class="btn primary" type="submit">Import as unreviewed</button>
+        </form>
+      </div>
+      <div class="admin-panel"><h2>Manual review batches</h2>
+        <p>Review the original PDF pages and the extracted references before bulk approval. Scanned diagrams, torque units, and tables may be missing or misread.</p>
+        <div class="table-scroll"><table><thead><tr><th>Batch</th><th>Excerpts</th><th>Approved</th><th>Action</th></tr></thead><tbody>
+        <?php foreach($db->query('SELECT * FROM cms_ai_manual_batches ORDER BY id DESC LIMIT 100')->fetchAll(PDO::FETCH_ASSOC) as $batch):?>
+          <tr><td><?=cms_esc($batch['title'])?></td><td><?=(int)$batch['document_count']?></td>
+          <td><?=(int)$batch['approved']===1?'Yes':'No'?></td><td>
+            <?php if((int)$batch['approved']===0):?>
+            <form method="post" action="/admin/ai" class="inline-action">
+              <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+              <input type="hidden" name="action" value="ai_approve_manual_batch">
+              <input type="hidden" name="batch_id" value="<?=(int)$batch['id']?>">
+              <label>Confirmation<input type="text" name="confirm" placeholder="APPROVE MANUAL" required></label>
+              <button class="btn small" type="submit">Approve this batch</button>
+            </form>
+            <?php else:?>Approved for next knowledge export<?php endif;?>
+          </td></tr>
+        <?php endforeach;?></tbody></table></div>
+      </div>
     <div class="admin-panel"><h2>Multi-engine research settings</h2>
       <p>Search depth is the desired number of unique candidate URLs, not recursive crawling depth. Default 50, maximum 5,000. Educational and primary sources rank first; engine limits may return fewer candidates.</p>
       <form method="post" action="/admin/ai">

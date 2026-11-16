@@ -12,6 +12,17 @@ try{cms_ai_valid_document(['profile'=>'coding','title'=>'bad','content'=>'text',
 catch(InvalidArgumentException $expected){}
 try{cms_ai_valid_example(['profile'=>'time','prompt'=>'a','response'=>'b','split'=>'invalid']);ai_assert(false,'split validation');}
 catch(InvalidArgumentException $expected){}
+$validText='HD11 clutch belt removal procedure on page 45';
+$validDraft=['kind'=>'sirus-ai-document-v1','profile'=>'mechanics',
+ 'title'=>'HD11 manual | page 45','source'=>'','text'=>$validText,
+ 'sha256'=>hash('sha256',$validText),'reviewed'=>false,'pdf_page'=>45];
+ai_assert(count(cms_ai_parse_draft(json_encode($validDraft)))===1,'page draft import validation');
+$invalidDraft=$validDraft;$invalidDraft['reviewed']=true;
+try{cms_ai_parse_draft(json_encode($invalidDraft));ai_assert(false,'unreviewed draft gate');}
+catch(InvalidArgumentException $expected){}
+$invalidDraft=$validDraft;$invalidDraft['sha256']=str_repeat('0',64);
+try{cms_ai_parse_draft(json_encode($invalidDraft));ai_assert(false,'PDF source checksum');}
+catch(InvalidArgumentException $expected){}
 ai_assert(cms_ai_depth('50')===50,'default depth');
 ai_assert(cms_ai_depth('5000')===5000,'maximum depth');
 foreach(['0','5001','-1','abc'] as $invalid){
@@ -34,6 +45,7 @@ cms_schema($db);cms_schema($db);
 ai_assert((int)$db->query('SELECT count(*) FROM cms_ai_profiles')->fetchColumn()===7,'idempotent profiles');
 ai_assert((int)$db->query('SELECT depth FROM cms_ai_research_config')->fetchColumn()===50,'persisted default search depth');
 ai_assert((int)$db->query("SELECT count(*) FROM sqlite_master WHERE name='cms_ai_pdf_uploads'")->fetchColumn()===1,'PDF staging schema');
+ai_assert((int)$db->query("SELECT count(*) FROM sqlite_master WHERE name='cms_ai_manual_batches'")->fetchColumn()===1,'manual batch schema');
 $db->prepare('INSERT INTO cms_ai_documents(profile,title,source_url,content,reviewed,created_at) VALUES(?,?,?,?,?,?)')
    ->execute(['physics','Trusted','https://example.org/paper','Lorentz factor gamma',1,cms_now()]);
 $db->prepare('INSERT INTO cms_ai_documents(profile,title,source_url,content,reviewed,created_at) VALUES(?,?,?,?,?,?)')
