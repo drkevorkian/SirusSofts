@@ -120,6 +120,8 @@ function cms_ai_export(PDO $db,string $kind):never {
 /** The caller checks the admin session and CSRF token before dispatching here. */
 function cms_ai_post(PDO $db,string $action):never {
     cms_need_admin();
+    if(in_array($action,['ai_set_public_profiles','ai_save_viewer_profiles'],true))
+        cms_ai_profile_grants_post($db,$action);
     if(str_starts_with($action,'export_'))cms_ai_export($db,substr($action,7));
     if(in_array($action,['ai_upload_pdfs','ai_download_pdf','ai_research_settings','ai_export_research_config','ai_import_manual_draft','ai_approve_manual_batch'],true))
         cms_ai_import_post($db,$action);
@@ -155,6 +157,78 @@ function cms_ai_post(PDO $db,string $action):never {
     cms_flash('AI knowledge registry updated.');
     cms_go('/admin/ai');
 }
+
+/** Admin-managed knowledge category publication and per-account grants. */
+function cms_ai_profile_grants_post(PDO $db,string $action):never {
+    cms_need_admin();
+    require_once __DIR__.'/ai_workspace.php';
+    cms_ai_workspace_schema($db);
+    $options=array_keys(cms_ai_expertise());
+    $selected=$_POST['profiles']??[];
+    if(!is_array($selected)||count($selected)>count($options) ||
+       count($selected)!==count(array_unique($selected)))
+        throw new InvalidArgumentException('Invalid category selection.');
+    foreach($selected as $profile){
+        if(!is_string($profile)||!in_array($profile,$options,true))
+            throw new InvalidArgumentException('Invalid category.');
+    }
+    $db->beginTransaction();
+    try {
+        if($action==='ai_set_public_profiles'){
+            $db->exec('DELETE FROM cms_ai_category_public');
+            $stmt=$db->prepare('INSERT INTO cms_ai_category_public(profile,enabled) VALUES(?,1)');
+            foreach($selected as $profile)$stmt->execute([$profile]);
+            cms_audit($db,'ai-public-profiles',implode(',',$selected));
+        }else{
+            $viewer=cms_get_int($_POST['viewer_id']??null);
+            $st=$db->prepare('SELECT enabled FROM cms_viewers WHERE id=?');$st->execute([$viewer]);
+            if($st->fetchColumn()===false)throw new InvalidArgumentException('User not found.');
+            $db->prepare('DELETE FROM cms_ai_category_grants WHERE viewer_id=?')->execute([$viewer]);
+            $stmt=$db->prepare('INSERT INTO cms_ai_category_grants(viewer_id,profile) VALUES(?,?)');
+            foreach($selected as $profile)$stmt->execute([$viewer,$profile]);
+            cms_audit($db,'ai-user-profiles',(string)$viewer);
+        }
+        $db->commit();
+    }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
+    cms_flash('AI category permissions updated.');
+    cms_go('/admin/ai');
+}
+function cms_ai_profile_permissions_panel(PDO $db):void {
+    require_once __DIR__.'/ai_workspace.php';
+    cms_ai_workspace_schema($db);
+    $public=$db->query('SELECT profile FROM cms_ai_category_public WHERE enabled=1')
+       ->fetchAll(PDO::FETCH_COLUMN);
+    $viewers=$db->query('SELECT id,username FROM cms_viewers WHERE enabled=1 ORDER BY username LIMIT 300')
+       ->fetchAll(PDO::FETCH_ASSOC);
+    $grants=$db->query('SELECT viewer_id,profile FROM cms_ai_category_grants')->fetchAll(PDO::FETCH_ASSOC);
+    $byViewer=[];
+    foreach($grants as $grant)$byViewer[$grant['viewer_id']][]=$grant['profile'];
+    ?><div class="admin-panel"><h2>AI category permissions</h2>
+      <p>Public categories can be queried by guests. Only publish categories whose reviewed content is safe for everyone.</p>
+      <form method="post" action="/admin/ai">
+      <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+      <input type="hidden" name="action" value="ai_set_public_profiles">
+      <?php foreach(cms_ai_expertise() as $slug=>$title):?>
+        <label><input type="checkbox" name="profiles[]" value="<?=cms_esc($slug)?>"
+          <?=in_array($slug,$public,true)?'checked':''?>> Public <?=cms_esc($title)?></label>
+      <?php endforeach;?>
+      <button class="btn primary" type="submit">Save public categories</button></form>
+      <h3>Registered user grants</h3>
+      <?php foreach($viewers as $viewer):?>
+        <form method="post" action="/admin/ai">
+        <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+        <input type="hidden" name="action" value="ai_save_viewer_profiles">
+        <input type="hidden" name="viewer_id" value="<?=(int)$viewer['id']?>">
+        <strong><?=cms_esc($viewer['username'])?></strong>
+        <?php foreach(cms_ai_expertise() as $slug=>$title):?>
+          <label><input type="checkbox" name="profiles[]" value="<?=cms_esc($slug)?>"
+           <?=in_array($slug,$byViewer[$viewer['id']]??[],true)?'checked':''?>> <?=cms_esc($title)?></label>
+        <?php endforeach;?>
+        <button class="btn subtle" type="submit">Save user access</button></form>
+      <?php endforeach;?>
+      </div><?php
+}
+
 function cms_ai_page(PDO $db,?string $error=null):void {
     cms_need_admin();
     $profiles=$db->query('SELECT * FROM cms_ai_profiles ORDER BY slug')->fetchAll(PDO::FETCH_ASSOC);
@@ -242,5 +316,6 @@ function cms_ai_page(PDO $db,?string $error=null):void {
         </tr><?php endforeach;?></tbody></table>
       </div>
     <?php endforeach;
+    cms_ai_profile_permissions_panel($db);
     cms_admin_shell_end($db);
 }

@@ -63,7 +63,8 @@ def init_db(path):
         CREATE TABLE IF NOT EXISTS jobs (
           id TEXT PRIMARY KEY, messages TEXT NOT NULL, target TEXT NOT NULL,
           state TEXT NOT NULL, created REAL NOT NULL, worker TEXT DEFAULT '',
-          profile TEXT NOT NULL DEFAULT 'auto', model_id TEXT NOT NULL DEFAULT 'sirussofts-coder'
+           profile TEXT NOT NULL DEFAULT 'auto', model_id TEXT NOT NULL DEFAULT 'sirussofts-coder',
+          skip_knowledge INTEGER NOT NULL DEFAULT 0, max_tokens INTEGER
         );
         CREATE TABLE IF NOT EXISTS outbox (
           job_id TEXT NOT NULL, seq INTEGER NOT NULL, type TEXT NOT NULL,
@@ -76,6 +77,11 @@ def init_db(path):
             con.execute("ALTER TABLE jobs ADD COLUMN profile TEXT NOT NULL DEFAULT 'auto'")
         if 'model_id' not in {col[1] for col in con.execute('PRAGMA table_info(jobs)')}:
             con.execute("ALTER TABLE jobs ADD COLUMN model_id TEXT NOT NULL DEFAULT 'sirussofts-coder'")
+        cols={col[1] for col in con.execute('PRAGMA table_info(jobs)')}
+        if 'skip_knowledge' not in cols:
+            con.execute('ALTER TABLE jobs ADD COLUMN skip_knowledge INTEGER NOT NULL DEFAULT 0')
+        if 'max_tokens' not in cols:
+            con.execute('ALTER TABLE jobs ADD COLUMN max_tokens INTEGER')
         # If Gentoo reboots mid-inference, retry the task from the beginning.
         con.execute("UPDATE jobs SET state='queued' WHERE state='running'")
 
@@ -170,7 +176,7 @@ def add_completed_events(con, job_id, answer, worker):
     add_event(con, job_id, seq, 'completed', '', worker)
 
 
-def chat(url, messages, timeout=None, model_id=DEFAULT_MODEL):
+def chat(url, messages, timeout=None, model_id=DEFAULT_MODEL, max_tokens=None):
     # Context capacity is chosen by the model server, not fixed to 768 tokens here.
     # Long generations need a configurable timeout; this is not an output cap.
     if timeout is None:
@@ -182,8 +188,13 @@ def chat(url, messages, timeout=None, model_id=DEFAULT_MODEL):
         raise ValueError('Invalid local model ID')
     if model_id not in local_model_ids(url):
         raise RuntimeError('Selected local model is not loaded on worker')
-    payload = json.dumps({'model': model_id, 'messages': messages,
-                          'temperature': 0.55, 'stream': False}).encode()
+    request={'model': model_id, 'messages': messages,
+             'temperature': 0.55, 'stream': False}
+    if max_tokens is not None:
+        if type(max_tokens) is not int or not 64 <= max_tokens <= 8192:
+            raise ValueError('Invalid output-token limit')
+        request['max_tokens']=max_tokens
+    payload=json.dumps(request).encode()
     with local_open(url + '/v1/chat/completions', data=payload, timeout=timeout) as r:
         data = json.load(r)
     return str(data['choices'][0]['message']['content'])
@@ -199,27 +210,31 @@ class Engine:
         self.stop = threading.Event()
         self.knowledge = KnowledgeManager(knowledge_file) if knowledge_file else None
 
-    def enqueue(self, messages, target, profile='auto', model_id=DEFAULT_MODEL):
+    def enqueue(self, messages, target, profile='auto', model_id=DEFAULT_MODEL, skip_knowledge=False, max_tokens=None):
         if not isinstance(model_id,str) or not MODEL_ID.fullmatch(model_id):
             raise ValueError('Invalid local model ID')
+        if type(skip_knowledge) is not bool:
+            raise ValueError('Invalid local knowledge policy')
+        if max_tokens is not None and (type(max_tokens) is not int or not 64 <= max_tokens <= 8192):
+            raise ValueError('Invalid token budget')
         job_id = uuid.uuid4().hex
         with db_connect(self.db) as con:
             queue_size = con.execute("SELECT count(*) FROM jobs WHERE state IN ('queued','running')").fetchone()[0]
             if queue_size >= STALE_JOB_LIMIT:
                 raise RuntimeError('Inference queue full; try again after current tasks finish')
-            con.execute('INSERT INTO jobs(id,messages,target,state,created,worker,profile,model_id) VALUES(?,?,?,?,?,?,?,?)',
-                        (job_id,json.dumps(messages),target,'queued',time.time(),'',profile,model_id))
+            con.execute('INSERT INTO jobs(id,messages,target,state,created,worker,profile,model_id,skip_knowledge,max_tokens) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                        (job_id,json.dumps(messages),target,'queued',time.time(),'',profile,model_id,int(skip_knowledge),max_tokens))
             add_event(con, job_id, 1, 'queued')
         return job_id
 
     def run_one(self):
         with db_connect(self.db) as con:
             con.execute('BEGIN IMMEDIATE')
-            row = con.execute("SELECT id,messages,target,profile,model_id FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
+            row = con.execute("SELECT id,messages,target,profile,model_id,skip_knowledge,max_tokens FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
             if not row:
                 con.execute('COMMIT')
                 return False
-            job_id,raw_messages,target,profile,model_id = row
+            job_id,raw_messages,target,profile,model_id,skip_knowledge,max_tokens = row
             con.execute("UPDATE jobs SET state='running' WHERE id=?", (job_id,))
             con.execute('COMMIT')
         worker = ''
@@ -229,10 +244,10 @@ class Engine:
                 con.execute('UPDATE jobs SET worker=? WHERE id=?', (worker, job_id))
                 add_event(con, job_id, 2, 'started', '', worker)
             prompt_messages=json.loads(raw_messages)
-            if self.knowledge:
+            if self.knowledge and not skip_knowledge:
                 prompt_messages=self.knowledge.augment_messages(prompt_messages,profile)
             try:
-                answer = chat(url,prompt_messages,model_id=model_id)
+                answer = chat(url,prompt_messages,model_id=model_id,max_tokens=max_tokens)
             except (TimeoutError, OSError, urllib.error.URLError, ValueError, KeyError) as exc:
                 if (target != 'auto' or worker == 'cpu' or not worker_healthy(CPU)
                         or model_id not in local_model_ids(CPU)):
@@ -241,7 +256,7 @@ class Engine:
                 worker = 'cpu'
                 with db_connect(self.db) as con:
                     con.execute('UPDATE jobs SET worker=? WHERE id=?', (worker, job_id))
-                answer = chat(CPU,prompt_messages,model_id=model_id)
+                answer = chat(CPU,prompt_messages,model_id=model_id,max_tokens=max_tokens)
             with db_connect(self.db) as con:
                 con.execute("UPDATE jobs SET state='completed' WHERE id=?", (job_id,))
                 add_completed_events(con, job_id, answer, worker)
@@ -325,6 +340,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             messages, target = data['messages'], data.get('target', 'auto')
             profile=data.get('profile','auto')
             model_id=data.get('model_id', DEFAULT_MODEL)
+            skip_knowledge=data.get('skip_knowledge',False)
+            max_tokens=data.get('max_tokens')
+            if type(skip_knowledge) is not bool or (max_tokens is not None and
+                (type(max_tokens) is not int or not 64 <= max_tokens <= 8192)):
+                raise ValueError('Invalid token cap or knowledge policy')
             if data.get('local_only',True) is not True:
                 raise ValueError('External LLM services are forbidden')
             if not isinstance(model_id,str) or not MODEL_ID.fullmatch(model_id):
@@ -340,7 +360,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ValueError('Invalid message format')
             if messages[-1]['role'] != 'user':
                 raise ValueError('Last message must be from the user')
-            job_id = self.server.engine.enqueue(messages,target,profile,model_id)
+            job_id = self.server.engine.enqueue(messages,target,profile,model_id,skip_knowledge,max_tokens)
             self.respond(202, {'job_id':job_id, 'status':'queued', 'model_id':model_id, 'local_only':True, 'output':'separate-output-tunnel'})
         except (ValueError, KeyError, TypeError) as e:
             self.respond(400, {'error': str(e)[:150]})

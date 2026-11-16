@@ -257,7 +257,8 @@ function cms_admin_shell_start(PDO $db,string $title): void {
         <?php foreach([
            '/admin'=>'Overview','/admin/projects'=>'Projects','/admin/pages'=>'Content pages',
            '/admin/hosting'=>'Virtual hosts','/admin/infrastructure'=>'Infrastructure',
-           '/admin/updates'=>'Update Center','/admin/ai'=>'AI Knowledge & Training',
+           '/admin/updates'=>'Update Center','/Gentoo/AI/'=>'AI Chat',
+           '/Gentoo/'=>'Gentoo Dashboard','/admin/ai'=>'AI Knowledge & Training',
            '/admin/github'=>'GitHub projects','/admin/users'=>'Users & source access',
            '/admin/source'=>'Source browser','/admin/settings'=>'Site settings','/admin/security'=>'Security',
            '/admin/activity'=>'Activity log'
@@ -428,7 +429,7 @@ function cms_admin_run(PDO $db,string $path): never {
             <div class="admin-panel"><span>Content pages</span><strong><?=$pages?></strong></div></div>
           <div class="admin-panel"><h2>Your platform is ready.</h2>
             <p>Build your public homepage, publish projects, and maintain each project under its own directory and subdomain.</p>
-            <div class="form-actions"><a class="btn primary" href="/admin/projects/new">Add a project ↗</a>
+            <div class="form-actions"><a class="btn primary" href="/Gentoo/AI/">Open AI Chat</a><a class="btn subtle" href="/Gentoo/">Gentoo Dashboard</a><a class="btn primary" href="/admin/projects/new">Add a project ↗</a>
             <a class="btn subtle" href="/" target="_blank" rel="noopener">View public site</a></div>
           </div>
           <div class="admin-panel"><h2>Deployment boundary</h2>

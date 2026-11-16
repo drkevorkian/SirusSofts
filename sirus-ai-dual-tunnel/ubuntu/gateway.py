@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Ubuntu localhost output collector, event stream, and static AI frontend.
 
-A separate Gentoo-initiated SSH -L tunnel pushes task outputs here. Requests
-from browsers are protected by Hestia Nginx HTTPS + Basic authentication.
+A separate Gentoo-initiated SSH -L tunnel pushes task outputs here. Only CMS-authorized application endpoints may expose inference events to browsers;
+raw /api/out/ transport endpoints remain private to localhost.
 """
 import argparse
 from contextlib import contextmanager
@@ -119,6 +119,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.json(200, {'status': 'ok', 'channel': 'output',
                                    'tunnel_connected': age is not None and age < 40,
                                    'heartbeat_age_seconds': age})
+        # Private, short-lived JSON polling for CMS-authorized job owners.
+        # Nginx must block direct public access to /Gentoo/AI/api/.
+        if path.startswith('/api/out/snapshot/'):
+            job = path.rsplit('/', 1)[-1]
+            if not ID.fullmatch(job):
+                return self.json(400, {'error': 'Invalid job ID'})
+            try:
+                after = int(parse_qs(parts.query).get('after', ['0'])[0])
+            except ValueError:
+                return self.json(400, {'error': 'Invalid event cursor'})
+            if not 0 <= after <= MAX_EVENT_SEQ:
+                return self.json(400, {'error': 'Invalid event cursor'})
+            with connect(self.server.db) as db:
+                rows = db.execute('SELECT seq,kind,content,worker FROM events ' +
+                    'WHERE job_id=? AND seq>? ORDER BY seq LIMIT 32', (job, after)).fetchall()
+            return self.json(200, {'events': [
+                {'job_id':job,'seq':seq,'type':kind,'content':content,'worker':worker}
+                for seq,kind,content,worker in rows
+            ]})
         if path.startswith('/api/out/events/'):
             job = path.rsplit('/', 1)[-1]
             if not ID.fullmatch(job):

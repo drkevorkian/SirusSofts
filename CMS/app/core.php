@@ -159,6 +159,8 @@ SQL);
     $db->exec('CREATE INDEX IF NOT EXISTS cms_github_project_link ON cms_github_repositories(project_id)');
     $db->exec('CREATE INDEX IF NOT EXISTS cms_projects_status ON cms_projects(state,sort_order)');
     cms_ai_schema($db);
+    require_once __DIR__.'/ai_workspace.php';
+    cms_ai_workspace_schema($db);
 }
 /** Public, allowlisted presentation themes. No user-supplied stylesheets. */
 function cms_theme_options(): array {
@@ -274,7 +276,7 @@ function cms_session(): void {
     ini_set('session.use_trans_sid','0');
     session_name('sirus_cms_admin');
     session_set_cookie_params([
-        'lifetime'=>0,'path'=>'/admin','secure'=>cms_https(),
+        'lifetime'=>0,'path'=>'/','secure'=>cms_https(),
         'httponly'=>true,'samesite'=>'Strict'
     ]);
     session_start();

@@ -59,6 +59,7 @@ jobs:
         run: |
           php -d zend.assertions=1 -d assert.exception=1 CMS/tests/storage_registry_test.php
           php CMS/tests/ai_training_test.php
+          php CMS/tests/ai_workspace_test.php
           php CMS/tests/smoke.php
           php CMS/tests/theme_test.php
       - name: Storage, backup, and migration tests
@@ -86,6 +87,7 @@ jobs:
         run: |
           node --check CMS/assets/cms.js
           node --check CMS/assets/live.js
+          node --check sirus-ai-dual-tunnel/ubuntu/web/app.js
           node --check gentoo-node/dashboard_live.js
           node gentoo-node/tests/dashboard_live_fallback.test.js
           node gentoo-node/tests/dashboard_live_socket.test.js

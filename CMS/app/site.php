@@ -30,8 +30,16 @@ function cms_public_directory_project(PDO $db,string $slug): ?array {
     return null;
 }
 
+/** Navigation reflects session permissions; endpoint access is enforced separately. */
+function cms_ai_identity_for_navigation(PDO $db):string {
+    if(cms_is_admin())return 'admin';
+    return cms_current_viewer($db)!==null?'user':'guest';
+}
 /** Shared site shell. Public pages never require an administrator session. */
 function cms_layout_start(PDO $db,string $title,bool $admin=false): void {
+    cms_session();
+    require_once __DIR__.'/access.php';
+    $identity=cms_ai_identity_for_navigation($db);
     $site=cms_setting($db,'site_name');
     $full=$title===$site?$site:$title.' · '.$site;
     $color=cms_setting($db,'accent');
@@ -60,7 +68,10 @@ function cms_layout_start(PDO $db,string $title,bool $admin=false): void {
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primaryNav" data-nav-toggle>Menu</button>
     <nav id="primaryNav" class="topnav" aria-label="Main navigation">
       <a href="<?=$home?>/">Home</a><a href="<?=$home?>/projects">Projects</a><a href="<?=$home?>/about">About</a>
-      <?php if($admin):?><a href="/admin" class="nav-admin">Dashboard</a><?php endif;?>
+      <a href="<?=$home?>/Gentoo/AI/">AI Chat</a>
+      <?php if($identity==='admin'):?><a href="<?=$home?>/Gentoo/">Gentoo Dashboard</a><a href="<?=$home?>/admin/ai">AI Admin</a><a href="<?=$home?>/admin" class="nav-admin">Admin Panel</a>
+      <?php elseif($identity==='user'):?><a href="<?=$home?>/admin/account">My account</a>
+      <?php else:?><a href="<?=$home?>/admin/login">Sign in</a><?php endif;?>
     </nav>
   </div>
 </header>
@@ -73,7 +84,7 @@ function cms_layout_end(PDO $db): void {
 </main>
 <footer class="site-footer"><div class="shell footer-row">
   <span><?=cms_esc(cms_setting($db,'footer'))?></span>
-  <span><a href="<?=$home?>/projects">Explore projects</a> <span class="footer-divider">·</span> <a href="<?=$home?>/admin">Admin</a></span>
+  <span><a href="<?=$home?>/projects">Explore projects</a> <span class="footer-divider">·</span> <a href="<?=$home?>/Gentoo/AI/">AI</a> <span class="footer-divider">·</span> <a href="<?=$home?>/admin">Account</a></span>
 </div></footer></div></body></html>
 <?php
 }

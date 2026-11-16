@@ -41,6 +41,11 @@ if($subdomain!==null) {
     if(!$project){cms_public_not_found($db);exit;}
     cms_public_project($db,$project);exit;
 }
+// Public root website routes. /ai/api is separately authenticated and rate-limited.
+if($path==='/ai/api'||str_starts_with($path,'/ai/api/')){
+    require $private.'/ai_api.php';
+    cms_ai_api_run($db,$path);
+}
 // Public root website routes; only /admin is protected.
 if($path==='/'){cms_public_home($db);exit;}
 if($path==='/projects'){cms_public_catalog($db);exit;}

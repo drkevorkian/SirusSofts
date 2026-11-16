@@ -1,70 +1,75 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>SirusSofts AI — Gentoo</title>
+  <title>SirusSofts AI · Gentoo</title>
   <link rel="stylesheet" href="./assets/styles.css">
   <script defer src="./assets/app.js"></script>
 </head>
 <body>
-  <div class="shell">
-    <aside class="sidebar">
-      <a class="brand" href="/Gentoo/AI/" aria-label="SirusSofts AI home"><span class="mark">S</span><span><b>SirusSofts</b><small>AI // GENTOO</small></span></a>
-      <button id="newChat" class="new" type="button">+ New conversation</button>
-      <div class="side-heading">Conversations</div>
-      <nav id="conversations" aria-label="Recent conversations"></nav>
-      <div class="sidebar-foot">Local conversation history on this browser<br>Secure HTTPS gateway → Gentoo compute</div>
-    </aside>
-    <main class="main">
-      <header class="topbar">
-        <div class="titleline"><span class="glow"></span><div><h1>SirusSofts AI</h1><p>Dual-channel inference console</p></div></div>
-        <div class="links"><a href="/Gentoo/">Gentoo dashboard</a><a href="/">SirusSofts</a></div>
-      </header>
-      <section class="statusbar" aria-label="Connection status">
-        <span id="inStatus" class="status">◯ Input checking</span>
-        <span id="outStatus" class="status">◯ Output checking</span>
-        <span id="cpuStatus" class="status">CPU —</span>
-        <span id="nvStatus" class="status">NVIDIA —</span>
-        <span id="amdStatus" class="status">AMD —</span>
-      </section>
-      <section id="messages" class="messages" aria-live="polite">
-        <div class="welcome"><div class="hero-logo">S</div><h2>What are we building?</h2><p>Send a coding question, investigate a system issue, or start a new idea. Input and output use separate, persistent SSH channels.</p></div>
-      </section>
-      <div id="progress" class="progress" role="status" aria-live="polite"></div>
-      <form id="composer" class="composer">
-        <label class="sr-only" for="prompt">Message SirusSofts AI</label>
-        <textarea id="prompt" rows="3" maxlength="16000" placeholder="Message SirusSofts AI…  (Enter to send, Shift+Enter for newline)" required></textarea>
-        <div class="controls">
-          <label for="profile">Expertise</label>
-          <select id="profile" aria-label="AI specialization">
-            <option value="auto">Auto</option>
-            <option value="coding">Coding</option>
-            <option value="science">Science</option>
-            <option value="physics">Physics</option>
-            <option value="time">Time</option>
-            <option value="relativity">Relativity</option>
-            <option value="finance">Finance</option>
-            <option value="mechanics">Mechanics</option>
-          </select>
-          <label for="model">Local LLM</label>
-          <select id="model" aria-label="Locally loaded llama.cpp model" disabled>
-            <option value="">Checking local models…</option>
-          </select>
-          <label for="worker">Compute</label>
-          <select id="worker" aria-label="Inference worker">
-            <option value="auto">Auto · 90% GPU target</option>
-            <option value="nvidia">NVIDIA · CUDA</option>
-            <option value="amd">AMD · Vulkan</option>
-            <option value="cpu">Ryzen · CPU</option>
-          </select>
-          <button id="send" type="submit" disabled>Send →</button>
-        </div>
+<div class="shell">
+  <aside class="sidebar">
+    <a class="brand" href="/"><span class="mark">S</span><span><b>SirusSofts</b><small>LOCAL AI // GENTOO</small></span></a>
+    <button id="newChat" class="new" type="button">+ New conversation</button>
+    <div class="side-heading">Conversations</div><nav id="conversations" aria-label="Saved conversations"></nav>
+    <div class="side-heading">Workspace</div>
+    <button class="new subtle" id="memoryToggle" type="button" hidden>Personal AI memory</button>
+    <button class="new subtle" id="documentsToggle" type="button" hidden>My documents</button>
+    <div class="sidebar-foot">
+      <span id="roleLabel">Checking account…</span><br>
+      <span id="quotaLabel"></span><br>
+      <a id="accountLink" href="/admin/login">Sign in</a>
+      <a id="adminLink" href="/admin/ai" hidden>AI Admin</a>
+      <a id="gentooLink" href="/Gentoo/" hidden>Gentoo Dashboard</a>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <div class="titleline"><span class="glow"></span><div><h1>SirusSofts AI</h1><p>Local inference · private account data</p></div></div>
+      <div class="links"><a href="/">Home</a><a href="/projects">Projects</a></div>
+    </header>
+    <section class="statusbar" aria-label="AI connection status">
+      <span id="aiStatus" class="status">Checking local models…</span>
+      <span id="privacyStatus" class="status">No outside LLMs</span>
+    </section>
+    <section id="messages" class="messages" aria-live="polite"></section>
+    <section id="memoryPanel" class="workspace-panel" hidden>
+      <h2>Saved AI memory</h2>
+      <p>Memories are private to your account and can be recalled in future conversations. They use the 2 GiB conversation/memory quota, not document storage.</p>
+      <form id="memoryForm"><label for="memoryText">Remember</label>
+        <textarea id="memoryText" maxlength="16000" rows="3" required placeholder="Something to remember for future conversations…"></textarea>
+        <label for="memorySource">Source URL (optional)</label><input type="url" id="memorySource" placeholder="https://example.com">
+        <button class="new" type="submit">Save memory</button>
       </form>
-      <div id="modelStatus" class="model-policy" role="status">Local LLM only · no external inference or model substitution</div>
-      <footer>Model IDs are reported by local llama.cpp workers. A model's developer is not its hosting provider.</footer>
-    </main>
-  </div>
-</body>
-</html>
+      <div id="memoryEntries"></div>
+    </section>
+    <section id="documentPanel" class="workspace-panel" hidden>
+      <h2>Document library</h2>
+      <p>Documents are stored separately from your 2 GiB memory. Identical PDFs are reused by SHA-256; new PDFs remain private while awaiting local text extraction.</p>
+      <form id="uploadForm">
+        <label for="documentProfile">Category</label><select id="documentProfile" required></select>
+        <label for="documentFile">PDF</label><input id="documentFile" type="file" accept=".pdf,application/pdf" required>
+        <button class="new" type="submit">Queue document</button>
+      </form>
+      <div id="documentEntries"></div>
+    </section>
+    <div id="progress" class="progress" role="status" aria-live="polite"></div>
+    <form id="composer" class="composer">
+      <label class="sr-only" for="prompt">Message SirusSofts AI</label>
+      <textarea id="prompt" rows="3" maxlength="16000" placeholder="Message SirusSofts AI… (Enter to send)" required></textarea>
+      <div class="controls">
+        <label for="profile">Knowledge</label><select id="profile"><option value="auto">General</option></select>
+        <label for="model">Local LLM</label><select id="model" aria-label="Local language model" disabled><option>Checking…</option></select>
+        <label for="worker" id="workerLabel" hidden>Compute</label>
+        <select id="worker" hidden>
+          <option value="auto">Auto</option><option value="nvidia">NVIDIA</option>
+          <option value="amd">AMD</option><option value="cpu">CPU</option>
+        </select>
+        <button id="send" type="submit" disabled>Send →</button>
+      </div>
+    </form>
+    <footer>AI inference runs on local Gentoo workers. Stored content is recalled by relevant excerpt, not sent to outside model providers.</footer>
+  </main>
+</div>
+</body></html>
