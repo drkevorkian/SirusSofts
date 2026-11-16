@@ -1,0 +1,18 @@
+#!/sbin/openrc-run
+description="SirusSofts local PDF intake and scalable extraction"
+supervisor=supervise-daemon
+command=/usr/bin/python3
+command_args="/opt/sirus-pdf/pdf_ingest.py --serve"
+command_user="siruspdf:siruspdf"
+pidfile="/run/sirus-pdf-ingest.pid"
+supervise_daemon_args="--respawn-delay 5"
+depend() {
+  need localmount
+}
+start_pre() {
+  if ! /usr/bin/mountpoint -q /srv/sirussofts/storage; then
+    eerror "Dedicated SirusSofts SSD not mounted. Refusing RAID0 fallback."
+    return 1
+  fi
+  /usr/bin/test -f /opt/sirus-pdf/pdf_ingest.py || return 1
+}

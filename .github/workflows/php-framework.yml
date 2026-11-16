@@ -90,6 +90,10 @@ jobs:
           bash -n node/install-openrc.sh
           bash -n gentoo-node/prepare-sirus-storage.sh
           bash gentoo-node/prepare-sirus-storage.sh --check
+          bash -n gentoo-node/install-pdf-ingest.sh
+          bash gentoo-node/install-pdf-ingest.sh --check
+          python3 gentoo-node/pdf_ingest.py --check
+          python3 -m unittest discover -s gentoo-node/tests -p 'test_pdf_ingest.py' -v
       - name: JavaScript syntax
         run: |
           node --check CMS/assets/cms.js
