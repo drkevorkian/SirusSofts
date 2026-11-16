@@ -56,8 +56,8 @@ $db->prepare("INSERT INTO cms_ai_document_objects(sha256,bytes,profile,status,cr
 $object=(int)$db->lastInsertId();
 $db->prepare('INSERT INTO cms_ai_document_chunks(object_id,page,part,body) VALUES(?,?,?,?)')
    ->execute([$object,1,1,'Authorized test torque specification.']);
-$db->prepare('INSERT INTO cms_ai_document_access(object_id,account,title,created_at) VALUES(?,?,?,?)')
-   ->execute([$object,$alice,'Personal service manual',$now]);
+$db->prepare('INSERT INTO cms_ai_document_access(object_id,account,profile,title,created_at) VALUES(?,?,?,?,?)')
+   ->execute([$object,$alice,'mechanics','Personal service manual',$now]);
 check(count(cms_ai_account_documents($db,$alice))===1,'Owner document visible');
 check(cms_ai_account_documents($db,$bob)===[],'Private document not visible to other user');
 check(count(cms_ai_api_knowledge($db,$member,'mechanics'))===1,'Authorized retrieval');
@@ -66,4 +66,10 @@ check(str_contains(cms_ai_api_context($db,$member,'mechanics','torque specificat
     'Authorized test torque'),'Owned document included in authorized context');
 check(!str_contains(cms_ai_api_context($db,$guest,'mechanics','torque specification'),
     'Authorized test torque'),'Guest never sees personal document');
+$db->prepare('INSERT INTO cms_ai_document_access(object_id,account,profile,title,created_at) VALUES(?,?,?,?,?)')
+   ->execute([$object,$bob,'science','Same PDF, different authorized category',$now]);
+check(cms_ai_account_documents($db,$bob)[0]['profile']==='science',
+    'Canonical document is reused without inheriting first uploader category');
+check(count(cms_ai_api_knowledge($db,$member,'mechanics'))===1,
+    'Other accounts cannot override owner document category');
 echo "PASS: account isolation, quota, category ACL, private document and recall tests\n";
