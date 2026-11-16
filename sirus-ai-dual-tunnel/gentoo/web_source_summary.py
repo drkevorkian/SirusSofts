@@ -15,7 +15,7 @@ from pathlib import Path
 import socket
 import subprocess
 import tempfile
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from web_research import clean_url
 from manual_summary import local_llama, BACKENDS
@@ -57,7 +57,11 @@ def extract_web_text(html):
 def fetch_html(url,resolver=socket.getaddrinfo,runner=subprocess.run):
     normalized=clean_url(url)
     if not normalized:raise ValueError("Only public HTTPS content URLs are allowed")
-    host=urlsplit(normalized).hostname
+    # Preserve the actual source host (including www) for TLS SNI and source URLs.
+    # Discovery canonicalization may remove www for deduplication only.
+    original=urlsplit(url.strip())
+    host=(original.hostname or "").lower()
+    request_url=urlunsplit(("https",host,original.path or "/",original.query,""))
     ip=public_ipv4(host,resolver)
     with tempfile.TemporaryDirectory(prefix="sirus-web-source-") as tmp:
         out=Path(tmp,"body")
@@ -65,7 +69,7 @@ def fetch_html(url,resolver=socket.getaddrinfo,runner=subprocess.run):
         cmd=["curl","--silent","--show-error","--fail","--noproxy","*",
              "--proto","=https","--max-time","18","--connect-timeout","5",
              "--max-filesize",str(MAX_HTML_BYTES),"--max-redirs","0",
-             "--resolve",host+":443:"+ip,"--output",str(out),normalized]
+             "--resolve",host+":443:"+ip,"--output",str(out),request_url]
         result=runner(cmd,capture_output=True,text=True,timeout=25)
         if result.returncode!=0:
             raise RuntimeError("HTTPS fetch failed (blocked, redirected, too large or unavailable)")
@@ -81,7 +85,7 @@ def fetch_html(url,resolver=socket.getaddrinfo,runner=subprocess.run):
     decoded=body.decode("utf-8",errors="replace")
     text=extract_web_text(decoded) if "<html" in decoded[:4096].lower() else decoded[:MAX_TEXT_CHARS]
     if not text.strip():raise ValueError("No readable article text extracted")
-    return normalized,text
+    return request_url,text
 
 def allowed_results(raw,maximum):
     if type(maximum) is not int or not 1<=maximum<=MAX_SOURCES:

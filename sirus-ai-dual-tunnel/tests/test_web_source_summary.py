@@ -37,6 +37,20 @@ class WebSourceTests(unittest.TestCase):
         self.assertEqual(urls,["https://nasa.gov/a","https://brp.com/manual"])
         with self.assertRaises(ValueError):
             lib.allowed_results({"results":[]},5000)
+    def test_www_host_retained_for_tls_fetch(self):
+        def resolver(host,*args):
+            self.assertEqual(host,"www.example.org")
+            return [(2,1,6,"",("8.8.8.8",443))]
+        def fake(cmd,**kwargs):
+            self.assertIn("www.example.org:443:8.8.8.8",cmd)
+            self.assertIn("https://www.example.org/article",cmd)
+            out=Path(cmd[cmd.index("--output")+1])
+            out.write_bytes(b"<html><p>Motor service procedure</p></html>")
+            class Done: returncode=0
+            return Done()
+        url,body=lib.fetch_html("https://www.example.org/article",resolver,fake)
+        self.assertEqual(url,"https://www.example.org/article")
+        self.assertIn("Motor service",body)
     def test_extract_text_ignores_scripts(self):
         txt=lib.extract_web_text("<html><p>Hello</p><script>alert('x')</script><h2>Safety</h2></html>")
         self.assertIn("Hello",txt)
