@@ -1,7 +1,7 @@
 # Private Can-Am manual import: staging, extraction and review
 
-The CMS AI admin page accepts up to 10 PDFs per request (each maximum 200 MiB)\nwith a combined maximum of 200 MiB per multipart request
-into its private, access-controlled directory outside public_html. The
+The CMS AI admin page accepts up to 10 PDFs per request (each maximum 200 MiB)\nwith a combined maximum of 200 MiB per multipart request, stored
+in its private, access-controlled directory outside public_html. The
 database records original filename, expertise, byte count and SHA-256 hash.
 Uploaded files are never executed, parsed or sent to third parties by PHP.
 Download of staged files requires CMS admin authentication and CSRF validation.
@@ -9,8 +9,8 @@ Download of staged files requires CMS admin authentication and CSRF validation.
 Check the production PHP upload_max_filesize/post_max_size and Hestia Nginx
 client_max_body_size. The smallest limit wins. Do not change global limits
 without a reviewed Hestia-specific maintenance plan. A large technical PDF
-may exceed the first version's 25 MiB per-file limit; break into separate
-files only if it preserves intended pagination, or expand limits after review.
+may exceed the new 200 MiB per-file limit. Keep original page numbering
+intact; larger files require an additional reviewed transfer mechanism.
 
 A separate *operator-run* Gentoo parser extracts page-attributed text using
 Poppler pdfinfo and pdftotext, without OCR or network access. Page ranges
@@ -82,3 +82,26 @@ and hash_file reads the saved PDF incrementally.
 Sufficient disk space is needed for the PHP upload temp file and
 private staging copy (plus any backups); verify the available storage
 before attempting a near-limit manual upload.
+
+
+### Per-site PHP-FPM settings
+
+Apply the following as **site-scoped** .user.ini settings in
+/home/sirusweb/web/sirussofts.com/public_html/.user.ini:
+
+    upload_max_filesize = 200M
+    post_max_size = 220M
+    max_input_time = 600
+    max_file_uploads = 10
+
+The reference template is deploy/ubuntu24/sirus-ai-upload.user.ini. Do not
+blindly overwrite an existing .user.ini containing other application
+settings: preserve those entries. Hestia's reviewed CMS Nginx security
+guard denies direct requests to /.user.ini. Reload php8.3-fpm so settings
+are picked up promptly, then verify the homepage remains HTTPS 200 and
+the file itself yields HTTP 404.
+
+The production HTTPS Nginx server block must allow >=220m request bodies.
+Do not add a second client_max_body_size directive without inspecting
+the effective Hestia-generated vhost, and do not change global PHP
+values for unrelated applications by default.
