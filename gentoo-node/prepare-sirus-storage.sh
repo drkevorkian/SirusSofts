@@ -7,9 +7,44 @@ mode=--plan
 if [[ $# -gt 0 ]]; then mode="$1"; shift; fi
 [[ $# == 0 && ( "$mode" == --plan || "$mode" == --apply || "$mode" == --check ) ]] ||
   fail 'Usage: gentoo-node/prepare-sirus-storage.sh --check|--plan|--apply'
+# mdadm --examine can return success for a normal DOS partition table.
+# Recognize only the reviewed legacy MBR listing, never arbitrary output.
+mdadm_is_plain_mbr() {
+  local device="$1" report="$2"
+  awk -v device="$device" '
+    $0 == device ":" { header++; next }
+    /^[[:space:]]*MBR Magic[[:space:]]*:[[:space:]]*aa55[[:space:]]*$/ { mbr++; next }
+    /^[[:space:]]*Partition\[[0-9]+\][[:space:]]*:[[:space:]]*[0-9]+ sectors at[[:space:]]+[0-9]+ \(type [[:xdigit:]]+\)[[:space:]]*$/ { partitions++; next }
+    { unexpected++ }
+    END { exit !(header == 1 && mbr == 1 && partitions == 1 && unexpected == 0) }
+  ' <<< "$report"
+}
+mdadm_assert_no_raid() {
+  local device="$1" output status=0
+  output="$(mdadm --examine "$device" 2>&1)" || status=$?
+  if [[ "$device" == "$disk" && "$status" -eq 0 ]] &&
+       mdadm_is_plain_mbr "$device" "$output"; then
+    echo "PASS: $device has only legacy MBR partition metadata, not MD RAID."
+    return 0
+  fi
+  if [[ "$status" -ne 0 && "$output" == "mdadm: No md superblock detected on $device." ]]; then
+    echo "PASS: $device has no MD RAID superblock."
+    return 0
+  fi
+  fail "Unrecognized or RAID metadata on $device (exit $status): $output"
+}
 if [[ "$mode" == --check ]]; then
   bash -n "$0" || fail 'Invalid script syntax'
-  echo 'PASS: Gentoo storage migration script syntax; no disks accessed.'
+  good_mbr="$(printf '/dev/sdc:\n  MBR Magic : aa55\nPartition[0] : 1000215216 sectors at 63 (type 82)\n')"
+  mdadm_is_plain_mbr /dev/sdc "$good_mbr" ||
+    fail 'Regression: valid DOS/MBR table was incorrectly called MD RAID.'
+  if mdadm_is_plain_mbr /dev/sdc "$good_mbr"$'\nRaid Level : raid0'; then
+    fail 'Regression: unexpected MD RAID metadata passed the MBR guard.'
+  fi
+  if mdadm_is_plain_mbr /dev/sdc $'/dev/sdc:\n  Raid Level : raid0'; then
+    fail 'Regression: an MD RAID superblock passed the MBR guard.'
+  fi
+  echo 'PASS: Gentoo SSD migration syntax and MBR-versus-RAID regression checks; no disks accessed.'
   exit 0
 fi
 [[ "$(id -u)" == 0 ]] || fail 'Run with sudo or as Gentoo root.'
@@ -19,7 +54,7 @@ partition=/dev/sdc1
 storage=/srv/sirussofts/storage
 expected_model='SPCC Solid State'
 expected_bytes=512110190592
-for cmd in lsblk sfdisk wipefs blkid findmnt mountpoint rsync mount umount mkfs.ext4 df du swapon; do
+for cmd in lsblk sfdisk wipefs blkid findmnt mountpoint rsync mount umount mkfs.ext4 df du swapon mdadm; do
   command -v "$cmd" >/dev/null || fail "Required tool missing: $cmd"
 done
 [[ -b "$disk" && -b "$partition" ]] || fail 'Expected /dev/sdc and /dev/sdc1 are missing.'
@@ -37,12 +72,8 @@ disk_sigs="$(wipefs -n --noheadings --output TYPE "$disk" | xargs)"
 partition_sigs="$(wipefs -n --noheadings --output TYPE "$partition" | xargs)"
 [[ "$disk_sigs" == 'dos' && -z "$partition_sigs" ]] ||
   fail "Unexpected filesystem or disk signature (disk='$disk_sigs', partition='$partition_sigs'); stop."
-if command -v mdadm >/dev/null; then
-  if mdadm --examine "$disk" >/dev/null 2>&1 ||
-     mdadm --examine "$partition" >/dev/null 2>&1; then
-    fail 'Existing MD RAID superblock detected on SSD; stop.'
-  fi
-fi
+mdadm_assert_no_raid "$disk"
+mdadm_assert_no_raid "$partition"
 [[ -z "$(lsblk -rn -o MOUNTPOINTS "$disk" | tr -d '[:space:]')" ]] ||
   fail '/dev/sdc or a child is already mounted.'
 if swapon --show=NAME --noheadings | grep -Eq '^/dev/sdc([0-9]+)?$'; then
