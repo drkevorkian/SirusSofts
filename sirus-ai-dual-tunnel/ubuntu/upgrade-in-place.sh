@@ -23,6 +23,9 @@ files=(gateway.py web/index.html web/app.js web/styles.css
   fail 'Existing output service missing'
 for file in "${files[@]}"; do
   [[ -f "$src/$file" && ! -L "$src/$file" ]] || fail "Source missing/linked: $file"
+  if [[ -e "$live/$file" || -L "$live/$file" ]]; then
+    [[ ! -L "$live/$file" ]] || fail "Installed gateway component is a symlink: $file"
+  fi
 done
 python3 -m py_compile "$src/gateway.py"
 nginx -t || fail 'Existing nginx configuration invalid'
@@ -50,7 +53,7 @@ php -l "$cms/app/ai_workspace.php" >/dev/null || fail 'Installed CMS workspace s
 [[ -t 0 && -t 1 ]] || fail 'Interactive terminal required'
 read -rp 'Type UPGRADE UBUNTU AI to back up gateway and update frontend: ' answer
 [[ "$answer" == 'UPGRADE UBUNTU AI' ]] || fail 'Confirmation mismatch'
-release="/var/lib/sirus-ai-dual/releases/release-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+release="/root/sirus-ai-upgrade-backups/release-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 mkdir -p -m 0700 "$release"
 chmod 0700 "$release"
 cp -a "$live" "$release/previous-ubuntu"
