@@ -14,6 +14,7 @@
     <button id="newChat" class="new" type="button">+ New conversation</button>
     <div class="side-heading">Conversations</div><nav id="conversations" aria-label="Saved conversations"></nav>
     <div class="side-heading">Workspace</div>
+    <button class="new subtle" id="knowledgeToggle" type="button">Browse knowledge</button>
     <button class="new subtle" id="memoryToggle" type="button" hidden>Personal AI memory</button>
     <button class="new subtle" id="documentsToggle" type="button" hidden>My documents</button>
     <div class="sidebar-foot">
@@ -34,6 +35,11 @@
       <span id="privacyStatus" class="status">No outside LLMs</span>
     </section>
     <section id="messages" class="messages" aria-live="polite"></section>
+    <section id="knowledgePanel" class="workspace-panel" hidden>
+      <h2>Knowledge library</h2>
+      <p>Only reviewed public entries and documents specifically authorized for your account are listed.</p>
+      <div id="knowledgeEntries"></div>
+    </section>
     <section id="memoryPanel" class="workspace-panel" hidden>
       <h2>Saved AI memory</h2>
       <p>Memories are private to your account and can be recalled in future conversations. They use the 2 GiB conversation/memory quota, not document storage.</p>
