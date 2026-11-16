@@ -38,6 +38,27 @@
 - The model sees only reviewed, attributable excerpts plus the user's prompt. Keep source excerpt boundaries, prompt-injection treatment, page numbers and confidence/coverage warnings. Do not silently treat unreviewed AI-generated summaries as trusted.
 - Recover from interruption using atomic checkpoints for each completed document/page. Hash and deduplicate repeats, resume from last committed page, avoid duplicate visible chunks and never mark partial ingestion “complete.”
 
+### Experimental live GPU handoff — explicitly opt-in
+
+**Decision (2026-11-15): Keep available as an experimental feature with clear warnings, not silently enabled.** This requirement is separate from routine job-level CPU/GPU assignment and from model training. Its implementation remains outstanding; this document does not imply llama.cpp supports portable mid-token internal-state snapshots.
+
+**UI contract**
+- Under authenticated **Admin → AI Settings → Compute → Experimental**, provide an **Enable experimental mid-response GPU switching** toggle. Default OFF, administrator only, never globally enabled as a side effect of changing regular settings. The UI must name the original worker and candidate target, current generation status, expected interruption/replay, and whether target VRAM/RAM/model compatibility checks passed.
+- For each **Transfer this generation** request show a confirmation warning: *"Experimental: the response may pause, the new GPU may repeat processing, and the continuation may differ. Previously committed output is preserved, but hidden reasoning/KV-cache state cannot be guaranteed to transfer. If the switch fails, the job will stay recoverable or resume on the original worker if available."* No misleading "seamless" claim.
+- Display precise states: **transfer requested → pausing at safe boundary → output checkpoint saved → preparing target → replaying context → continuing**, plus **rollback/recovery needed**. Show actual worker and progress; never invent a transfer percentage. Allow an administrator to cancel the transfer attempt without discarding committed output.
+- Regular user conversations show **Switching compute worker…** and may continue reading already committed text. If continuation changes, make that visible in the job history. Keep all operations audit-logged.
+
+**Transaction and recovery contract**
+1. Accept a transfer only when authenticated, the target is healthy with sufficient free resources, and original/target agree on *exact model weights/hash, tokenizer, chat template, relevant adapter and generation settings*. Otherwise reject before interruption, explaining why.
+2. Acquire an exclusive job transfer lease and stop allocating new tokens to the original worker only at an observed **committed token/output boundary**, never mid-token. Record the immutable conversation/request, RNG seed if available, emitted token IDs when available, acknowledged output bytes/chunk sequence, model metadata, generation parameters and a monotonic attempt identifier to durable Gentoo storage. A saved "thought placeholder" is **not** the model's hidden reasoning state.
+3. Preferred mode: use engine-level KV/slot restore **only if engine/version/backend compatibility and real restoration are verified** in testing for that pair. A success status code alone is insufficient. Otherwise use a documented full-prompt-plus-committed-prefix *replay* on the destination model. Replay may be slow and can yield a different continuation; do not claim deterministic fidelity.
+4. Show existing output once, then append only newly acknowledged continuation chunks, with stable event sequence IDs and exact duplicate suppression across reconnects. Never replace the visible answer with a second copy of its prefix. The client and coordinator must persist a handoff marker and worker identity.
+5. If target startup, health, memory admission or replay fails, **do not discard the answer**. Attempt safe rollback to the still-healthy original worker with the same checkpoint; otherwise mark the job **paused/recoverable**, preserve original prompt and output, and offer retry/resume. Never silently restart with a different model or send private prompts off the local Gentoo host.
+6. Run memory and model loading safeguards before switching; avoid restarting workers serving unrelated jobs. Set explicit preflight and replay timeouts, rollback limits, concurrency limits and cancellation behavior. The old worker is released only after target continuation is verified, or cleanly returned after rollback.
+7. Offline operation is mandatory: no external LLM, telemetry provider, remote inference fallback or WAN dependency. A future separately approved remote compute node is a distinct, privacy-scoped choice and not implicit in GPU handoff.
+
+**Acceptance gate:** With local CPU, NVIDIA CUDA and AMD Vulkan (normal/non-mining RX 590 BIOS), run idle, queued, pre-first-token, streaming, completion-boundary, memory-shortage, worker-crash, tunnel-drop, browser-refresh, repeated-transfer, mismatched-model, and entirely offline cases. Assert no lost/duplicated **committed** output, correct state transitions, faithful source citations, persistent recovery after process restart, and honest warnings. Require explicit admin enablement and passing tests before offering this option on the live website. Keep routine per-request worker switching available independently of experimental live handoff.
+
 ### Separate actual fine-tuning workflow
 
 - Indexing/RAG should work immediately on existing CPU/GPU hardware, provided local GGUF inference is healthy. It does **not** alter Qwen weights.
@@ -57,6 +78,7 @@
 8. Bring Ubuntu/Starlink down, verify local UI still works; bring them back up, safely reconcile job status and hashes without losing progress.
 9. Ensure no unexpected PHP/Hestia/Nginx/SSH/service/port changes, no overwriting existing CMS SQLite or administrator credentials, and no changes to production workers until explicit reviewed deployment.
 10. Test worker draining, failure recovery, rollback, and model-version match before allowing a live adapter switch.
+11. For opt-in experimental mid-response GPU switching, run the separate handoff acceptance matrix above; validate checkpoint persistence, duplicate suppression, model hash match, fallback replay, and that warnings appear before every transfer.
 
 ## Delivery stages
 
