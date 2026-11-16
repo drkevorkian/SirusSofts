@@ -1,6 +1,7 @@
 # Private Can-Am manual import: staging, extraction and review
 
-The CMS AI admin page accepts up to 10 PDFs per request (each maximum 200 MiB)\nwith a combined maximum of 200 MiB per multipart request, stored
+The CMS AI admin page accepts up to 10 PDFs per request (each maximum 200 MiB)
+with a combined maximum of 200 MiB per multipart request, stored
 in its private, access-controlled directory outside public_html. The
 database records original filename, expertise, byte count and SHA-256 hash.
 Uploaded files are never executed, parsed or sent to third parties by PHP.
