@@ -52,12 +52,13 @@ ten-manual batch cannot contain ten 200 MiB manuals. Submit large manuals
 in separate batches to protect the 2 GiB Ubuntu VPS.
 
 The application byte limit is 200 * 1024 * 1024 = 209715200 bytes.
+The CMS enforces ten PDFs per request; PHP's default max_file_uploads of 20
+is already sufficient and does not need modification.
 PHP-FPM / Hestia HTTP limits must permit multipart overhead:
 
     upload_max_filesize = 200M
     post_max_size = 220M
     max_input_time = 600
-    max_file_uploads = 10
 
 For a domain-specific Hestia site, PHP-FPM generally honors these values
 in public_html/.user.ini (unless the FPM pool enforces php_admin_value).
