@@ -84,7 +84,7 @@ function cms_ai_api_knowledge(PDO $db,array $identity,string $profile):array {
           (SELECT substr(body,1,300) FROM cms_ai_document_chunks c
              WHERE c.object_id=o.id ORDER BY page,part LIMIT 1) AS excerpt
           FROM cms_ai_document_access a JOIN cms_ai_document_objects o ON a.object_id=o.id
-          WHERE a.account=? AND o.profile=? AND o.status='parsed'
+          WHERE a.account=? AND a.profile=? AND o.status='parsed'
           ORDER BY o.id DESC LIMIT 60");
         $st->execute([$identity['account'],$profile]);
         $rows=array_merge($rows,$st->fetchAll(PDO::FETCH_ASSOC));
@@ -109,7 +109,7 @@ function cms_ai_api_context(PDO $db,array $identity,string $profile,string $quer
                     FROM cms_ai_document_access a
                     JOIN cms_ai_document_objects o ON o.id=a.object_id
                     JOIN cms_ai_document_chunks c ON c.object_id=o.id
-                    WHERE a.account=? AND o.status='parsed' AND o.profile=?
+                    WHERE a.account=? AND o.status='parsed' AND a.profile=?
                     ORDER BY o.id DESC,c.page ASC LIMIT 120");
                 $st->execute([$identity['account'],$profile]);
                 foreach($st->fetchAll(PDO::FETCH_ASSOC) as $row)$rows[]=$row;
