@@ -120,7 +120,8 @@ function cms_gentoo_pdf_format_bytes(int $bytes):string {
     return number_format($bytes/1073741824,2).' GiB';
 }
 function cms_gentoo_pdf_panel(PDO $cms):void {
-    cms_need_admin();
+    // cms_ai_page has already verified administrator identity; do not
+    // re-open a session after cms_admin_shell_start renders the page.
     [$state,$query,$page]=cms_gentoo_pdf_filters();
     $data=null;$error='';
     try {
