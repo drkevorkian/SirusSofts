@@ -75,6 +75,29 @@ CREATE TABLE IF NOT EXISTS cms_ai_category_grants (
     profile TEXT NOT NULL, PRIMARY KEY(viewer_id,profile)
 );
 SQL);
+    cms_ai_search_schema($db);
+}
+/** SQLite FTS5 covers the full account history, without sending data to any server. */
+function cms_ai_search_schema(PDO $db):void {
+    try {
+        foreach(['memory'=>['cms_ai_memories','cms_ai_memory_fts'],
+                 'message'=>['cms_ai_messages','cms_ai_message_fts']] as [$source,$index]){
+            $st=$db->prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?");
+            $st->execute([$index]);$new=$st->fetchColumn()===false;
+            $db->exec("CREATE VIRTUAL TABLE IF NOT EXISTS ".$index."
+                       USING fts5(account UNINDEXED,content,tokenize='unicode61')");
+            $db->exec("CREATE TRIGGER IF NOT EXISTS ".$index."_insert AFTER INSERT ON ".$source."
+                BEGIN INSERT INTO ".$index."(rowid,account,content)
+                VALUES(new.rowid,new.account,new.content); END");
+            $db->exec("CREATE TRIGGER IF NOT EXISTS ".$index."_delete AFTER DELETE ON ".$source."
+                BEGIN DELETE FROM ".$index." WHERE rowid=old.rowid; END");
+            if($new)$db->exec("INSERT INTO ".$index."(rowid,account,content)
+                SELECT rowid,account,content FROM ".$source);
+        }
+    }catch(PDOException $e){
+        // Older SQLite builds may lack FTS5; limited lexical recall remains available.
+        error_log('Sirus AI FTS5 initialization unavailable: '.get_class($e));
+    }
 }
 
 /** CMS sessions are authoritative. Never trust a client-supplied account or role. */
@@ -197,34 +220,58 @@ function cms_ai_memory_delete(PDO $db,string $account,string $id): void {
         $db->commit();
     } catch(Throwable $e) {if($db->inTransaction())$db->rollBack();throw $e;}
 }
-/** Bounded, owner-scoped lexical recall from saved memories and previous conversations. */
+/** Owner-scoped full-text recall; falls back to bounded lexical search without FTS5. */
 function cms_ai_recall(PDO $db,string $account,string $query,?string $currentConversation=null): string {
     $words=preg_split('/[^a-z0-9]+/i',strtolower($query),-1,PREG_SPLIT_NO_EMPTY);
     $words=array_values(array_unique(array_filter($words,static fn($w)=>strlen($w)>=4)));
     if(!$words)return '';
-    $st=$db->prepare('SELECT content,source_url FROM cms_ai_memories
-       WHERE account=? ORDER BY created_at DESC LIMIT 250');
-    $st->execute([$account]);
     $matches=[];
-    foreach($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $low=strtolower($row['content']); $score=0;
-        foreach($words as $w)if(str_contains($low,$w))$score++;
-        if($score)$matches[]=['score'=>$score,'text'=>$row['content'],'source'=>$row['source_url']];
-    }
-    $st=$db->prepare("SELECT content FROM cms_ai_messages
-      WHERE account=? AND role='user' AND conversation_id != ?
-      ORDER BY id DESC LIMIT 250");
-    $st->execute([$account,$currentConversation??'']);
-    foreach($st->fetchAll(PDO::FETCH_COLUMN) as $prior) {
-        $low=strtolower($prior); $score=0;
-        foreach($words as $w)if(str_contains($low,$w))$score++;
-        if($score)$matches[]=['score'=>$score,'text'=>$prior,'source'=>'previous conversation'];
+    $fts=(bool)$db->query("SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='cms_ai_memory_fts'")->fetchColumn();
+    if($fts){
+        $match=implode(' OR ',array_map(static fn($w)=>'"'.$w.'"',$words));
+        $st=$db->prepare('SELECT m.content,m.source_url,bm25(cms_ai_memory_fts) AS rank
+           FROM cms_ai_memory_fts
+           JOIN cms_ai_memories m ON m.rowid=cms_ai_memory_fts.rowid
+           WHERE cms_ai_memory_fts MATCH ? AND m.account=?
+           ORDER BY rank LIMIT 15');
+        $st->execute([$match,$account]);
+        foreach($st->fetchAll(PDO::FETCH_ASSOC) as $row)
+            $matches[]=['score'=>100-(float)$row['rank'],
+                'text'=>$row['content'],'source'=>$row['source_url']];
+        $st=$db->prepare('SELECT m.content,bm25(cms_ai_message_fts) AS rank
+           FROM cms_ai_message_fts
+           JOIN cms_ai_messages m ON m.id=cms_ai_message_fts.rowid
+           WHERE cms_ai_message_fts MATCH ? AND m.account=? AND m.conversation_id!=?
+           ORDER BY rank LIMIT 15');
+        $st->execute([$match,$account,$currentConversation??'']);
+        foreach($st->fetchAll(PDO::FETCH_ASSOC) as $row)
+            $matches[]=['score'=>50-(float)$row['rank'],
+                'text'=>$row['content'],'source'=>'previous conversation'];
+    }else{
+        $st=$db->prepare('SELECT content,source_url FROM cms_ai_memories
+           WHERE account=? ORDER BY created_at DESC LIMIT 250');
+        $st->execute([$account]);
+        foreach($st->fetchAll(PDO::FETCH_ASSOC) as $row){
+            $score=0;$low=strtolower($row['content']);
+            foreach($words as $w)if(str_contains($low,$w))$score++;
+            if($score)$matches[]=['score'=>$score+10,
+                'text'=>$row['content'],'source'=>$row['source_url']];
+        }
+        $st=$db->prepare("SELECT content FROM cms_ai_messages
+            WHERE account=? AND conversation_id!=? ORDER BY id DESC LIMIT 250");
+        $st->execute([$account,$currentConversation??'']);
+        foreach($st->fetchAll(PDO::FETCH_COLUMN) as $body){
+            $score=0;$low=strtolower($body);
+            foreach($words as $w)if(str_contains($low,$w))$score++;
+            if($score)$matches[]=['score'=>$score,'text'=>$body,'source'=>'previous conversation'];
+        }
     }
     usort($matches,static fn($a,$b)=>$b['score']<=>$a['score']);
-    $out=''; foreach(array_slice($matches,0,6) as $row) {
+    $out='';foreach(array_slice($matches,0,6) as $row){
         $fragment=substr($row['text'],0,550);
         $line="\n[Saved context / ".($row['source']?:'user memory')."]\n".
-              "[BEGIN UNTRUSTED DATA]\n".$fragment."\n[END UNTRUSTED DATA]\n";
+             "[BEGIN UNTRUSTED DATA]\n".$fragment."\n[END UNTRUSTED DATA]\n";
         if(strlen($out)+strlen($line)>2800)break;
         $out.=$line;
     }
