@@ -1,11 +1,14 @@
 'use strict';
 const BASE = '/Gentoo/AI/';
 const STORE = 'sirus-ai-conversations-v1';
+const MODEL_PREF = 'sirus-ai-selected-local-model-v1';
 const $ = id => document.getElementById(id);
 let conversations = [];
 let selectedId = null;
 let pending = false;
 let eventSource = null;
+let localModels = new Set();
+let modelInventory = {};
 try {
   conversations = JSON.parse(localStorage.getItem(STORE) || '[]');
   if (!Array.isArray(conversations)) conversations = [];
@@ -59,6 +62,32 @@ function render() {
   }
   area.scrollTop = area.scrollHeight;
 }
+function showLocalModels() {
+  const select = $('model');
+  const target = $('worker').value;
+  const ids = new Set();
+  for (const key of (target === 'auto' ? ['cpu','nvidia','amd'] : [target])) {
+    for (const id of (Array.isArray(modelInventory[key]) ? modelInventory[key] : [])) {
+      if (typeof id === 'string' && id.length <= 128) ids.add(id);
+    }
+  }
+  localModels = ids;
+  const previous = select.value || localStorage.getItem(MODEL_PREF) || '';
+  select.replaceChildren();
+  if (!ids.size) {
+    select.appendChild(new Option('No local models available', ''));
+    select.disabled = true;
+    $('send').disabled = true;
+    $('modelStatus').textContent = 'No verified local model is available on the selected worker.';
+    return;
+  }
+  for (const id of [...ids].sort()) select.appendChild(new Option(id + ' · local', id));
+  select.value = ids.has(previous) ? previous :
+    (ids.has('sirussofts-coder') ? 'sirussofts-coder' : [...ids][0]);
+  select.disabled = false;
+  $('send').disabled = pending;
+  $('modelStatus').textContent = 'Local Gentoo llama.cpp only · external inference disabled';
+}
 function setStatus(id, ok, label) { const el = $(id); el.className = 'status ' + (ok ? 'on' : 'off'); el.textContent = (ok ? '● ' : '○ ') + label; }
 async function health() {
   try {
@@ -69,7 +98,14 @@ async function health() {
     for (const [id, key, name] of [['cpuStatus','cpu','CPU'],['nvStatus','nvidia','NVIDIA'],['amdStatus','amd','AMD']]) {
       setStatus(id, !!data.workers[key], name);
     }
-  } catch (_) { setStatus('inStatus', false, 'Input offline'); }
+    if (data.local_only !== true || !data.models) throw Error('Strict local inventory missing');
+    modelInventory = data.models;
+    showLocalModels();
+  } catch (_) {
+    setStatus('inStatus', false, 'Input offline');
+    modelInventory = {};
+    showLocalModels();
+  }
   try {
     const r = await fetch(BASE + 'api/out/health', {cache:'no-store'});
     if (!r.ok) throw Error('output unavailable');
@@ -106,10 +142,12 @@ function watchJob(jobId) {
     $('progress').textContent = 'Waiting for output; reconnecting automatically. Results are queued safely on Gentoo.';
   };
 }
-function finish() { pending = false; $('send').disabled = false; $('progress').textContent = ''; if (eventSource) eventSource.close(); eventSource = null; }
+function finish() { pending = false; $('send').disabled = !localModels.has($('model').value); $('progress').textContent = ''; if (eventSource) eventSource.close(); eventSource = null; }
 async function send(e) {
   e.preventDefault(); if (pending) return;
   const text = $('prompt').value.trim(); if (!text) return;
+  const modelId = $('model').value;
+  if (!localModels.has(modelId)) { $('progress').textContent = 'Select a verified local model.'; return; }
   if (!selected()) startChat();
   const c = selected();
   c.messages.push({role:'user', content:text});
@@ -119,7 +157,8 @@ async function send(e) {
   const history = c.messages.slice(-20).map(({role, content}) => ({role, content}));
   try {
     const r = await fetch(BASE + 'api/in/jobs', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({messages: history, target: $('worker').value, profile: $('profile').value})});
+      body: JSON.stringify({messages: history, target: $('worker').value,
+        profile: $('profile').value, model_id:modelId, local_only:true})});
     const data = await r.json();
     if (!r.ok || !data.job_id) throw Error(data.error || 'Input queue unavailable');
     c.pendingJob = data.job_id;
@@ -129,6 +168,11 @@ async function send(e) {
     persist(); render(); finish();
   }
 }
+$('worker').addEventListener('change', showLocalModels);
+$('model').addEventListener('change', () => {
+  localStorage.setItem(MODEL_PREF, $('model').value);
+  $('send').disabled = pending || !localModels.has($('model').value);
+});
 $('newChat').addEventListener('click', startChat);
 $('composer').addEventListener('submit', send);
 $('prompt').addEventListener('keydown', e => {
