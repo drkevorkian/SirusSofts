@@ -48,6 +48,10 @@
             <option value="finance">Finance</option>
             <option value="mechanics">Mechanics</option>
           </select>
+          <label for="model">Local LLM</label>
+          <select id="model" aria-label="Locally loaded llama.cpp model" disabled>
+            <option value="">Checking local models…</option>
+          </select>
           <label for="worker">Compute</label>
           <select id="worker" aria-label="Inference worker">
             <option value="auto">Auto · 90% GPU target</option>
@@ -55,10 +59,11 @@
             <option value="amd">AMD · Vulkan</option>
             <option value="cpu">Ryzen · CPU</option>
           </select>
-          <button id="send" type="submit">Send →</button>
+          <button id="send" type="submit" disabled>Send →</button>
         </div>
       </form>
-      <footer>Model: sirussofts-coder · Results persist across tunnel interruptions · GPU choices activate when workers are online</footer>
+      <div id="modelStatus" class="model-policy" role="status">Local LLM only · no external inference or model substitution</div>
+      <footer>Model IDs are reported by local llama.cpp workers. A model's developer is not its hosting provider.</footer>
     </main>
   </div>
 </body>

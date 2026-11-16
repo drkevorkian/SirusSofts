@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+from urllib.parse import urlsplit
 import sqlite3
 import sys
 import threading
@@ -30,6 +31,15 @@ OUTPUT_CHUNK_CHARS = 8192  # Bounded transfer packets, unlimited count per answe
 MAX_CONTEXT_MESSAGES = 20
 STALE_JOB_LIMIT = 30
 VALID_ID = re.compile(r'^[a-f0-9]{32}$')
+MODEL_ID = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.:+/-]{0,127}$')
+DEFAULT_MODEL = 'sirussofts-coder'
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
+
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from knowledge import KnowledgeManager,PROFILES
 
@@ -53,7 +63,7 @@ def init_db(path):
         CREATE TABLE IF NOT EXISTS jobs (
           id TEXT PRIMARY KEY, messages TEXT NOT NULL, target TEXT NOT NULL,
           state TEXT NOT NULL, created REAL NOT NULL, worker TEXT DEFAULT '',
-          profile TEXT NOT NULL DEFAULT 'auto'
+          profile TEXT NOT NULL DEFAULT 'auto', model_id TEXT NOT NULL DEFAULT 'sirussofts-coder'
         );
         CREATE TABLE IF NOT EXISTS outbox (
           job_id TEXT NOT NULL, seq INTEGER NOT NULL, type TEXT NOT NULL,
@@ -64,20 +74,62 @@ def init_db(path):
         ''')
         if 'profile' not in {col[1] for col in con.execute('PRAGMA table_info(jobs)')}:
             con.execute("ALTER TABLE jobs ADD COLUMN profile TEXT NOT NULL DEFAULT 'auto'")
+        if 'model_id' not in {col[1] for col in con.execute('PRAGMA table_info(jobs)')}:
+            con.execute("ALTER TABLE jobs ADD COLUMN model_id TEXT NOT NULL DEFAULT 'sirussofts-coder'")
         # If Gentoo reboots mid-inference, retry the task from the beginning.
         con.execute("UPDATE jobs SET state='queued' WHERE state='running'")
 
 
+def assert_local_worker_url(url):
+    parts = urlsplit(url)
+    if (parts.scheme != 'http' or parts.hostname != '127.0.0.1'
+            or parts.username or parts.password or parts.path or parts.query or not parts.port):
+        raise ValueError('Only explicit IPv4 localhost inference workers are allowed')
+
+
+def local_open(url, *, data=None, timeout=3):
+    parts = urlsplit(url)
+    if parts.scheme != 'http' or parts.hostname != '127.0.0.1':
+        raise ValueError('External inference endpoints are forbidden')
+    req = urllib.request.Request(url, data=data,
+        headers={'Content-Type':'application/json'} if data is not None else {},
+        method='POST' if data is not None else 'GET')
+    return LOCAL_OPENER.open(req, timeout=timeout)
+
+
+def local_model_ids(url, timeout=1.5):
+    assert_local_worker_url(url)
+    try:
+        with local_open(url + '/v1/models', timeout=timeout) as response:
+            raw=response.read(65537)
+        if len(raw)>65536: return []
+        parsed=json.loads(raw)
+        rows=parsed.get('data') if isinstance(parsed,dict) else None
+        if not isinstance(rows,list): return []
+        ids=[item.get('id') for item in rows[:16] if isinstance(item,dict)]
+        return sorted({mid for mid in ids if isinstance(mid,str) and MODEL_ID.fullmatch(mid)})
+    except (OSError, ValueError, RuntimeError, TimeoutError, urllib.error.URLError):
+        return []
+
+
 def worker_healthy(url, timeout=0.7):
     try:
-        with urllib.request.urlopen(url + '/health', timeout=timeout) as response:
+        with local_open(url + '/health', timeout=timeout) as response:
             return response.status == 200
     except (OSError, urllib.error.URLError, TimeoutError):
         return False
 
 
-def choose_worker(job_id, target, gpu_percent=90, probe=worker_healthy):
+def choose_worker(job_id, target, gpu_percent=90, probe=worker_healthy, model_id=None):
     workers = {'nvidia': NVIDIA, 'amd': AMD, 'cpu': CPU}
+    if target not in ('auto', *workers):
+        raise ValueError('Unrecognized compute worker')
+    for endpoint in workers.values(): assert_local_worker_url(endpoint)
+    if model_id is not None:
+        if not isinstance(model_id,str) or not MODEL_ID.fullmatch(model_id):
+            raise ValueError('Invalid local model ID')
+        original_probe=probe
+        probe=lambda endpoint: original_probe(endpoint) and model_id in local_model_ids(endpoint)
     if target != 'auto':
         if not probe(workers[target]):
             raise RuntimeError(target.upper() + ' worker is unavailable')
@@ -118,18 +170,21 @@ def add_completed_events(con, job_id, answer, worker):
     add_event(con, job_id, seq, 'completed', '', worker)
 
 
-def chat(url, messages, timeout=None):
+def chat(url, messages, timeout=None, model_id=DEFAULT_MODEL):
     # Context capacity is chosen by the model server, not fixed to 768 tokens here.
     # Long generations need a configurable timeout; this is not an output cap.
     if timeout is None:
         timeout = int(os.environ.get('SIRUS_AI_REQUEST_TIMEOUT', '1800'))
     if timeout <= 0:
         raise ValueError('SIRUS_AI_REQUEST_TIMEOUT must be positive')
-    payload = json.dumps({'model': 'sirussofts-coder', 'messages': messages,
+    assert_local_worker_url(url)
+    if not isinstance(model_id,str) or not MODEL_ID.fullmatch(model_id):
+        raise ValueError('Invalid local model ID')
+    if model_id not in local_model_ids(url):
+        raise RuntimeError('Selected local model is not loaded on worker')
+    payload = json.dumps({'model': model_id, 'messages': messages,
                           'temperature': 0.55, 'stream': False}).encode()
-    req = urllib.request.Request(url + '/v1/chat/completions', data=payload,
-                                 headers={'Content-Type': 'application/json'}, method='POST')
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with local_open(url + '/v1/chat/completions', data=payload, timeout=timeout) as r:
         data = json.load(r)
     return str(data['choices'][0]['message']['content'])
 
@@ -144,30 +199,32 @@ class Engine:
         self.stop = threading.Event()
         self.knowledge = KnowledgeManager(knowledge_file) if knowledge_file else None
 
-    def enqueue(self, messages, target, profile='auto'):
+    def enqueue(self, messages, target, profile='auto', model_id=DEFAULT_MODEL):
+        if not isinstance(model_id,str) or not MODEL_ID.fullmatch(model_id):
+            raise ValueError('Invalid local model ID')
         job_id = uuid.uuid4().hex
         with db_connect(self.db) as con:
             queue_size = con.execute("SELECT count(*) FROM jobs WHERE state IN ('queued','running')").fetchone()[0]
             if queue_size >= STALE_JOB_LIMIT:
                 raise RuntimeError('Inference queue full; try again after current tasks finish')
-            con.execute('INSERT INTO jobs(id,messages,target,state,created,worker,profile) VALUES(?,?,?,?,?,?,?)',
-                        (job_id,json.dumps(messages),target,'queued',time.time(),'',profile))
+            con.execute('INSERT INTO jobs(id,messages,target,state,created,worker,profile,model_id) VALUES(?,?,?,?,?,?,?,?)',
+                        (job_id,json.dumps(messages),target,'queued',time.time(),'',profile,model_id))
             add_event(con, job_id, 1, 'queued')
         return job_id
 
     def run_one(self):
         with db_connect(self.db) as con:
             con.execute('BEGIN IMMEDIATE')
-            row = con.execute("SELECT id,messages,target,profile FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
+            row = con.execute("SELECT id,messages,target,profile,model_id FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
             if not row:
                 con.execute('COMMIT')
                 return False
-            job_id,raw_messages,target,profile = row
+            job_id,raw_messages,target,profile,model_id = row
             con.execute("UPDATE jobs SET state='running' WHERE id=?", (job_id,))
             con.execute('COMMIT')
         worker = ''
         try:
-            worker, url = choose_worker(job_id, target, self.gpu_percent)
+            worker, url = choose_worker(job_id, target, self.gpu_percent, model_id=model_id)
             with db_connect(self.db) as con:
                 con.execute('UPDATE jobs SET worker=? WHERE id=?', (worker, job_id))
                 add_event(con, job_id, 2, 'started', '', worker)
@@ -175,15 +232,16 @@ class Engine:
             if self.knowledge:
                 prompt_messages=self.knowledge.augment_messages(prompt_messages,profile)
             try:
-                answer = chat(url,prompt_messages)
+                answer = chat(url,prompt_messages,model_id=model_id)
             except (TimeoutError, OSError, urllib.error.URLError, ValueError, KeyError) as exc:
-                if target != 'auto' or worker == 'cpu' or not worker_healthy(CPU):
+                if (target != 'auto' or worker == 'cpu' or not worker_healthy(CPU)
+                        or model_id not in local_model_ids(CPU)):
                     raise RuntimeError('Inference request failed on ' + worker) from exc
                 # GPU died: CPU fallback is only automatic for auto-routed requests.
                 worker = 'cpu'
                 with db_connect(self.db) as con:
                     con.execute('UPDATE jobs SET worker=? WHERE id=?', (worker, job_id))
-                answer = chat(CPU,prompt_messages)
+                answer = chat(CPU,prompt_messages,model_id=model_id)
             with db_connect(self.db) as con:
                 con.execute("UPDATE jobs SET state='completed' WHERE id=?", (job_id,))
                 add_completed_events(con, job_id, answer, worker)
@@ -237,9 +295,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path in ('/healthz', '/api/in/health'):
-            self.respond(200, {'status': 'ok', 'channel': 'input', 'workers': {
-                'cpu': worker_healthy(CPU), 'nvidia': worker_healthy(NVIDIA), 'amd': worker_healthy(AMD)},
-                'gpu_task_target_percent': self.server.engine.gpu_percent})
+            workers={'cpu':CPU,'nvidia':NVIDIA,'amd':AMD}
+            healthy={key:worker_healthy(url) for key,url in workers.items()}
+            models={key:local_model_ids(url) if healthy[key] else [] for key,url in workers.items()}
+            self.respond(200, {'status':'ok', 'channel':'input', 'workers':healthy,
+                'models':models, 'local_only':True, 'inference_host':'Gentoo localhost llama.cpp',
+                'gpu_task_target_percent':self.server.engine.gpu_percent})
         else:
             self.respond(404, {'error': 'Not found'})
 
@@ -263,6 +324,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(n))
             messages, target = data['messages'], data.get('target', 'auto')
             profile=data.get('profile','auto')
+            model_id=data.get('model_id', DEFAULT_MODEL)
+            if data.get('local_only',True) is not True:
+                raise ValueError('External LLM services are forbidden')
+            if not isinstance(model_id,str) or not MODEL_ID.fullmatch(model_id):
+                raise ValueError('Invalid or unknown local model ID')
             if profile not in PROFILES:raise ValueError('Invalid AI specialization')
             if target not in ('auto', 'cpu', 'nvidia', 'amd'):
                 raise ValueError('Unrecognized worker')
@@ -274,8 +340,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ValueError('Invalid message format')
             if messages[-1]['role'] != 'user':
                 raise ValueError('Last message must be from the user')
-            job_id = self.server.engine.enqueue(messages,target,profile)
-            self.respond(202, {'job_id': job_id, 'status': 'queued', 'output': 'separate-output-tunnel'})
+            job_id = self.server.engine.enqueue(messages,target,profile,model_id)
+            self.respond(202, {'job_id':job_id, 'status':'queued', 'model_id':model_id, 'local_only':True, 'output':'separate-output-tunnel'})
         except (ValueError, KeyError, TypeError) as e:
             self.respond(400, {'error': str(e)[:150]})
         except RuntimeError as e:

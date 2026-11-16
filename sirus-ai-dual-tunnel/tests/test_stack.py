@@ -28,6 +28,13 @@ tunnel = load_module('tunnel', ROOT/'gentoo/tunnel.py')
 class MockModel(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_): pass
     def do_GET(self):
+        if self.path == '/v1/models':
+            raw=b'{"data":[{"id":"sirussofts-coder"}]}'
+            self.send_response(200)
+            self.send_header('Content-Type','application/json')
+            self.send_header('Content-Length',str(len(raw)))
+            self.end_headers();self.wfile.write(raw)
+            return
         self.send_response(200 if self.path == '/health' else 404)
         self.end_headers()
         self.wfile.write(b'{"status":"ok"}')
@@ -67,6 +74,48 @@ class TestSirusAI(unittest.TestCase):
         self.assertEqual(ai.choose_worker('a'*32,'auto',probe=lambda url:url == ai.CPU)[0],'cpu')
         self.assertEqual(ai.choose_worker('a'*32,'auto',gpu_percent=100,probe=lambda url:url in (ai.CPU,ai.NVIDIA))[0],'nvidia')
         with self.assertRaises(RuntimeError): ai.choose_worker('a'*32,'amd',probe=lambda url:False)
+
+    def test_strict_local_models(self):
+        model=server(MockModel)
+        prev=(ai.CPU,ai.NVIDIA,ai.AMD)
+        ai.CPU='http://127.0.0.1:'+str(model.server_port)
+        ai.NVIDIA='http://127.0.0.1:1'
+        ai.AMD='http://127.0.0.1:2'
+        try:
+            self.assertEqual(ai.local_model_ids(ai.CPU),['sirussofts-coder'])
+            self.assertEqual(ai.choose_worker('a'*32,'cpu',model_id='sirussofts-coder')[0],'cpu')
+            with self.assertRaises(RuntimeError):
+                ai.choose_worker('a'*32,'cpu',model_id='not-loaded')
+            with self.assertRaises(ValueError):
+                ai.assert_local_worker_url('https://api.example.com')
+            with tempfile.TemporaryDirectory() as td:
+                key=Path(td,'secret'); key.write_text('a'*64)
+                db=td+'/queue.sqlite3'
+                ai.init_db(db)
+                engine=ai.Engine(db,str(key))
+                server_in=server(ai.Handler);server_in.engine=engine
+                try:
+                    code,health=request('http://127.0.0.1:%d/api/in/health'%server_in.server_port)
+                    self.assertEqual(code,200)
+                    self.assertTrue(health['local_only'])
+                    self.assertEqual(health['models']['cpu'],['sirussofts-coder'])
+                    with self.assertRaises(urllib.error.HTTPError) as err:
+                        request('http://127.0.0.1:%d/api/in/jobs'%server_in.server_port,
+                            {'messages':[{'role':'user','content':'test'}],'local_only':False})
+                    self.assertEqual(err.exception.code,400)
+                    code,job=request('http://127.0.0.1:%d/api/in/jobs'%server_in.server_port,
+                        {'messages':[{'role':'user','content':'test'}], 'model_id':'sirussofts-coder',
+                         'target':'cpu','local_only':True})
+                    self.assertEqual(code,202)
+                    self.assertEqual(job['model_id'],'sirussofts-coder')
+                    with ai.db_connect(db) as connection:
+                        self.assertEqual(connection.execute('SELECT model_id FROM jobs WHERE id=?',
+                            (job['job_id'],)).fetchone()[0],'sirussofts-coder')
+                finally:
+                    server_in.shutdown();server_in.server_close()
+        finally:
+            ai.CPU,ai.NVIDIA,ai.AMD=prev
+            model.shutdown();model.server_close()
 
     def test_separate_ssh_links_keepalives(self):
         with tempfile.TemporaryDirectory() as td:
