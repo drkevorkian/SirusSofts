@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS cms_ai_document_objects (
     profile TEXT NOT NULL, status TEXT NOT NULL
       CHECK(status IN ('queued','processing','parsed','failed')),
     staging_key TEXT NOT NULL DEFAULT '',
-    pages INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '',
+    pages INTEGER NOT NULL DEFAULT 0, total_pages INTEGER NOT NULL DEFAULT 0,
+    processed_pages INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL, claimed_at INTEGER NOT NULL DEFAULT 0,
     completed_at TEXT
 );
@@ -346,7 +347,7 @@ function cms_ai_document_enqueue(PDO $db,array $identity,array $file,string $pro
     }
 }
 function cms_ai_account_documents(PDO $db,string $account): array {
-    $st=$db->prepare('SELECT o.id,o.sha256,a.profile,o.status,o.pages,o.error,a.title
+    $st=$db->prepare('SELECT o.id,o.sha256,a.profile,o.status,o.pages,o.total_pages,o.processed_pages,o.error,a.title
         FROM cms_ai_document_access a JOIN cms_ai_document_objects o ON o.id=a.object_id
         WHERE a.account=? ORDER BY a.created_at DESC LIMIT 200');
     $st->execute([$account]);return $st->fetchAll(PDO::FETCH_ASSOC);
