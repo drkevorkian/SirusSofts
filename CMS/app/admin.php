@@ -71,7 +71,7 @@ function cms_admin_post(PDO $db,string $path): void {
         if(!cms_login($db,(string)($_POST['username']??''),(string)($_POST['password']??'')))
             throw new InvalidArgumentException('Incorrect username or password.');
         cms_flash('Welcome to SirusSofts.');
-        cms_go(cms_is_admin()?'/admin':'/admin/source');
+        cms_go(cms_login_destination($_POST['next']??null,cms_is_admin()));
     }
     if($action==='logout'){
         if(!cms_authenticated($db))throw new InvalidArgumentException('Not signed in.');
@@ -280,6 +280,8 @@ function cms_admin_shell_end(PDO $db): void {
     cms_layout_end($db);
 }
 function cms_admin_login(PDO $db,?string $error): void {
+    $next=cms_login_return_path($_GET['next']??null)
+        ??cms_login_return_path($_POST['next']??null)??'';
     cms_layout_start($db,'Member sign-in');
     ?><section class="auth-layout"><div class="auth-copy">
       <span class="eyebrow">PRIVATE WORKSPACE</span><h1>Manage the work behind the scenes.</h1>
@@ -287,6 +289,7 @@ function cms_admin_login(PDO $db,?string $error): void {
     </div><div class="admin-panel login-panel"><h2>Account sign-in</h2>
       <?php if($error):?><p class="form-error"><?=cms_esc($error)?></p><?php endif;?>
       <form method="post" action="/admin/login">
+        <input type="hidden" name="next" value="<?=cms_esc($next)?>">
         <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
         <input type="hidden" name="action" value="login">
         <label>Username<input name="username" autocomplete="username" required maxlength="64" ></label>
@@ -383,14 +386,14 @@ function cms_admin_run(PDO $db,string $path): never {
     if(!cms_authenticated($db)){
         cms_admin_login($db,$error);exit;
     }
-    if($path==='/admin/login')cms_go(cms_is_admin()?'/admin':'/admin/source');
+    if($path==='/admin/login')cms_go(cms_login_destination($_GET['next']??null,cms_is_admin()));
     if($path==='/admin/source'){cms_source_page($db,$error);exit;}
     if(!cms_is_admin()){
         if($path==='/admin/account'){cms_viewer_account_page($db,$error);exit;}
-        if($path==='/admin' || $path==='/admin/logout')cms_go('/admin/source');
+        if($path==='/admin' || $path==='/admin/logout')cms_go('/admin/account');
         http_response_code(403);exit('Administrator permission required.');
     }
-    if($path==='/admin/logout'){cms_go('/admin');}
+    if($path==='/admin/logout'||$path==='/admin/account'){cms_go('/admin');}
     if($path==='/admin/ai'){cms_ai_page($db,$error);exit;}
     if($path==='/admin/users'){cms_users_page($db,$error);exit;}
     if($path==='/admin/hosting'){cms_vhost_page($db,$error);exit;}

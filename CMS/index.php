@@ -32,6 +32,22 @@ if($subdomain===''){
     exit('Unknown SirusSofts hostname.');
 }
 $path=cms_request_path();
+// Main website aliases have distinct cookies. Keep CMS login on the same
+// canonical host as /Gentoo/AI/ to prevent a false guest identity.
+$loginLocation=cms_auth_canonical_location($host,$path);
+if($loginLocation!==null){
+    $method=(string)($_SERVER['REQUEST_METHOD']??'GET');
+    if($method==='GET'||$method==='HEAD'){
+        if($path==='/admin/login'&&cms_login_return_path($_GET['next']??null)!==null)
+            $loginLocation.='?next='.rawurlencode('/Gentoo/AI/');
+        header('Location: '.$loginLocation,true,302);
+    }else{
+        http_response_code(409);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo 'Open https://sirussofts.com/admin/login to sign in again.';
+    }
+    exit;
+}
 if($subdomain!==null) {
     // A Hestia-managed content subdomain may map to this shared CMS docroot.
     // Full PHP projects (such as cPoint) get their own document root, so their

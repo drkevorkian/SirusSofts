@@ -277,7 +277,7 @@ function cms_ai_api_run(PDO $db,string $path): never {
             $models=[];try {
                 $models=cms_ai_api_upstream('input','/api/in/health')['models']??[];
             }catch(Throwable $e){}
-            cms_ai_api_json(200,['role'=>$identity['role'],'csrf'=>cms_csrf(),
+            cms_ai_api_json(200,['role'=>$identity['role'],'username'=>$identity['username']??null,'csrf'=>cms_csrf(),
                 'quota_bytes'=>$identity['account']===null?0:CMS_AI_MEMORY_QUOTA,
                 'used_bytes'=>$identity['account']===null?0:cms_ai_quota_used($db,$actor),
                 'categories'=>cms_ai_allowed_profiles($db,$identity),

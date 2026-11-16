@@ -103,9 +103,11 @@ function cms_ai_search_schema(PDO $db):void {
 
 /** CMS sessions are authoritative. Never trust a client-supplied account or role. */
 function cms_ai_identity(PDO $db): array {
-    if(cms_is_admin()) return ['role'=>'admin','account'=>'admin:'.(int)$_SESSION['cms_admin_id']];
+    if(cms_is_admin()) return ['role'=>'admin','account'=>'admin:'.(int)$_SESSION['cms_admin_id'],
+                               'username'=>(string)($_SESSION['cms_username']??'')];
     $viewer=cms_current_viewer($db);
-    if($viewer) return ['role'=>'user','account'=>'user:'.(int)$viewer['id']];
+    if($viewer) return ['role'=>'user','account'=>'user:'.(int)$viewer['id'],
+                        'username'=>(string)$viewer['username']];
     return ['role'=>'guest','account'=>null];
 }
 function cms_ai_actor(array $identity): string {

@@ -274,13 +274,37 @@ function cms_session(): void {
     ini_set('session.use_strict_mode','1');
     ini_set('session.use_only_cookies','1');
     ini_set('session.use_trans_sid','0');
-    session_name('sirus_cms_admin');
+    // Legacy /admin cookies collide with newer root-path cookies of this name.
+    // Use one fresh site-wide identity for /admin and /ai/api.
+    session_name('sirus_cms_session');
     session_set_cookie_params([
         'lifetime'=>0,'path'=>'/','secure'=>cms_https(),
         'httponly'=>true,'samesite'=>'Strict'
     ]);
+    if(isset($_COOKIE['sirus_cms_admin'])){
+        foreach(['/admin','/'] as $legacyPath){
+            setcookie('sirus_cms_admin','',[
+                'expires'=>time()-3600,'path'=>$legacyPath,
+                'secure'=>cms_https(),'httponly'=>true,'samesite'=>'Strict'
+            ]);
+        }
+        unset($_COOKIE['sirus_cms_admin']);
+    }
     session_start();
     if(!isset($_SESSION['cms_csrf']))$_SESSION['cms_csrf']=bin2hex(random_bytes(32));
+}
+/** Only allow return to public AI chat after CMS sign-in. */
+function cms_login_return_path(mixed $next): ?string {
+    return is_string($next)&&$next==='/Gentoo/AI/'?$next:null;
+}
+function cms_login_destination(mixed $next,bool $admin): string {
+    return cms_login_return_path($next)??($admin?'/admin':'/admin/account');
+}
+function cms_auth_canonical_location(string $host,string $path): ?string {
+    if(!in_array($host,['www.sirussofts.com','sirussofts.org','www.sirussofts.org'],true))
+        return null;
+    if($path!=='/admin'&&!str_starts_with($path,'/admin/'))return null;
+    return 'https://'.SIRUS_CMS_DOMAIN.$path;
 }
 function cms_csrf(): string {return (string)($_SESSION['cms_csrf']??'');}
 function cms_check_csrf(): void {

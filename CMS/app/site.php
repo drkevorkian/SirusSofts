@@ -68,10 +68,10 @@ function cms_layout_start(PDO $db,string $title,bool $admin=false): void {
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primaryNav" data-nav-toggle>Menu</button>
     <nav id="primaryNav" class="topnav" aria-label="Main navigation">
       <a href="<?=$home?>/">Home</a><a href="<?=$home?>/projects">Projects</a><a href="<?=$home?>/about">About</a>
-      <a href="<?=$home?>/Gentoo/AI/">AI Chat</a>
-      <?php if($identity==='admin'):?><a href="<?=$home?>/Gentoo/">Gentoo Dashboard</a><a href="<?=$home?>/admin/ai">AI Admin</a><a href="<?=$home?>/admin" class="nav-admin">Admin Panel</a>
-      <?php elseif($identity==='user'):?><a href="<?=$home?>/admin/account">My account</a>
-      <?php else:?><a href="<?=$home?>/admin/login">Sign in</a><?php endif;?>
+      <a href="https://sirussofts.com/Gentoo/AI/">AI Chat</a>
+      <?php if($identity==='admin'):?><a href="https://sirussofts.com/Gentoo/">Gentoo Dashboard</a><a href="https://sirussofts.com/admin/ai">AI Admin</a><a href="https://sirussofts.com/admin" class="nav-admin">Admin Panel</a>
+      <?php elseif($identity==='user'):?><a href="https://sirussofts.com/admin/account">My account</a>
+      <?php else:?><a href="https://sirussofts.com/admin/login">Sign in</a><?php endif;?>
     </nav>
   </div>
 </header>
@@ -84,7 +84,7 @@ function cms_layout_end(PDO $db): void {
 </main>
 <footer class="site-footer"><div class="shell footer-row">
   <span><?=cms_esc(cms_setting($db,'footer'))?></span>
-  <span><a href="<?=$home?>/projects">Explore projects</a> <span class="footer-divider">·</span> <a href="<?=$home?>/Gentoo/AI/">AI</a> <span class="footer-divider">·</span> <a href="<?=$home?>/admin">Account</a></span>
+  <span><a href="<?=$home?>/projects">Explore projects</a> <span class="footer-divider">·</span> <a href="https://sirussofts.com/Gentoo/AI/">AI</a> <span class="footer-divider">·</span> <a href="https://sirussofts.com/admin">Account</a></span>
 </div></footer></div></body></html>
 <?php
 }

@@ -66,9 +66,12 @@ function inventory(){
 async function loadState(){
  const data=await api('/state');s.role=data.role;s.csrf=data.csrf;
  s.categories=data.categories||[];s.models=data.models||{};
- $('roleLabel').textContent=s.role==='admin'?'Administrator':s.role==='user'?'Registered user':'Guest · limited chat';
- $('accountLink').textContent=s.role==='guest'?'Sign in':'My account';
- $('accountLink').href=s.role==='guest'?'/admin/login':'/admin/account';
+ const roleText=s.role==='admin'?'Administrator':s.role==='user'?'Registered user':'Guest · limited chat';
+ $('roleLabel').textContent=roleText+
+  (s.role!=='guest'&&typeof data.username==='string'&&data.username?' · '+data.username:'');
+ $('accountLink').textContent=s.role==='guest'?'Sign in':s.role==='admin'?'Admin panel':'My account';
+ $('accountLink').href=s.role==='guest'?'/admin/login?next=%2FGentoo%2FAI%2F':
+  s.role==='admin'?'/admin':'/admin/account';
  $('adminLink').hidden=s.role!=='admin';$('gentooLink').hidden=s.role!=='admin';
  $('memoryToggle').hidden=s.role==='guest';$('documentsToggle').hidden=s.role==='guest';
  $('worker').hidden=s.role!=='admin';$('workerLabel').hidden=s.role!=='admin';
