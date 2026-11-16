@@ -50,25 +50,50 @@ function cms_ai_ingest_one(PDO $db):bool {
         if(!is_string($raw)||$raw==='')throw new RuntimeException('PDF contains no extractable text.');
         if(!mb_check_encoding($raw,'UTF-8'))$raw=mb_convert_encoding($raw,'UTF-8','UTF-8');
         $pages=explode("\f",$raw);
-        if(count($pages)>5001)throw new RuntimeException('Document exceeds 5000 pages.');
+        if($pages && trim(end($pages))==='')array_pop($pages);
+        $total=count($pages);
+        if($total<1||$total>5000)throw new RuntimeException('Document exceeds page limits.');
         $db->beginTransaction();
         try{
-            $db->prepare('DELETE FROM cms_ai_document_chunks WHERE object_id=?')->execute([$id]);
-            $insert=$db->prepare('INSERT INTO cms_ai_document_chunks(object_id,page,part,body) VALUES(?,?,?,?)');
-            $pageCount=0;$nonempty=0;
-            foreach($pages as $index=>$page){
-                $page=trim($page);
-                if($page==='')continue;
-                if(strlen($page)>400000)throw new RuntimeException('Individual PDF page is too large.');
-                $pageCount=max($pageCount,$index+1);
-                foreach(str_split($page,8000) as $part=>$chunk) {
-                    $insert->execute([$id,$index+1,$part+1,$chunk]);$nonempty++;
-                }
+            $q=$db->prepare('SELECT processed_pages,total_pages FROM cms_ai_document_objects WHERE id=?');
+            $q->execute([$id]);$previous=$q->fetch(PDO::FETCH_ASSOC);
+            $startPage=(int)($previous['processed_pages']??0);
+            if((int)($previous['total_pages']??0)!==$total || $startPage>$total){
+                $db->prepare('DELETE FROM cms_ai_document_chunks WHERE object_id=?')->execute([$id]);
+                $startPage=0;
             }
-            if($nonempty<1)throw new RuntimeException('PDF has no readable page text; manual review/OCR needed.');
+            $db->prepare('UPDATE cms_ai_document_objects SET total_pages=?,processed_pages=?
+               WHERE id=?')->execute([$total,$startPage,$id]);
+            $db->commit();
+        }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
+        $insert=$db->prepare('INSERT INTO cms_ai_document_chunks(object_id,page,part,body) VALUES(?,?,?,?)');
+        foreach($pages as $index=>$page){
+            $pageNo=$index+1;
+            if($pageNo<=$startPage)continue; // retry after parser interruption
+            $page=trim($page);
+            if(strlen($page)>400000)throw new RuntimeException('Individual PDF page is too large.');
+            $db->beginTransaction();
+            try{
+                $db->prepare('DELETE FROM cms_ai_document_chunks WHERE object_id=? AND page=?')
+                   ->execute([$id,$pageNo]);
+                if($page!=='')foreach(str_split($page,8000) as $part=>$chunk)
+                    $insert->execute([$id,$pageNo,$part+1,$chunk]);
+                $db->prepare('UPDATE cms_ai_document_objects
+                    SET processed_pages=?,claimed_at=? WHERE id=? AND status=?')
+                   ->execute([$pageNo,time(),$id,'processing']);
+                $db->commit();
+            }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
+        }
+        $db->beginTransaction();
+        try{
+            $q=$db->prepare('SELECT COUNT(*) FROM cms_ai_document_chunks WHERE object_id=?');
+            $q->execute([$id]);
+            if((int)$q->fetchColumn()<1)
+                throw new RuntimeException('PDF has no readable page text; manual review/OCR needed.');
             $db->prepare("UPDATE cms_ai_document_objects SET
-                status='parsed',pages=?,error='',staging_key='',completed_at=?
-                WHERE id=? AND status='processing'")->execute([$pageCount,cms_now(),$id]);
+                status='parsed',pages=?,total_pages=?,processed_pages=?,
+                error='',staging_key='',completed_at=?
+                WHERE id=? AND status='processing'")->execute([$total,$total,$total,cms_now(),$id]);
             $db->commit();
         }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
         if(is_file($source))unlink($source); // only after complete DB commit
