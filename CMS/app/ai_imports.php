@@ -3,6 +3,13 @@ declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 
 /** Admin-only staging: PDFs are never served from public_html or executed. */
+const CMS_AI_PDF_MAX_BYTES = 200 * 1024 * 1024;
+// Bound aggregate requests on the 2 GiB VPS; upload large manuals in separate batches.
+const CMS_AI_PDF_BATCH_MAX_BYTES = 200 * 1024 * 1024;
+function cms_ai_pdf_size_valid(mixed $size):bool {
+    return is_int($size)&&$size>=32&&$size<=CMS_AI_PDF_MAX_BYTES;
+}
+
 function cms_ai_import_schema(PDO $db):void {
     $db->exec("CREATE TABLE IF NOT EXISTS cms_ai_pdf_uploads (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,8 +88,8 @@ function cms_ai_upload_pdf(PDO $db,array $file,string $profile):void {
         throw new InvalidArgumentException('PDF upload failed (PHP/Nginx size limits may apply).');
     $bytes=$file['size']??null;
     $tmp=$file['tmp_name']??null;
-    if(!is_int($bytes)||$bytes<32||$bytes>25*1024*1024)
-        throw new InvalidArgumentException('Each PDF must be 32 bytes to 25 MiB.');
+    if(!cms_ai_pdf_size_valid($bytes))
+        throw new InvalidArgumentException('Each PDF must be 32 bytes to 200 MiB.');
     if(!is_string($tmp)||!is_uploaded_file($tmp)||!cms_ai_pdf_header($tmp))
         throw new InvalidArgumentException('Uploaded file is not a valid PDF upload.');
     $mime=(new finfo(FILEINFO_MIME_TYPE))->file($tmp);
@@ -110,7 +117,8 @@ function cms_ai_upload_manuals(PDO $db):never {
     $count=count($source['name']);
     if($count<1||$count>10)throw new InvalidArgumentException('Upload 1–10 PDFs per batch.');
     $fileKeys=['name','type','tmp_name','error','size'];
-    // Validate all upload errors and filenames before moving any file.
+    // Check the full request before moving any file; the batch is also bounded.
+    $batchBytes=0;
     foreach(range(0,$count-1) as $i){
         foreach($fileKeys as $key){
             if(!isset($source[$key][$i]))
@@ -119,6 +127,11 @@ function cms_ai_upload_manuals(PDO $db):never {
         cms_ai_pdf_filename($source['name'][$i]);
         if($source['error'][$i]!==UPLOAD_ERR_OK)
             throw new InvalidArgumentException('PDF upload rejected by PHP/Nginx; check size limits.');
+        if(!cms_ai_pdf_size_valid($source['size'][$i]))
+            throw new InvalidArgumentException('Each PDF must be 32 bytes to 200 MiB.');
+        $batchBytes+=$source['size'][$i];
+        if($batchBytes>CMS_AI_PDF_BATCH_MAX_BYTES)
+            throw new InvalidArgumentException('Maximum 200 MiB total per upload batch; submit large manuals separately.');
     }
     foreach(range(0,$count-1) as $i){
         $one=[];
@@ -255,8 +268,8 @@ function cms_ai_import_panel(PDO $db):void {
         FROM cms_ai_pdf_uploads ORDER BY id DESC LIMIT 100')->fetchAll(PDO::FETCH_ASSOC);
     ?>
     <div class="admin-panel"><h2>Upload service manuals (PDF)</h2>
-      <p>Upload up to ten PDF files per batch, each at most 25 MiB. Files are stored privately on Ubuntu, never in the public website. Files are staged, not executed, analyzed, approved, or sent automatically.</p>
-      <p class="muted">PHP post_max_size, upload_max_filesize and Nginx client_max_body_size may be lower; verify those limits before uploading large manuals.</p>
+      <p>Upload up to ten PDF files per batch; each PDF may be up to 200 MiB, with a maximum of 200 MiB total per request. Files are stored privately on Ubuntu, never in the public website. Files are staged, not executed, analyzed, approved, or sent automatically.</p>
+      <p class="muted">For 200 MiB uploads, configure the site's PHP-FPM upload_max_filesize to 200M and post_max_size to at least 220M; verify effective Hestia Nginx/Apache request limits. Large manuals should be uploaded one at a time.</p>
       <form method="post" enctype="multipart/form-data" action="/admin/ai">
         <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
         <input type="hidden" name="action" value="ai_upload_pdfs">

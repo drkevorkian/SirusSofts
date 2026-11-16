@@ -11,6 +11,10 @@ spec=importlib.util.spec_from_file_location("manual_ingest",ROOT/"gentoo/manual_
 ing=importlib.util.module_from_spec(spec);spec.loader.exec_module(ing)
 
 class ManualIngestTests(unittest.TestCase):
+    def test_pdf_200_mib_limit(self):
+        self.assertEqual(ing.MAX_SOURCE_BYTES,200*1024*1024)
+        self.assertEqual(ing.MAX_SOURCE_BYTES//(1024*1024),200)
+
     def test_page_chunks_and_review(self):
         with tempfile.TemporaryDirectory() as td:
             pdf=Path(td,"HD11 CAN-AM.pdf")

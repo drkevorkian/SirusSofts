@@ -13,7 +13,7 @@ import re
 import subprocess
 
 EXPERTISE=("coding","science","physics","time","relativity","finance","mechanics")
-MAX_SOURCE_BYTES=100*1024*1024
+MAX_SOURCE_BYTES=200*1024*1024
 MAX_OUTPUT_BYTES=16*1024*1024
 MAX_RECORDS=3000
 MAX_PAGE_TEXT=4800
@@ -23,7 +23,7 @@ def pdf_path(value):
     if not path.is_absolute() or path.is_symlink() or not path.is_file():
         raise ValueError("PDF must be an absolute regular file, never a symlink")
     if not 32<=path.stat().st_size<=MAX_SOURCE_BYTES:
-        raise ValueError("PDF size out of range (32 bytes–100 MiB)")
+        raise ValueError("PDF size out of range (32 bytes–200 MiB)")
     with path.open("rb") as stream:
         if not stream.read(8).startswith(b"%PDF-"):
             raise ValueError("File does not have a PDF header")
