@@ -96,7 +96,8 @@ async function documents(){
  const root=$('documentEntries');root.replaceChildren();
  for(const d of (await api('/documents')).documents||[]){
   const card=el('article','');card.className='workspace-entry';
-  card.append(el('b',d.title),el('p',d.profile+' · '+d.status+' · '+d.pages+' pages'));
+  card.append(el('b',d.title),el('p',d.profile+' · '+d.status+' · '+
+    (d.status==='parsed'?d.pages+' parsed pages':d.processed_pages+'/'+d.total_pages+' pages processed')));
   if(d.error)card.append(el('small',d.error));root.append(card);
  }
 }
