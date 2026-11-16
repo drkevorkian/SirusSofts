@@ -11,7 +11,7 @@ async function api(path,method='GET',body=null){
  if(!res.ok)throw Error(data.error||'Request rejected');return data;
 }
 function status(t){$('progress').textContent=t;}
-function panel(id){for(const n of ['messages','memoryPanel','documentPanel'])$(n).hidden=n!==id;}
+function panel(id){for(const n of ['messages','knowledgePanel','memoryPanel','documentPanel'])$(n).hidden=n!==id;}
 function draw(){
  const root=$('messages');root.replaceChildren();
  if(!s.msgs.length){let w=el('div','');w.className='welcome';w.append(el('h2','SirusSofts AI'),
@@ -91,6 +91,19 @@ async function memories(){
   card.append(del);root.append(card);
  }
 }
+async function knowledge(){
+ const root=$('knowledgeEntries');root.replaceChildren();
+ const slug=$('profile').value==='auto'?(s.categories[0]||{}).slug:$('profile').value;
+ if(!slug){root.append(el('p','No public or authorized knowledge categories are available.'));return;}
+ const data=await api('/knowledge/'+encodeURIComponent(slug));
+ if(!(data.documents||[]).length)root.append(el('p','No approved entries in this category yet.'));
+ for(const d of data.documents||[]){
+  const card=el('article','');card.className='workspace-entry';
+  card.append(el('b',d.title),el('p',d.excerpt||'No preview available'));
+  if(d.source_url)card.append(el('small','Source: '+d.source_url));
+  root.append(card);
+ }
+}
 async function documents(){
  if(s.role==='guest')return;
  const root=$('documentEntries');root.replaceChildren();
@@ -138,6 +151,10 @@ $('composer').onsubmit=send;
 $('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){
  e.preventDefault();$('composer').requestSubmit();}};
 $('newChat').onclick=newChat;
+$('knowledgeToggle').onclick=async()=>{panel('knowledgePanel');try{await knowledge();}catch(e){status(e.message);}};
+$('profile').addEventListener('change',async()=>{
+ if(!$('knowledgePanel').hidden)try{await knowledge();}catch(e){status(e.message);}
+});
 $('memoryToggle').onclick=async()=>{panel('memoryPanel');try{await memories();}catch(e){status(e.message);}};
 $('documentsToggle').onclick=async()=>{panel('documentPanel');try{await documents();}catch(e){status(e.message);}};
 $('memoryForm').onsubmit=async e=>{
