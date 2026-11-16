@@ -286,8 +286,8 @@ function cms_ai_document_enqueue(PDO $db,array $identity,array $file,string $pro
             ->execute([$sha,(int)$file['size'],$profile,$key,cms_now()]);
         $fresh=$db->prepare('SELECT id,status,staging_key FROM cms_ai_document_objects WHERE sha256=?');
         $fresh->execute([$sha]);$row=$fresh->fetch(PDO::FETCH_ASSOC);
-        $db->prepare('INSERT OR IGNORE INTO cms_ai_document_access(object_id,account,title,created_at)
-            VALUES(?,?,?,?)')->execute([(int)$row['id'],$account,$profile,$name,cms_now()]);
+        $db->prepare('INSERT OR IGNORE INTO cms_ai_document_access(object_id,account,profile,title,created_at)
+            VALUES(?,?,?,?,?)')->execute([(int)$row['id'],$account,$profile,$name,cms_now()]);
         $db->commit();
         if($row['staging_key']!==$key)unlink($destination); // race: another upload won
         return ['id'=>(int)$row['id'],'status'=>$row['status'],
