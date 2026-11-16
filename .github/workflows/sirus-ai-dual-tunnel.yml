@@ -24,6 +24,8 @@ jobs:
       - name: Shell syntax
         run: |
           bash -n sirus-ai-dual-tunnel/gentoo/install.sh
+          bash -n sirus-ai-dual-tunnel/gentoo/upgrade-in-place.sh
+          bash -n sirus-ai-dual-tunnel/ubuntu/upgrade-in-place.sh
           bash -n sirus-ai-dual-tunnel/gentoo/gpu-workers.sh
           bash -n sirus-ai-dual-tunnel/ubuntu/install.sh
           bash -n sirus-ai-dual-tunnel/ubuntu/repair-input-port-18485.sh
