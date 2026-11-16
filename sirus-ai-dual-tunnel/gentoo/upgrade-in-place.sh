@@ -33,13 +33,13 @@ if [[ "$mode" == --plan ]]; then
   echo "Installed: $dest"
   echo "SQLite: $db (never overwritten)"
   echo "Will restart: sirus-ai-input ONLY; no GPU, SSH, tunnel or OpenRC system changes"
-  echo "Rollback code and consistent DB snapshot kept under /var/lib/sirus-ai-dual/releases"
+  echo "Rollback code and consistent DB snapshot kept under /root/sirus-ai-upgrade-backups"
   exit 0
 fi
 [[ -t 0 && -t 1 ]] || fail 'Interactive terminal required'
 read -rp 'Type UPGRADE GENTOO AI to back up and replace router code: ' answer
 [[ "$answer" == 'UPGRADE GENTOO AI' ]] || fail 'Confirmation mismatch'
-release="/var/lib/sirus-ai-dual/releases/release-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+release="/root/sirus-ai-upgrade-backups/release-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 mkdir -p -m 0700 "$release"
 chmod 0700 "$release"
 cp -p "$dest" "$release/input_server.py"
