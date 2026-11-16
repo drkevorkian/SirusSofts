@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import threading
 
-PROFILES=("auto","coding","physics","time")
+PROFILES=("auto","coding","science","physics","time","relativity","finance","mechanics")
 STOP=set("the and for with what from this that which will have does into your about how are when why can you in of on at to".split())
 WORD=re.compile(r"[a-zA-Z][\w+-]*")
 

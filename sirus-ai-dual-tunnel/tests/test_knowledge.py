@@ -28,6 +28,17 @@ class TestKnowledge(unittest.TestCase):
             self.assertIn("[K1]",reply[0]["content"])
             self.assertEqual(reply[1:],messages)
             self.assertEqual(k.augment_messages(messages,"coding"),messages)
+    def test_expanded_expertise(self):
+        self.assertEqual(set(kb.PROFILES), {"auto","coding","science","physics","time","relativity","finance","mechanics"})
+        with tempfile.TemporaryDirectory() as td:
+            f=Path(td,"index.jsonl")
+            doc=self.record("Clutch primary weights")
+            doc["profile"]="mechanics"
+            f.write_text(json.dumps(doc)+"\n")
+            idx=kb.KnowledgeIndex.from_file(f)
+            self.assertEqual(len(idx.retrieve("clutch weights","mechanics")),1)
+            self.assertEqual(idx.retrieve("clutch weights","finance"),[])
+
     def test_integrity_and_review(self):
         with tempfile.TemporaryDirectory() as td:
             f=Path(td,"index.jsonl")
