@@ -17,7 +17,7 @@ cms_session();
 auth_check(session_name()==='sirus_cms_session','New CMS cookie name');
 $p=session_get_cookie_params();
 auth_check($p['path']==='/' && $p['secure']===true && $p['httponly']===true &&
-    $p['samesite']==='Strict','Cookie shared by /admin and /ai/api, secure and host-only');
+    $p['samesite']==='Lax' && $p['domain']==='','Cookie shared by /admin and /ai/api, secure and host-only');
 auth_check(!isset($_COOKIE['sirus_cms_admin']),'Legacy cookie no longer trusted');
 auth_check(cms_login_return_path('/Gentoo/AI/')==='/Gentoo/AI/','AI return allowed');
 foreach(['https://evil.test','//evil.test','/admin/ai','/Gentoo/AI/%2e%2e'] as $bad)

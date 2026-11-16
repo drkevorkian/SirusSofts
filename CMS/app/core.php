@@ -278,8 +278,10 @@ function cms_session(): void {
     // Use one fresh site-wide identity for /admin and /ai/api.
     session_name('sirus_cms_session');
     session_set_cookie_params([
-        'lifetime'=>0,'path'=>'/','secure'=>cms_https(),
-        'httponly'=>true,'samesite'=>'Strict'
+        'lifetime'=>0,'path'=>'/','domain'=>'','secure'=>cms_https(),
+        // Lax preserves sign-in on normal navigation from .org to canonical .com;
+        // all state-changing forms and the AI API still require CSRF tokens.
+        'httponly'=>true,'samesite'=>'Lax'
     ]);
     if(isset($_COOKIE['sirus_cms_admin'])){
         foreach(['/admin','/'] as $legacyPath){
