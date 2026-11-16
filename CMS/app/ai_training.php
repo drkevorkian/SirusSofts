@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
+require_once __DIR__.'/ai_imports.php';
 
 /** Private curated knowledge; no crawlers, execution, or model training in PHP. */
 function cms_ai_expertise():array {
@@ -57,6 +58,7 @@ function cms_ai_schema(PDO $db):void {
         created_at TEXT NOT NULL)");
     $db->exec('CREATE INDEX IF NOT EXISTS cms_ai_documents_review ON cms_ai_documents(profile,reviewed)');
     $db->exec('CREATE INDEX IF NOT EXISTS cms_ai_examples_review ON cms_ai_examples(split,reviewed,profile)');
+    cms_ai_import_schema($db);
     $st=$db->prepare('INSERT OR IGNORE INTO cms_ai_profiles(slug,title) VALUES(?,?)');
     foreach(cms_ai_expertise() as $slug=>$title)$st->execute([$slug,$title]);
     // Preserve the existing three profile assignments and data; new topics start empty.
@@ -119,6 +121,8 @@ function cms_ai_export(PDO $db,string $kind):never {
 function cms_ai_post(PDO $db,string $action):never {
     cms_need_admin();
     if(str_starts_with($action,'export_'))cms_ai_export($db,substr($action,7));
+    if(in_array($action,['ai_upload_pdfs','ai_download_pdf','ai_research_settings','ai_export_research_config'],true))
+        cms_ai_import_post($db,$action);
     if($action==='ai_add_document'){
         $fields=cms_ai_valid_document($_POST);
         $db->prepare('INSERT INTO cms_ai_documents(profile,title,source_url,content,reviewed,created_at)
@@ -171,6 +175,7 @@ function cms_ai_page(PDO $db,?string $error=null):void {
         </form><?php endforeach;?>
       </div>
     </div>
+    <?php cms_ai_import_panel($db); ?>
     <div class="admin-panel"><h2>Profiles</h2>
       <div class="ai-profiles"><?php foreach($profiles as $p):?>
         <form method="post" action="/admin/ai" class="ai-profile">

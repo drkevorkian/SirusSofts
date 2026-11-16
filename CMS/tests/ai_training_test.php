@@ -12,6 +12,18 @@ try{cms_ai_valid_document(['profile'=>'coding','title'=>'bad','content'=>'text',
 catch(InvalidArgumentException $expected){}
 try{cms_ai_valid_example(['profile'=>'time','prompt'=>'a','response'=>'b','split'=>'invalid']);ai_assert(false,'split validation');}
 catch(InvalidArgumentException $expected){}
+ai_assert(cms_ai_depth('50')===50,'default depth');
+ai_assert(cms_ai_depth('5000')===5000,'maximum depth');
+foreach(['0','5001','-1','abc'] as $invalid){
+    try{cms_ai_depth($invalid);ai_assert(false,'depth should fail');}
+    catch(InvalidArgumentException $expected){}
+}
+ai_assert(cms_ai_engine_selection(['google','bing','duckduckgo'])===['google','bing','duckduckgo'],'engine selection');
+try{cms_ai_engine_selection(['google','google']);ai_assert(false,'duplicate engine');}
+catch(InvalidArgumentException $expected){}
+try{cms_ai_pdf_filename('../evil.php');ai_assert(false,'invalid PDF name');}
+catch(InvalidArgumentException $expected){}
+ai_assert(cms_ai_pdf_filename('BRP HD11 Shop Manual.pdf')==='BRP HD11 Shop Manual.pdf','manual filename');
 ai_assert(cms_ai_profile('finance')==='finance','finance expertise');
 ai_assert(cms_ai_profile('mechanics')==='mechanics','mechanics expertise');
 ai_assert(cms_ai_profile('relativity')==='relativity','relativity expertise');
@@ -20,6 +32,8 @@ $db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTI
 $db->exec('PRAGMA foreign_keys=ON');
 cms_schema($db);cms_schema($db);
 ai_assert((int)$db->query('SELECT count(*) FROM cms_ai_profiles')->fetchColumn()===7,'idempotent profiles');
+ai_assert((int)$db->query('SELECT depth FROM cms_ai_research_config')->fetchColumn()===50,'persisted default search depth');
+ai_assert((int)$db->query("SELECT count(*) FROM sqlite_master WHERE name='cms_ai_pdf_uploads'")->fetchColumn()===1,'PDF staging schema');
 $db->prepare('INSERT INTO cms_ai_documents(profile,title,source_url,content,reviewed,created_at) VALUES(?,?,?,?,?,?)')
    ->execute(['physics','Trusted','https://example.org/paper','Lorentz factor gamma',1,cms_now()]);
 $db->prepare('INSERT INTO cms_ai_documents(profile,title,source_url,content,reviewed,created_at) VALUES(?,?,?,?,?,?)')
