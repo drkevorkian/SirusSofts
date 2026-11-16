@@ -323,7 +323,20 @@ function cms_ai_document_enqueue(PDO $db,array $identity,array $file,string $pro
         // PHP removes the untouched upload from its temporary directory after request.
         return ['id'=>(int)$existing['id'],'status'=>$existing['status'],'duplicate'=>true];
     }
-    $key=bin2hex(random_bytes(20)).'.pdf';$destination=cms_ai_document_directory().'/'.$key;
+    $st=$db->query("SELECT COALESCE(SUM(bytes),0) FROM cms_ai_document_objects");
+    $reserved=(int)$st->fetchColumn();
+    $bytes=(int)$file['size'];
+    // This is the separate DOCUMENT quota, never a charge against 2 GiB chat memory.
+    // Bound public PDF ingestion on the existing 60 GiB Ubuntu gateway until
+    // dedicated document storage is attached and its capacity is verified.
+    $documentCap=8*1024*1024*1024;
+    if($reserved+$bytes>$documentCap)
+        throw new RuntimeException('Shared document capacity reached; contact site administrator.');
+    $privateDir=cms_ai_document_directory();
+    $available=disk_free_space($privateDir);
+    if($available===false || $available-$bytes<5*1024*1024*1024)
+        throw new RuntimeException('Document upload temporarily disabled: insufficient free storage.');
+    $key=bin2hex(random_bytes(20)).'.pdf';$destination=$privateDir.'/'.$key;
     if(!move_uploaded_file($tmp,$destination))throw new RuntimeException('Could not stage uploaded PDF.');
     chmod($destination,0600);
     try {
