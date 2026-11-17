@@ -116,3 +116,31 @@ installed loopback dashboard. It verifies JPEG bytes/approval without copying
 the original PDF over the tunnel or printing any credentials. If the selected
 manual is damaged or unusually resource-intensive, it may fail and must be
 investigated before enabling public image cards.
+
+
+## Broad shorthand discovery (2026 HD10 wire diagram)
+
+- Accept document-type synonyms such as "wire diagram", "wiring diagrams",
+  "electrical schematic", "electrical drawing" and "wiring prints".
+- A year plus HD engine family without a named platform means **browse all
+  approved same-year/same-engine platforms**, not randomly choose one vehicle.
+- For broad wiring searches, query approved document *titles* even when
+  \`pdftotext\` cannot read wiring images and FTS returns zero circuit terms.
+  Prefer dedicated electrical/wiring documents; if none exist, show only
+  same-year/engine shop manuals as potential references.
+- Search result source cards open the image-only manual viewer. If no page text
+  identifies a drawing, the reference is a **catalog-only match** and its
+  displayed page is merely the starting page, not a claim that the wiring
+  schematic is on that page.
+- If page text explicitly identifies a wiring or circuit diagram, that page
+  may be preferred, but extracted text alone does not validate what visual
+  circuit diagram appears in the image.
+- **No cross-year or cross-engine substitution, no automatic approval,
+  no scanned-content hallucination, no new model or PDF downloads.**
+- Broad document discovery is different from answering an exact pinout or
+  connector-color question; specific technical questions must still use
+  retrieved, page-attributed evidence. Missing page evidence must be stated.
+- New code requires only the **Gentoo AI input router** upgrade. The existing
+  Ubuntu CMS, AI gateway, viewer UI, signed Gentoo PDF bridge, PDFs, and
+  document index format are unchanged. The incremental FTS sync should show
+  \`new_or_changed: 0\` if no manual approvals have changed.

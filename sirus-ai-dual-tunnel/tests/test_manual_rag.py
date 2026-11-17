@@ -182,6 +182,125 @@ class ManualRagTests(unittest.TestCase):
                                        [{"role": "system", "content": message}]),
             "Here is an answer based on [M1].")
 
+    def test_broad_2026_hd10_wire_diagram_discovers_approved_image_manuals(self):
+        # Neither approved PDF has a searchable wiring diagram body: both
+        # are visual drawings, so source discovery MUST use titles.
+        commander = "6" * 64
+        defender = "7" * 64
+        shop = "8" * 64
+        wrong_year = "9" * 64
+        wrong_engine = "a" * 64
+        unreviewed = "b" * 64
+        self.add(commander, "SSV 2026 COMMANDER HD10 - Wire Diagram.pdf",
+                 "approved", 1, "Legend and image references only", page=1)
+        self.add(defender, "SSV 2026 DEFENDER_TRAXTER HD10 Electrical Schematics.pdf",
+                 "approved", 1, "A raster circuit drawing with unlabeled image", page=1)
+        self.add(shop, "SSV 2026 DEFENDER_TRAXTER HD10 - Shop Manual.pdf",
+                 "approved", 1, "Unrelated clutch information", page=12)
+        self.add(wrong_year, "SSV 2025 COMMANDER HD10 - Wiring Diagram.pdf",
+                 "approved", 1, "Diagram legend", page=1)
+        self.add(wrong_engine, "SSV 2026 DEFENDER HD11 - Wiring Diagram.pdf",
+                 "approved", 1, "Electrical connections", page=1)
+        self.add(unreviewed, "SSV 2026 DEFENDER HD10 - Wiring Diagram DRAFT.pdf",
+                 "ready", 0, "Electrical drawing", page=1)
+        rag.sync(self.source,self.index)
+        for query in ("2026 HD10 wire diagram", "2026 HD10 wiring diagrams",
+                      "Show me 2026 HD10 electrical schematics"):
+            self.assertTrue(rag._broad_wiring_lookup(query), query)
+            refs = rag.retrieve(query,self.source,self.index)
+            self.assertEqual({r["sha256"] for r in refs},
+                             {commander,defender}, query)
+            self.assertTrue(all(r["reference_only"] for r in refs),query)
+            self.assertTrue(all(r["page"] == 1 for r in refs),query)
+            ctx = rag.augment([{"role":"user","content":query}],
+                              query,self.source,self.index)[0]["content"]
+            self.assertIn("CATALOG MATCH ONLY",ctx)
+            self.assertIn("NOT a verified diagram page",ctx)
+            self.assertIn("PDF page 1",ctx)
+            self.assertNotIn("2025 COMMANDER",ctx)
+            self.assertNotIn("HD11",ctx)
+            self.assertNotIn("DRAFT",ctx)
+            self.assertNotIn("Shop Manual.pdf",ctx)
+            sources = rag.include_source_manifest(
+                "Found matching reference manuals",[
+                    {"role":"system","content":ctx}
+                ])
+            self.assertIn("[[SIRUS_MANUAL_SOURCES_START]]",sources)
+            self.assertIn(commander,sources)
+            self.assertIn(defender,sources)
+
+    def test_broad_wire_shop_fallback_without_dedicated_diagram(self):
+        shop = "c" * 64
+        other = "d" * 64
+        self.add(shop,"SSV 2026 COMMANDER HD10 - Shop Manual.pdf",
+                 "approved",1,"Introduction to engine service",page=2)
+        self.add(other,"SSV 2026 COMMANDER HD11 - Wiring Diagram.pdf",
+                 "approved",1,"Electrical circuit illustration",page=1)
+        rag.sync(self.source,self.index)
+        refs=rag.retrieve("2026 Commander HD10 wire diagram",self.source,self.index)
+        self.assertEqual(len(refs),1)
+        self.assertEqual(refs[0]["sha256"],shop)
+        self.assertTrue(refs[0]["reference_only"])
+        context=rag.augment([{"role":"user","content":"2026 Commander HD10 wire diagram"}],
+                            "2026 Commander HD10 wire diagram",
+                            self.source,self.index)[0]["content"]
+        self.assertIn("NOT a verified diagram page",context)
+        # Targeted shop procedure continues to require actual page matches.
+        self.assertEqual(rag.retrieve("2026 Commander HD10 shop manual primary clutch removal",
+                                      self.source,self.index),[])
+
+    def test_specific_wire_diagram_uses_extracted_electrical_page(self):
+        wire="e" * 64
+        shop="f" * 64
+        self.add(wire,"SSV 2026 Defender HD10 - Wire Diagram.pdf",
+                 "approved",1,"IGNITION SWITCH. Wiring connector color and relay",page=31)
+        self.add(shop,"SSV 2026 Defender HD10 - Shop Manual.pdf",
+                 "approved",1,"IGNITION SWITCH unrelated mechanical maintenance",page=46)
+        rag.sync(self.source,self.index)
+        question="2026 Defender HD10 wire diagram ignition switch"
+        self.assertFalse(rag._broad_wiring_lookup(question))
+        refs=rag.retrieve(question,self.source,self.index)
+        self.assertTrue(refs)
+        self.assertEqual(refs[0]["sha256"],wire)
+        self.assertEqual(refs[0]["page"],31)
+        self.assertNotIn("reference_only",refs[0])
+
+    def test_broad_diagram_prefers_text_identified_page_when_present(self):
+        pdf="e"*64
+        self.add(pdf,"SSV 2026 DEFENDER HD10 Wiring Diagram.pdf",
+                 "approved",1,"Generic note about vehicle electronics",page=1)
+        with ingest.connect(self.disk) as db:
+            db.execute("INSERT INTO excerpts VALUES (?,?,?,?)",
+                       (pdf,84,1,"WIRING DIAGRAM: accessory connector harness and relay"))
+            db.execute("UPDATE documents SET excerpts=2 WHERE sha256=?",(pdf,))
+        rag.sync(self.source,self.index)
+        refs=rag.retrieve("2026 Defender HD10 wire diagram",self.source,self.index)
+        self.assertTrue(refs)
+        self.assertEqual(refs[0]["page"],84)
+        self.assertFalse(refs[0]["reference_only"])
+        self.assertEqual(refs[0]["sha256"],pdf)
+
+    def test_negative_wire_diagram_phrase_does_not_restrict_shop_request(self):
+        shop="a"*64
+        wiring="b"*64
+        self.add(shop,"2027 Defender HD11 Shop Manual.pdf",
+                 "approved",1,"PRIMARY CLUTCH REMOVAL. Remove the bolt.",page=80)
+        self.add(wiring,"2027 Defender HD11 Wire Diagram.pdf",
+                 "approved",1,"PRIMARY CLUTCH REMOVAL electrical circuit.",page=10)
+        rag.sync(self.source,self.index)
+        question="2027 Defender HD11 shop manual primary clutch removal; do not substitute a wire diagram"
+        refs=rag.retrieve(question,self.source,self.index)
+        self.assertTrue(refs)
+        self.assertTrue(all(x["sha256"]==shop for x in refs))
+
+    def test_missing_2026_hd10_broad_diagrams_do_not_mix_year_or_engine(self):
+        self.add("0"*64,"SSV 2025 COMMANDER HD10 - Wire Diagram.pdf",
+                 "approved",1,"Diagram legend")
+        self.add("1"*64,"SSV 2026 COMMANDER HD11 - Wiring Diagram.pdf",
+                 "approved",1,"Circuit legend")
+        rag.sync(self.source,self.index)
+        self.assertEqual(rag.retrieve("2026 HD10 wire diagram",self.source,self.index),[])
+
     def test_requested_unavailable_year_must_not_mix_documents(self):
         self.add("5" * 64, "SSV 2026 DEFENDER_TRAXTER HD11 - Shop Manual.pdf",
                  "approved", 1, "PRIMARY CLUTCH REMOVAL Remove the bolt.", page=90)

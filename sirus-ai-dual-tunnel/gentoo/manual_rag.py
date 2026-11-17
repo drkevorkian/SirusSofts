@@ -163,6 +163,39 @@ def _negated_document_mention(query, pattern):
     return False
 
 
+WIRING_PATTERN = (r"\b(?:"
+                  r"(?:wire|wiring|electrical|circuit)\s+(?:diagrams?|schematics?|drawings?)"
+                  r"|(?:electrical|wiring)\s+prints?"
+                  r")\b")
+WIRING_FILENAME = re.compile(
+    r"\b(?:wire\s+diagrams?|wiring|electrical|schematics?|circuit\s+diagrams?)\b"
+)
+
+
+def _wiring_text_evidence(text):
+    """Page text identifies a diagram; a lone 'circuit' does not."""
+    return bool(re.search(
+        r"\b(?:wire|wiring|circuit)\s+diagrams?\b"
+        r"|\belectrical\s+schematics?\b"
+        r"|\bwiring\s+schematics?\b",
+        str(text).lower()
+    ))
+
+
+def _broad_wiring_lookup(query):
+    """Source discovery request, not a component-specific electrical question.
+
+    '2026 HD10 wire diagram' must enumerate approved documents even when
+    the PDF page is entirely visual and has no diagram text to match.
+    """
+    q = query.lower()
+    if not re.search(WIRING_PATTERN, q):
+        return False
+    if _negated_document_mention(q, WIRING_PATTERN):
+        return False
+    return not _topic_terms(query)
+
+
 def _vehicle_scope(query, approved):
     """Scope explicit model/year/document-type questions before searching pages.
 
@@ -174,7 +207,7 @@ def _vehicle_scope(query, approved):
     model = re.search(r"\bhd[\s_-]*(?:\d{1,2})\b", query_l)
     model_id = re.sub(r"[\s_-]+", "", model.group()) if model else ""
     shop_pattern = r"\b(?:shop|service|repair)\s+manuals?\b"
-    wiring_pattern = r"\b(?:wiring\s+diagrams?|electrical\s+schematics?)\b"
+    wiring_pattern = WIRING_PATTERN
     excludes_shop = _negated_document_mention(query_l, shop_pattern)
     excludes_wiring = _negated_document_mention(query_l, wiring_pattern)
     asks_shop = bool(re.search(shop_pattern,query_l)) and not excludes_shop
@@ -188,6 +221,8 @@ def _vehicle_scope(query, approved):
         platform = "maverick"
 
     qualified = []
+    shop_fallback = []
+    browse_wiring = _broad_wiring_lookup(query)
     for row in approved:
         title = str(row["filename"]).lower().replace("_", " ").replace("-", " ")
         compact = re.sub(r"[\s_-]+", "", title)
@@ -200,19 +235,25 @@ def _vehicle_scope(query, approved):
         if platform in ("commander", "maverick") and platform not in title:
             continue
         is_shop = "shop manual" in title or "service manual" in title or "repair manual" in title
-        is_wiring = "wiring" in title or "schematic" in title
+        is_wiring = bool(WIRING_FILENAME.search(title))
         if (excludes_wiring and is_wiring) or (excludes_shop and is_shop):
             continue
-        # A request to compare shop and wiring documents should select
-        # either type, not require a filename to be both simultaneously.
+        # Dedicated wiring documents are preferred. For a broad discovery
+        # request ONLY, shop manuals of the same exact year/engine are
+        # candidates when no dedicated electrical document exists. Do not
+        # pretend their diagram pages are known.
         if (asks_shop or asks_wiring) and not (
                 (asks_shop and is_shop) or (asks_wiring and is_wiring)):
+            if browse_wiring and asks_wiring and not asks_shop and is_shop and not excludes_shop:
+                shop_fallback.append((0, row["sha256"], row["filename"], True))
             continue
         prefer = (12 if is_shop and asks_shop else 0) + (
             12 if is_wiring and asks_wiring else 0) - (
             15 if is_wiring and not asks_wiring else 0)
         qualified.append((prefer, row["sha256"], row["filename"], is_shop))
 
+    if browse_wiring and asks_wiring and not asks_shop and not qualified:
+        qualified = shop_fallback
     constrained = bool(year or model or platform or asks_shop or asks_wiring)
     if constrained:
         # If the user specified a model/year, do not broaden to another.
@@ -230,15 +271,20 @@ def _topic_terms(query):
                    "substitute", "another", "different", "model", "year",
                    "years", "retrieved", "excerpts", "insufficient",
                    "identify", "missing", "steps", "step", "every", "not"}
-    if _negated_document_mention(query.lower(),
-                                 r"\b(?:wiring\s+diagrams?|electrical\s+schematics?)\b"):
-        skip |= {"wiring", "diagram", "diagrams", "electrical",
-                 "schematic", "schematics"}
+    if re.search(WIRING_PATTERN, query.lower()):
+        skip |= {"wire", "wiring", "diagram", "diagrams", "electrical",
+                 "schematic", "schematics", "circuit", "circuits",
+                 "drawing", "drawings", "print", "prints"}
     return [word for word in keywords(query) if word not in skip and not re.fullmatch(r"20\d\d", word)]
 
 
 def _fts_passes(query, scoped):
     terms = _topic_terms(query)
+    if _broad_wiring_lookup(query):
+        # Exact visual diagram PDFs often have only a textual legend, or
+        # nothing except front-matter text. These are hints, not proof.
+        return ['body : ("wiring diagram" OR "wire diagram" OR "electrical schematic")',
+                'body : ("wiring" OR "electrical" OR "schematic" OR "circuit")']
     # FTS uses the body column only: year/model hits in repeated filenames
     # must never outrank an actual clutch-removal paragraph.
     out = []
@@ -280,6 +326,11 @@ def _page_rank(row, query, stage):
     # A one-line TOC entry with a page number is not procedure instructions.
     if len(text.strip()) < 180 and re.search(r"\b(clutch|removal)\b", text) and re.search(r"\bpage\b|\.\.+", text):
         score += 45
+    if _broad_wiring_lookup(query):
+        if re.search(r"\b(?:wiring|wire)\s+diagrams?\b|\belectrical\s+schematic\b",text):
+            score -= 30
+        elif re.search(r"\b(?:wiring|schematic|electrical)\b",text):
+            score -= 8
     return score
 
 
@@ -288,7 +339,11 @@ def _matched_excerpt(text, query, max_chars=1150):
     if len(text) <= max_chars:
         return text
     terms = _topic_terms(query)
-    anchors = ["primary clutch", "clutch removal", "clutch", "removal"]
+    if _broad_wiring_lookup(query):
+        anchors = ["wiring diagram", "wire diagram", "circuit diagram",
+                   "electrical schematic", "schematics", "wiring", "circuit"]
+    else:
+        anchors = ["primary clutch", "clutch removal", "clutch", "removal"]
     anchors.extend(t for t in terms if t not in ("clutch","removal","primary"))
     lowered = text.lower()
     positions = {0}
@@ -324,7 +379,7 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
         scope_ids = [r[1] for r in scoped]
         if (re.search(r"\b20[12]\d\b|\bhd[\s_-]*\d+\b", query.lower())
                 or "shop manual" in query.lower()
-                or "wiring diagram" in query.lower()) and not scoped:
+                or re.search(WIRING_PATTERN, query.lower())) and not scoped:
             return []  # fail closed on a requested year/variant/document type
         if scoped:
             doc_ids = set(scope_ids)
@@ -381,6 +436,48 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
             per_document[sha] = per_document.get(sha,0)+1
             if len(results)>=limit:
                 break
+        if _broad_wiring_lookup(query) and scoped:
+            # Source discovery is based on approved *titles* rather than
+            # demanding body-text matches from visual-only PDF drawings.
+            # Provide one best matching page per document; if no electrical
+            # page text was found, explicitly mark the first extracted page
+            # as a starting point, NOT a verified wiring diagram.
+            by_sha = {}
+            for item in results:
+                by_sha.setdefault(item["sha256"], item)
+            discovered, selected = [], set()
+            for _, sha, name, _ in scoped:
+                if len(discovered) >= limit:
+                    break
+                ref = by_sha.get(sha)
+                # The term 'electrical' or 'circuit' on a random text
+                # page is insufficient evidence of a visual drawing.
+                if ref is not None and not _wiring_text_evidence(ref["text"]):
+                    ref = None
+                if ref is None:
+                    first = original.execute(
+                        "SELECT page,part FROM excerpts WHERE sha256=? "
+                        "AND length(trim(text))>0 ORDER BY page,part LIMIT 1",
+                        (sha,)).fetchone()
+                    if first is None:
+                        continue
+                    ref = dict(sha256=sha, filename=name, page=first["page"],
+                               part=first["part"], text="", reference_only=True)
+                else:
+                    ref = dict(ref, reference_only=False)
+                discovered.append(ref)
+                selected.add((sha, ref["page"]))
+            # When few documents match, add only pages whose extracted
+            # text explicitly identifies diagrams, never unrelated circuit
+            # references that would imply a verified diagram page.
+            for ref in results:
+                if len(discovered) >= limit:
+                    break
+                if (_wiring_text_evidence(ref["text"]) and
+                        (ref["sha256"],ref["page"]) not in selected):
+                    discovered.append(dict(ref,reference_only=False))
+                    selected.add((ref["sha256"],ref["page"]))
+            return discovered
         return results
 
 
@@ -399,6 +496,16 @@ def augment(messages, question, source: Path = SOURCE, index: Path = INDEX):
                "below; otherwise explain which steps are missing. Cite each "
                "supported step by [M#], manual name and page, and do not invent "
                "steps, page numbers, or torque values.\n")
+    if _broad_wiring_lookup(question):
+        context += ("This is a BROAD wiring document discovery request. List the "
+                    "retrieved approved manual titles with their [M#] labels and "
+                    "different vehicle platforms clearly identified. A candidate "
+                    "manual is not proof of a circuit image or page location. "
+                    "If a reference says CATALOG MATCH ONLY, offer it for viewing "
+                    "and make no claims about the unseen wiring artwork. Explain "
+                    "that the user can browse the full manual in the image-only "
+                    "viewer; ask for vehicle platform if multiple manuals match. "
+                    "Do not refuse simply because the query is brief.\\n")
     if not refs:
         context += "No APPROVED matching manual excerpts were found; say that the search returned no evidence.\n"
     for i, ref in enumerate(refs, 1):
@@ -407,7 +514,15 @@ def augment(messages, question, source: Path = SOURCE, index: Path = INDEX):
         free = MAX_CONTEXT-len(context)-len(heading)-35
         if free<=0:
             break
-        passage = _matched_excerpt(str(ref["text"]),question,min(free,1200))
+        if ref.get("reference_only"):
+            passage = ("CATALOG MATCH ONLY: This approved PDF matches the requested "
+                       "year/engine and document category by its TITLE. Page "
+                       f"{ref['page']} is a starting page for the image-only "
+                       "viewer, NOT a verified diagram page. No wiring image "
+                       "or circuit details have been inspected. Offer the "
+                       "manual viewer link; do not invent a diagram.")
+        else:
+            passage = _matched_excerpt(str(ref["text"]),question,min(free,1200))
         context += heading+"[BEGIN MANUAL DATA]\n"+passage+"\n[END MANUAL DATA]\n"
     return [{"role":"system","content":context}, *messages]
 
@@ -435,7 +550,7 @@ def repair_false_no_access(answer, messages):
         return answer
     items = "\n".join("* "+s for s in sources[:5])
     return ("The local model did not produce a source-grounded answer, "
-            "but the approved manual search DID retrieve these excerpts:\n"
+            "but the approved manual search DID retrieve these references:\n"
             +items+"\n"
             "Those references establish source availability, not necessarily "
             "the complete requested procedure. I won't invent missing steps. "
