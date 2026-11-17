@@ -4,7 +4,7 @@ if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 
 /** Admin-only server-side bridge over the EXISTING Gentoo SSH reverse tunnel. */
 function cms_gentoo_pdf_call(string $operation,array $fields=[]):array {
-    $allowed=['status','preview','pause','resume','workers','retry','approve','unapprove','approve_all'];
+    $allowed=['status','preview','pause','resume','workers','retry','approve','unapprove','approve_all','manual_meta','manual_page'];
     if(!in_array($operation,$allowed,true))
         throw new InvalidArgumentException('Unsupported Gentoo PDF operation.');
     $node=(string)(getenv('SIRUS_GENTOO_PDF_NODE_ID')?:'gentoo-home');
@@ -28,7 +28,8 @@ function cms_gentoo_pdf_call(string $operation,array $fields=[]):array {
     try {
         curl_setopt_array($curl,[
             CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>$body,CURLOPT_RETURNTRANSFER=>true,
-            CURLOPT_FOLLOWLOCATION=>false,CURLOPT_CONNECTTIMEOUT=>2,CURLOPT_TIMEOUT=>7,
+            CURLOPT_FOLLOWLOCATION=>false,CURLOPT_CONNECTTIMEOUT=>2,
+            CURLOPT_TIMEOUT=>$operation==='manual_page'?30:7,
             CURLOPT_PROXY=>'',CURLOPT_MAXREDIRS=>0,
             CURLOPT_HTTPHEADER=>['Content-Type: application/json',
                                  'Accept: application/json',
@@ -36,7 +37,8 @@ function cms_gentoo_pdf_call(string $operation,array $fields=[]):array {
         $raw=curl_exec($curl);
         $http=(int)curl_getinfo($curl,CURLINFO_HTTP_CODE);
     } finally {curl_close($curl);}
-    if(!is_string($raw)||strlen($raw)>120000||$http!==200)
+    $cap=$operation==='manual_page'?3400000:120000;
+    if(!is_string($raw)||strlen($raw)>$cap||$http!==200)
         throw new RuntimeException('Gentoo PDF control service is unavailable or rejected this request.');
     $parsed=json_decode($raw,true,32,JSON_THROW_ON_ERROR);
     if(!is_array($parsed)||($parsed['ok']??null)!==true)

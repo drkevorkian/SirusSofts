@@ -16,6 +16,7 @@ ssl="/home/sirusweb/conf/web/sirussofts.com/nginx.ssl.conf_sirusai"
 cms="/home/sirusweb/web/sirussofts.com/public_html"
 db="/var/lib/sirus-ai-dual/events.sqlite3"
 files=(gateway.py web/index.html web/app.js web/styles.css
+       web/manual.html web/manual.js web/manual_sources.js
        web/render_math.js web/math.css web/temml.min.js web/TEMML_LICENSE.txt)
 [[ -d "$live" && ! -L "$live" && -f "$ssl" && ! -L "$ssl" && -f "$db" && ! -L "$db" ]] ||
   fail 'Existing AI gateway, Hestia snippet or SQLite missing/linked'

@@ -403,7 +403,7 @@ def augment(messages, question, source: Path = SOURCE, index: Path = INDEX):
         context += "No APPROVED matching manual excerpts were found; say that the search returned no evidence.\n"
     for i, ref in enumerate(refs, 1):
         title = str(ref["filename"]).replace("\n"," ").replace("\r"," ")[:140]
-        heading = f"\n[M{i}] {title} | PDF page {ref['page']} | SHA256 {ref['sha256'][:12]}\n"
+        heading = f"\n[M{i}] {title} | PDF page {ref['page']} | SHA256 {ref['sha256']}\n"
         free = MAX_CONTEXT-len(context)-len(heading)-35
         if free<=0:
             break
@@ -440,6 +440,30 @@ def repair_false_no_access(answer, messages):
             "Those references establish source availability, not necessarily "
             "the complete requested procedure. I won't invent missing steps. "
             "Try a more specific question about the cited pages or refine the search.")
+
+
+SOURCE_START = "[[SIRUS_MANUAL_SOURCES_START]]"
+SOURCE_END = "[[SIRUS_MANUAL_SOURCES_END]]"
+
+
+def include_source_manifest(answer, messages):
+    """Attach deterministic citation metadata independent of LLM compliance.
+
+    The chat interface renders these as preview cards. They describe retrieved
+    pages, not a claim that the local model used every excerpt correctly.
+    """
+    if not isinstance(answer, str) or not messages:
+        return answer
+    ctx = next((m.get("content", "") for m in messages
+                if m.get("role") == "system"
+                and m.get("content", "").startswith("LOCAL MANUAL RETRIEVAL:")), "")
+    refs = re.findall(r"^\[M\d+\] [^\r\n]{1,240} \| PDF page \d+ \| SHA256 [a-f0-9]{64}$",
+                      ctx, re.M)
+    if not refs:
+        return answer
+    # Put metadata first so an otherwise lengthy response can still preserve
+    # its source references when the downstream CMS enforces length limits.
+    return SOURCE_START + "\n" + "\n".join(refs[:5]) + "\n" + SOURCE_END + "\n\n" + answer
 
 
 def main():

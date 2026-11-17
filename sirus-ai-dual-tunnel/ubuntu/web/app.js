@@ -12,6 +12,32 @@ async function api(path,method='GET',body=null){
 }
 function status(t){$('progress').textContent=t;}
 function panel(id){for(const n of ['messages','knowledgePanel','memoryPanel','documentPanel'])$(n).hidden=n!==id;}
+function drawManualSources(article,raw){
+ if(s.role!=='admin'||!window.SirusManualSources)return raw;
+ const {prose,sources}=window.SirusManualSources.parse(raw);
+ if(!sources.length)return prose;
+ const section=el('section','');section.className='manual-sources';
+ section.append(el('h3','Retrieved PDF pages'));
+ for(const item of sources){
+  const card=el('div','');card.className='manual-source-card';
+  const title=el('strong','M'+item.number+' · '+item.title);
+  const desc=el('span','PDF page '+item.page);
+  const image=document.createElement('img');
+  image.alt=item.title+', PDF page '+item.page;
+  image.loading='lazy';image.decoding='async';
+  image.src='/ai/api/manuals/page/'+item.sha+'/'+item.page+'?size=preview';
+  const links=el('div','');links.className='manual-source-links';
+  const pageLink=el('a','View cited page');
+  pageLink.href='/Gentoo/AI/manual.html?sha='+item.sha+'&page='+item.page;
+  pageLink.target='_blank';pageLink.rel='noopener noreferrer';
+  const whole=el('a','View entire manual');
+  whole.href='/Gentoo/AI/manual.html?sha='+item.sha+'&page=1';
+  whole.target='_blank';whole.rel='noopener noreferrer';
+  links.append(pageLink,whole);
+  card.append(title,desc,image,links);section.append(card);
+ }
+ article.append(section);return prose;
+}
 function draw(){
  const root=$('messages');root.replaceChildren();
  if(!s.msgs.length){let w=el('div','');w.className='welcome';w.append(el('h2','SirusSofts AI'),
@@ -20,10 +46,11 @@ function draw(){
  for(const m of s.msgs){const b=el('article','');b.className='message '+m.role;
  const h=el('div',m.role==='user'?'You':'SirusSofts AI');h.className='meta';
  const body=el('div','');
+ const displayed=m.role==='assistant'?drawManualSources(b,m.content):m.content;
  if(m.role==='assistant' && typeof window.SirusMath?.renderMathText==='function')
-   window.SirusMath.renderMathText(body,m.content);
- else body.textContent=m.content;
- b.append(h,body);root.append(b);}
+   window.SirusMath.renderMathText(body,displayed);
+ else body.textContent=displayed;
+ b.insertBefore(body,b.firstChild);b.insertBefore(h,b.firstChild);root.append(b);}
  root.scrollTop=root.scrollHeight;
 }
 function nav(){

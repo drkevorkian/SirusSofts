@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="referrer" content="no-referrer">
+<title>SirusSofts · Approved Manual Viewer</title>
+<link rel="stylesheet" href="./assets/styles.css">
+<script defer src="./assets/manual.js"></script>
+</head>
+<body class="manual-reader">
+<header class="manual-header">
+  <a href="./" class="reader-back">← AI Chat</a>
+  <div><h1 id="manualTitle">Loading approved manual…</h1>
+    <p id="manualNotice">Image-only private viewer · no raw PDF access</p></div>
+</header>
+<main class="manual-main">
+  <div class="manual-controls">
+    <button id="prevPage" type="button">← Previous</button>
+    <form id="pageForm">
+      <label for="pageNumber">Page</label>
+      <input id="pageNumber" inputmode="numeric" type="number" min="1" value="1" required>
+      <span id="pageTotal">of …</span>
+      <button type="submit">Go</button>
+    </form>
+    <button id="nextPage" type="button">Next →</button>
+  </div>
+  <p id="manualStatus" role="status" aria-live="polite"></p>
+  <div class="manual-page-frame">
+    <img id="manualImage" alt="Rendered source manual page" hidden>
+  </div>
+  <p class="reader-notice">Pages are rendered on Gentoo and displayed individually.
+    The original PDF is never delivered to your browser. Visible pages can still
+    be captured or copied; web viewing cannot prevent that completely.</p>
+</main>
+</body>
+</html>

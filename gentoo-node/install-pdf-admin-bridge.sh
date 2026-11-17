@@ -11,12 +11,14 @@ here="$(cd "$(dirname "$0")" && pwd)"
 if [[ "$mode" == --check ]]; then
   python3 -B "$here/dashboard.py" --check
   python3 -m unittest discover -s "$here/tests" -p test_pdf_admin.py
+  python3 -m unittest discover -s "$here/tests" -p test_manual_view.py
+  python3 -m py_compile "$here/manual_view.py"
   echo 'PASS: PDF admin bridge offline checks. No running services changed.'
   exit 0
 fi
 [[ "$(id -u)" -eq 0 ]] || fail 'Run as root on Gentoo'
 [[ -f /etc/gentoo-release ]] || fail 'Not Gentoo Linux'
-for tool in rc-service mountpoint setfacl getfacl runuser python3 stat findmnt blkid; do
+for tool in rc-service mountpoint setfacl getfacl runuser python3 stat findmnt blkid pdftoppm find; do
   command -v "$tool" >/dev/null || fail "Missing prerequisite: $tool"
 done
 [[ -f /opt/sirus-gentoo-node/dashboard.py &&
@@ -38,10 +40,22 @@ mountpoint -q "$root" || fail 'Dedicated SSD mount missing'
   fail 'Unsafe database directory'
 [[ ! -L /opt/sirus-gentoo-node/dashboard.py &&
    ! -L /opt/sirus-gentoo-node ]] || fail 'Linked Gentoo dashboard installation'
+objects="$root/manuals/objects"
+[[ -f "$here/manual_view.py" && ! -L "$here/manual_view.py" ]] ||
+  fail 'Approved manual page viewer source missing'
+python3 -m py_compile "$here/manual_view.py"
+[[ -d "$objects" && ! -L "$objects" && ! -L "$root/manuals" ]] ||
+  fail 'Manual object tree unavailable or linked'
+[[ ! -L /opt/sirus-gentoo-node/manual_view.py ]] ||
+  fail 'Installed manual viewer is linked'
+[[ -z "$(find "$objects" -type l -print -quit)" ]] ||
+  fail 'Linked objects in manual PDF library; inspect before enabling reader'
 # Do not perform a network request in --plan.
 echo 'PLAN: Preserve a private backup of installed Gentoo dashboard.py.'
 echo 'PLAN: Install updated dashboard.py and offline signed pdf_admin.py.'
-echo 'PLAN: Grant sirusnode ACL access to ONLY the PDF queue database directory/files.'
+echo 'PLAN: Preserve existing PDF object ACLs and grant sirusnode READ-ONLY access to approved source PDFs.'
+echo 'PLAN: Pages will be rendered as bounded JPEGs. Raw PDFs will never be returned.'
+echo 'PLAN: Grant sirusnode ACL access to the existing PDF queue database directory/files.'
 echo 'PLAN: Restart sirus-gentoo-dashboard briefly, then validate signed status API.'
 echo 'PLAN: Existing reverse SSH 18480->18080 remains unchanged; PDF worker is not restarted.'
 echo 'PLAN: PDF data, approvals, CMS database and current Ubuntu site are preserved.'
@@ -61,13 +75,24 @@ chmod 0700 "$backup"
 cp -p /opt/sirus-gentoo-node/dashboard.py "$backup/dashboard.py"
 [[ ! -e /opt/sirus-gentoo-node/pdf_admin.py ]] || \
   cp -p /opt/sirus-gentoo-node/pdf_admin.py "$backup/pdf_admin.py"
+[[ ! -e /opt/sirus-gentoo-node/manual_view.py ]] || \
+  cp -p /opt/sirus-gentoo-node/manual_view.py "$backup/manual_view.py"
+getfacl -R -p "$objects" > "$backup/manual-object-acls.txt"
+getfacl -p "$root/manuals" > "$backup/manuals-acl.txt"
 getfacl -p "$root" "$root/databases" "$db" > "$backup/previous-acls.txt"
 for suffix in '-wal' '-shm'; do
   if [[ -f "$db$suffix" ]]; then
     getfacl -p "$db$suffix" >> "$backup/previous-acls.txt"
   fi
 done
-# Permission changes are scoped to the DB; no access granted to original PDFs.
+# Viewer needs READ-ONLY traverse/access to original PDF objects; it cannot
+# modify originals. Default ACL applies to future immutable files.
+setfacl -m u:sirusnode:--x "$root/manuals" "$objects"
+find "$objects" -type d -exec setfacl -m u:sirusnode:--x,d:u:sirusnode:r-x {} +
+find "$objects" -type f -name '*.pdf' -exec setfacl -m u:sirusnode:r-- {} +
+sample="$(find "$objects" -type f -name '*.pdf' -print -quit)"
+[[ -z "$sample" ]] || runuser -u sirusnode -- test -r "$sample" ||
+  fail 'Gentoo dashboard cannot read approved manual PDF objects'
 setfacl -m u:sirusnode:--x "$root"
 setfacl -m u:sirusnode:rwx,u:siruspdf:rwx "$root/databases"
 setfacl -d -m u:sirusnode:rwx,u:siruspdf:rwx "$root/databases"
@@ -77,6 +102,7 @@ for suffix in '-wal' '-shm'; do
 done
 runuser -u sirusnode -- test -w "$db" || fail 'sirusnode cannot write SQLite queue'
 runuser -u siruspdf -- test -w "$db" || fail 'siruspdf lost write permissions'
+install -o root -g root -m 0644 "$here/manual_view.py" /opt/sirus-gentoo-node/manual_view.py
 install -o root -g root -m 0644 "$here/pdf_admin.py" /opt/sirus-gentoo-node/pdf_admin.py
 install -o root -g root -m 0755 "$here/dashboard.py" /opt/sirus-gentoo-node/dashboard.py
 install -o root -g root -m 0755 "$here/pdf_admin_probe.py" /opt/sirus-gentoo-node/pdf_admin_probe.py
@@ -84,6 +110,11 @@ python3 -B /opt/sirus-gentoo-node/dashboard.py --check || fail 'New dashboard se
 rc-service sirus-gentoo-dashboard restart || {
   cp -p "$backup/dashboard.py" /opt/sirus-gentoo-node/dashboard.py
   [[ ! -f "$backup/pdf_admin.py" ]] || cp -p "$backup/pdf_admin.py" /opt/sirus-gentoo-node/pdf_admin.py
+  if [[ -f "$backup/manual_view.py" ]]; then
+    cp -p "$backup/manual_view.py" /opt/sirus-gentoo-node/manual_view.py
+  else
+    rm -f /opt/sirus-gentoo-node/manual_view.py
+  fi
   rc-service sirus-gentoo-dashboard restart || true
   fail "New dashboard start failed; attempted rollback. Inspect $backup"
 }

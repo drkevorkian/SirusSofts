@@ -3,6 +3,7 @@ declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 require_once __DIR__.'/ai_workspace.php';
 require_once __DIR__.'/ai_chat_files.php';
+require_once __DIR__.'/ai_manual_view.php';
 
 /** All browser AI requests pass the CMS identity, quota and ACL checks. */
 function cms_ai_api_json(int $status,array $body): never {
@@ -298,6 +299,25 @@ function cms_ai_api_run(PDO $db,string $path): never {
                 'used_bytes'=>$identity['account']===null?0:cms_ai_quota_used($db,$actor),
                 'categories'=>cms_ai_allowed_profiles($db,$identity),
                 'models'=>$models,'local_only'=>true]);
+        }
+        // Image-only, approved-manual viewer. Never proxy raw PDF bytes.
+        // The original signed Gentoo endpoint is reachable only on Ubuntu
+        // loopback, and every page request rechecks live approval.
+        if($method==='GET' &&
+           preg_match('#^/ai/api/manuals/meta/([a-f0-9]{12}|[a-f0-9]{64})$#D',$path,$m)){
+            if($identity['role']!=='admin')
+                cms_ai_api_json(403,['error'=>'Administrator manual access required.']);
+            cms_ai_api_rate($db,$actor,'admin');
+            cms_ai_api_json(200,cms_ai_manual_metadata($m[1]));
+        }
+        if($method==='GET' &&
+           preg_match('#^/ai/api/manuals/page/([a-f0-9]{12}|[a-f0-9]{64})/([1-9][0-9]{0,4})$#D',$path,$m)){
+            if($identity['role']!=='admin')
+                cms_ai_api_json(403,['error'=>'Administrator manual access required.']);
+            cms_ai_api_rate($db,$actor,'admin');
+            cms_ai_manual_image_response($m[1],
+                cms_ai_manual_page_number($m[2]),
+                cms_ai_manual_size($_GET['size']??'preview'));
         }
         if($path==='/ai/api/conversations'){
             $account=cms_ai_actor($identity);

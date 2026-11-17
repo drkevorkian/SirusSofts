@@ -5,12 +5,14 @@ import importlib.util
 import json
 from pathlib import Path
 import sqlite3
+import sys
 import tempfile
 import time
 import unittest
 from unittest import mock
 
 HERE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(HERE))
 spec = importlib.util.spec_from_file_location("pdf_admin", HERE / "pdf_admin.py")
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)

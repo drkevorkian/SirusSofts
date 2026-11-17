@@ -65,6 +65,7 @@ jobs:
           php CMS/tests/ai_training_test.php
           php CMS/tests/ai_pdf_pipeline_test.php
           php CMS/tests/gentoo_pdf_admin_test.php
+          php CMS/tests/ai_manual_view_test.php
           php CMS/tests/ai_workspace_test.php
           php CMS/tests/ai_chat_files_test.php
           php CMS/tests/session_auth_test.php
@@ -100,6 +101,7 @@ jobs:
           bash gentoo-node/install-pdf-admin-bridge.sh --check
           python3 gentoo-node/pdf_admin_probe.py --check
           python3 -m unittest discover -s gentoo-node/tests -p 'test_pdf_admin.py' -v
+          python3 -m unittest discover -s gentoo-node/tests -p 'test_manual_view.py' -v
           python3 gentoo-node/pdf_ingest.py --check
           python3 sirus-ai-dual-tunnel/gentoo/manual_rag.py --check
           python3 -m unittest discover -s sirus-ai-dual-tunnel/tests -p 'test_manual_rag.py' -v
@@ -111,6 +113,9 @@ jobs:
           node --check CMS/assets/cms.js
           node --check CMS/assets/live.js
           node --check sirus-ai-dual-tunnel/ubuntu/web/app.js
+          node --check sirus-ai-dual-tunnel/ubuntu/web/manual.js
+          node --check sirus-ai-dual-tunnel/ubuntu/web/manual_sources.js
+          node sirus-ai-dual-tunnel/tests/manual_sources.test.js
           node --check gentoo-node/dashboard_live.js
           node --check CMS/assets/gentoo-pdf-admin.js
           node gentoo-node/tests/dashboard_live_fallback.test.js

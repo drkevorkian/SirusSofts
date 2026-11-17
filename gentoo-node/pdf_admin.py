@@ -13,12 +13,13 @@ from pathlib import Path
 import re
 import sqlite3
 import time
+import manual_view
 
 ROOT = Path("/srv/sirussofts/storage")
 MAX_BODY = 4096
 DOMAIN = b"sirus-pdf-admin-v1\n"
 ALLOWED_STATES = {"queued", "processing", "ready", "failed", "approved"}
-OPS = {"status", "preview", "pause", "resume", "workers", "retry", "approve", "unapprove", "approve_all"}
+OPS = {"status", "preview", "pause", "resume", "workers", "retry", "approve", "unapprove", "approve_all", "manual_meta", "manual_page"}
 SHA = re.compile(r"[a-f0-9]{64}\Z")
 NONCE = re.compile(r"[a-f0-9]{32}\Z")
 
@@ -231,7 +232,8 @@ def process(raw: bytes, signature: str, key: bytes, node_id: str,
     op = data.get("op")
     if op not in OPS or data.get("node_id") != node_id or (
         set(data) - {"op","node_id","sent_at","nonce","limit","offset",
-                      "filter","query","sha256","workers","confirm"}
+                      "filter","query","sha256","workers","confirm",
+                      "page","size"}
     ):
         raise PDFAdminError("Unknown PDF command or identity")
     if type(data.get("sent_at")) is not int or abs(now - data["sent_at"]) > 120:
@@ -257,6 +259,13 @@ def process(raw: bytes, signature: str, key: bytes, node_id: str,
             return snapshot(db, root, data)
         if op == "preview":
             return preview(db, data)
+        if op in ("manual_meta", "manual_page"):
+            try:
+                if op == "manual_meta":
+                    return manual_view.metadata(db, root, data)
+                return manual_view.render(db, root, data)
+            except manual_view.ManualViewError as error:
+                raise PDFAdminError(str(error)) from error
         return update(db, data, op)
     finally:
         db.close()

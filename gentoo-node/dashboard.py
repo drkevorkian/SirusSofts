@@ -347,7 +347,10 @@ class Handler(BaseHTTPRequestHandler):
                 raw,self.headers.get("X-Sirus-Pdf-Signature",""),
                 self.server.pdf_key,self.server.config["node_id"])
             result = json.dumps(payload,separators=(",",":"),ensure_ascii=True).encode()
-            if len(result)>120000:
+            # Rendered, approved PDF pages travel only as bounded JPEG data
+            # inside this signed loopback response. No PDF bytes are served.
+            cap = 3_400_000 if payload.get("operation") == "manual_page" else 120000
+            if len(result)>cap:
                 raise pdf_admin.PDFAdminError("PDF response too large")
             return self.send(200,result,"application/json; charset=utf-8")
         except pdf_admin.PDFAdminError as error:
