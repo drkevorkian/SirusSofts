@@ -23,6 +23,7 @@
     <button class="new subtle" id="knowledgeToggle" type="button">Browse knowledge</button>
     <button class="new subtle" id="memoryToggle" type="button" hidden>Personal AI memory</button>
     <button class="new subtle" id="documentsToggle" type="button" hidden>My documents</button>
+    <button class="new subtle" id="researchToggle" type="button" hidden>Research loops</button>
     <div class="sidebar-foot">
       <span id="roleLabel">Checking account…</span><br>
       <span id="quotaLabel"></span><br>
@@ -73,6 +74,96 @@
         <button class="new" type="submit">Queue document</button>
       </form>
       <div id="documentEntries"></div>
+    </section>
+    <section id="researchPanel" class="workspace-panel research-panel" hidden>
+      <h2>Manual research and inference loops</h2>
+      <p>Run 1–100 passes using a local Gentoo LLM. Select one public HTTPS page or paste
+        readable source text. Every pass is checkpointed; jobs continue when the browser closes.
+        Draft notes are <strong>unreviewed</strong> and are not added to approved knowledge
+        or used to train model weights automatically.</p>
+      <form id="researchForm" class="research-form">
+        <label for="researchTitleInput">Research name</label>
+        <input id="researchTitleInput" type="text" maxlength="160" required placeholder="HD11 clutch service research">
+        <label for="researchSourceType">Source</label>
+        <select id="researchSourceType">
+          <option value="url">Public HTTPS website</option>
+          <option value="text">Pasted text</option>
+          <option value="pdf">Existing Gentoo PDF (extracted)</option>
+        </select>
+        <div id="researchUrlFields">
+          <label for="researchUrl">Website URL</label>
+          <input id="researchUrl" type="url" maxlength="2048" placeholder="https://example.org/technical-reference" required>
+          <small>Public HTTPS only. Logins, redirects, private networks, PDFs and JavaScript-only sites are not automatically accessible.</small>
+        </div>
+        <div id="researchTextFields" hidden>
+          <label for="researchText">Text to analyze (up to 9,000 characters)</label>
+          <textarea id="researchText" maxlength="9000" rows="5" placeholder="Paste document text, source excerpts or technical notes…"></textarea>
+        </div>
+        <div id="researchPdfFields" hidden>
+          <label for="researchPdfSearch">Find existing PDF by filename keyword</label>
+          <div class="research-pdf-search">
+            <input id="researchPdfSearch" type="search" maxlength="60" placeholder="HD11">
+            <button id="researchPdfFind" type="button">Find PDFs</button>
+          </div>
+          <label for="researchPdfSelect">Existing extracted Gentoo PDFs</label>
+          <select id="researchPdfSelect" disabled></select>
+          <small id="researchPdfHint">Search by a single keyword to locate a manual.
+            Ready (unreviewed) and approved PDFs can both be analyzed as drafts.
+            PDFs still queued for extraction cannot be analyzed yet.</small>
+          <div class="research-options">
+            <label>Start page<input id="researchPageStart" type="number" min="1" max="20000" step="1" value="1"></label>
+            <label>End page (0 = entire remainder)<input id="researchPageEnd" type="number"
+                min="0" max="20000" step="1" value="0"></label>
+          </div>
+          <small>Each inference pass processes <strong>every extracted section</strong> in the selected page range.
+          For large manuals, 10–100 passes can require thousands of local model calls.
+          Sections are checkpointed, cancellable and never auto-approved.</small>
+        </div>
+        <label for="researchFocus">Question or focus (optional)</label>
+        <textarea id="researchFocus" maxlength="1200" rows="2" placeholder="What should the model examine in particular?"></textarea>
+        <div class="research-options">
+          <label>Inference passes
+            <input id="researchPasses" type="number" min="1" max="100" step="1" value="10" required>
+          </label>
+          <label>Local model <select id="researchModel" required></select></label>
+          <label>Compute <select id="researchTarget">
+            <option value="auto">Auto</option><option value="nvidia">NVIDIA</option>
+            <option value="amd">AMD</option><option value="cpu">CPU</option>
+          </select></label>
+        </div>
+        <button id="researchStart" type="submit" class="new">Start local research</button>
+      </form>
+      <h3>Saved research jobs</h3>
+      <div id="researchJobList" class="research-jobs"></div>
+      <article id="researchDetail" class="research-detail" hidden>
+        <h3 id="researchDetailTitle">Research</h3>
+        <p id="researchDetailMeta"></p>
+        <progress id="researchProgress" max="100" value="0"></progress>
+        <p id="researchProgressText" role="status"></p>
+        <div class="research-actions">
+          <button id="researchCancel" type="button">Cancel</button>
+          <button id="researchRerun" type="button">Rerun same research</button>
+          <button id="researchCopy" type="button">Copy draft notes</button>
+        </div>
+        <h4>Latest source-grounded draft (not verified)</h4>
+        <pre id="researchNotes"></pre>
+        <div class="research-actions">
+          <button id="researchHistory" type="button">Browse saved section drafts</button>
+        </div>
+        <div id="researchHistoryPanel" hidden>
+          <h4>All saved inference sections — newest first</h4>
+          <p>These are unverified, source-attributed drafts. Browse past sections and
+            passes before deciding whether to save any findings to reviewed knowledge.</p>
+          <div id="researchSectionList" class="research-jobs"></div>
+          <div class="research-actions">
+            <button id="researchHistoryNewer" type="button">Newer</button>
+            <button id="researchHistoryOlder" type="button">Older</button>
+            <button id="researchHistoryCopy" type="button">Copy selected section</button>
+          </div>
+          <p id="researchHistoryPage" aria-live="polite"></p>
+          <pre id="researchHistoryNotes"></pre>
+        </div>
+      </article>
     </section>
     <div id="attachmentTray" class="attachment-tray" aria-live="polite" hidden></div>
     <div id="progress" class="progress" role="status" aria-live="polite"></div>

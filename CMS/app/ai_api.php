@@ -2,6 +2,7 @@
 declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 require_once __DIR__.'/ai_workspace.php';
+require_once __DIR__.'/ai_research.php';
 require_once __DIR__.'/ai_chat_files.php';
 require_once __DIR__.'/ai_manual_view.php';
 
@@ -362,6 +363,36 @@ function cms_ai_api_run(PDO $db,string $path): never {
                 cms_ai_conversation_delete($db,$account,$id);
                 cms_ai_api_json(200,['ok'=>true,'soft_deleted'=>true]);
             }
+        }
+        // Research jobs require a CMS admin identity. No browser-accessible
+        // raw Gentoo research endpoint, no weight training or auto-approval.
+        if($path==='/ai/api/research/manuals'&&$method==='GET'){
+            $query=$_GET['q']??'';
+            if(!is_string($query))throw new InvalidArgumentException('Invalid manual search.');
+            cms_ai_api_json(200,['manuals'=>cms_ai_research_manuals($identity,$query)]);
+        }
+        if($path==='/ai/api/research'){
+            cms_ai_research_authorized($identity);
+            if($method==='GET')
+                cms_ai_api_json(200,['jobs'=>cms_ai_research_list($db,$identity)]);
+            if($method==='POST'){
+                cms_ai_api_rate($db,$actor,'admin');
+                cms_ai_api_json(202,cms_ai_research_submit($db,$identity,cms_ai_api_input()));
+            }
+        }
+        if($method==='GET' &&
+           preg_match('#^/ai/api/research/([a-f0-9]{32})/sections/([0-9]{1,6})$#D',$path,$m)){
+            cms_ai_api_json(200,cms_ai_research_sections($db,$identity,$m[1],(int)$m[2]));
+        }
+        if(preg_match('#^/ai/api/research/([a-f0-9]{32})$#D',$path,$m)&&$method==='GET'){
+            cms_ai_api_json(200,cms_ai_research_view($db,$identity,$m[1]));
+        }
+        if($method==='POST' &&
+           preg_match('#^/ai/api/research/([a-f0-9]{32})/(cancel|rerun)$#D',$path,$m)){
+            cms_ai_api_rate($db,$actor,'admin');
+            if($m[2]==='cancel')
+                cms_ai_api_json(200,cms_ai_research_cancel($db,$identity,$m[1]));
+            cms_ai_api_json(202,cms_ai_research_rerun($db,$identity,$m[1]));
         }
         if($path==='/ai/api/memories'){
             $account=cms_ai_actor($identity);

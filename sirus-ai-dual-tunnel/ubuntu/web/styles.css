@@ -144,3 +144,45 @@
    width:100%;margin-top:8px}
  #deleteCurrent{padding:5px 7px}
 }
+
+/* Manual, review-gated research jobs. Isolated from approved knowledge. */
+.research-panel{padding-bottom:30px}
+.research-panel h3{font-size:15px;margin:24px 0 8px;color:#deecff}
+.research-panel h4{font-size:13px;margin:14px 0 8px}
+.research-panel small{display:block;color:#8eacc5;font-size:11px;margin-top:5px}
+.research-form{max-width:100%;padding:17px;border:1px solid #2e4a66;border-radius:12px}
+.research-panel textarea{border:1px solid #335773;background:#172b41;
+ color:#eff8ff;border-radius:8px;min-height:54px;padding:10px;font-size:13px;
+ resize:vertical;max-height:300px}
+.research-panel input,.research-panel select{padding:9px;border-radius:8px}
+.research-options{display:grid;grid-template-columns:110px minmax(180px,1fr) 145px;
+ gap:12px;align-items:end}
+.research-options label{display:grid;gap:5px}
+.research-jobs{display:grid;gap:6px;margin:12px 0}
+.research-jobs .research-job{background:#142b43;border:1px solid #335775;
+ border-radius:8px;color:#cceaff;padding:10px;text-align:left}
+.research-jobs .research-job:hover,.research-jobs .research-job:focus-visible{
+ background:#265071;color:white}
+.research-detail{border:1px solid #335775;background:#0d2135;
+ border-radius:12px;padding:16px}
+.research-detail progress{display:block;width:100%;height:17px;accent-color:#78c9ff}
+.research-detail #researchProgressText{font-size:12px;white-space:pre-wrap}
+.research-actions{display:flex;gap:9px;flex-wrap:wrap}
+.research-actions button{border-radius:7px;border:1px solid #3c6e96;
+ background:#1b425f;color:#e6f5ff;padding:8px 12px}
+.research-actions button:disabled{opacity:.4;cursor:default}
+#researchNotes{white-space:pre-wrap;overflow-wrap:anywhere;
+ border:1px solid #294d69;background:#091a2b;border-radius:8px;
+ padding:13px;color:#dbeaff;font:12px/1.6 ui-monospace,monospace;
+ max-height:440px;overflow-y:auto}
+@media(max-width:780px){
+ .research-options{grid-template-columns:1fr}
+ .research-panel{padding:12px 14px}
+}
+
+#researchHistoryPanel{margin-top:16px;border-top:1px solid #2c4b67;padding-top:12px}
+#researchHistoryPage{font-size:11px;color:#91bddb}
+#researchHistoryNotes{white-space:pre-wrap;overflow-wrap:anywhere;
+ border:1px solid #294d69;background:#091a2b;border-radius:8px;
+ padding:13px;color:#dbeaff;font:12px/1.6 ui-monospace,monospace;
+ max-height:500px;overflow-y:auto}

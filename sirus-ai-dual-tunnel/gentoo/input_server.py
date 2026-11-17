@@ -42,6 +42,8 @@ LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRe
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from knowledge import KnowledgeManager,PROFILES
+from research_loop import (validated_spec, read_source, pass_messages,
+                           list_local_manuals, pdf_segments)
 from manual_rag import (augment as augment_manuals, sync as sync_manuals,
                         repair_false_no_access, include_source_manifest,
                         RetrievalUnavailable)
@@ -75,6 +77,41 @@ def init_db(path):
           acked INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(job_id,seq)
         );
         CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(acked,job_id,seq);
+        CREATE TABLE IF NOT EXISTS research_jobs (
+          id TEXT PRIMARY KEY, spec TEXT NOT NULL, target TEXT NOT NULL,
+          model_id TEXT NOT NULL, state TEXT NOT NULL
+            CHECK(state IN ('queued','running','completed','error','canceled')),
+          source_url TEXT NOT NULL DEFAULT '',
+          source_sha256 TEXT NOT NULL DEFAULT '',
+          source_text TEXT NOT NULL DEFAULT '',
+          last_notes TEXT NOT NULL DEFAULT '',
+          error TEXT NOT NULL DEFAULT '',
+          pass_completed INTEGER NOT NULL DEFAULT 0,
+          section_completed INTEGER NOT NULL DEFAULT 0,
+          sections_per_pass INTEGER NOT NULL DEFAULT 0,
+          source_updated_at INTEGER NOT NULL DEFAULT 0,
+          source_pages TEXT NOT NULL DEFAULT '',
+          cancel_requested INTEGER NOT NULL DEFAULT 0,
+          worker TEXT NOT NULL DEFAULT '',
+          created REAL NOT NULL, updated REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS research_jobs_queue
+          ON research_jobs(state,created);
+        CREATE TABLE IF NOT EXISTS research_passes (
+          job_id TEXT NOT NULL REFERENCES research_jobs(id),
+          pass_number INTEGER NOT NULL, notes TEXT NOT NULL,
+          sha256 TEXT NOT NULL, created REAL NOT NULL,
+          PRIMARY KEY(job_id,pass_number)
+        );
+        CREATE TABLE IF NOT EXISTS research_sections (
+          job_id TEXT NOT NULL REFERENCES research_jobs(id),
+          pass_number INTEGER NOT NULL,
+          section_number INTEGER NOT NULL,
+          pages TEXT NOT NULL DEFAULT '',
+          notes TEXT NOT NULL,
+          sha256 TEXT NOT NULL, created REAL NOT NULL,
+          PRIMARY KEY(job_id,pass_number,section_number)
+        );
         ''')
         if 'profile' not in {col[1] for col in con.execute('PRAGMA table_info(jobs)')}:
             con.execute("ALTER TABLE jobs ADD COLUMN profile TEXT NOT NULL DEFAULT 'auto'")
@@ -87,6 +124,8 @@ def init_db(path):
             con.execute('ALTER TABLE jobs ADD COLUMN max_tokens INTEGER')
         # If Gentoo reboots mid-inference, retry the task from the beginning.
         con.execute("UPDATE jobs SET state='queued' WHERE state='running'")
+        # Resume interrupted multi-pass analysis from the last committed pass.
+        con.execute("UPDATE research_jobs SET state='queued' WHERE state='running'")
 
 
 def assert_local_worker_url(url):
@@ -230,6 +269,184 @@ class Engine:
             add_event(con, job_id, 1, 'queued')
         return job_id
 
+    def enqueue_research(self, raw, target, model_id):
+        spec=validated_spec(raw)
+        if target not in ('auto','cpu','nvidia','amd'):
+            raise ValueError('Invalid research worker')
+        if not isinstance(model_id,str) or not MODEL_ID.fullmatch(model_id):
+            raise ValueError('Invalid research model ID')
+        job_id=uuid.uuid4().hex
+        with db_connect(self.db) as con:
+            con.execute('BEGIN IMMEDIATE')
+            busy=con.execute("SELECT count(*) FROM research_jobs WHERE state IN ('queued','running')").fetchone()[0]
+            if busy:
+                raise RuntimeError('Another research job is queued or running; finish or cancel it first.')
+            now=time.time()
+            con.execute("""INSERT INTO research_jobs
+                (id,spec,target,model_id,state,created,updated)
+                VALUES(?,?,?,?,'queued',?,?)""",
+                (job_id,json.dumps(spec),target,model_id,now,now))
+        return job_id
+
+    def research_status(self, job_id):
+        if not VALID_ID.fullmatch(job_id):
+            raise ValueError('Invalid research job ID')
+        with db_connect(self.db) as con:
+            row=con.execute("""SELECT spec,state,source_url,source_sha256,
+                pass_completed,last_notes,error,cancel_requested,worker,created,updated,
+                section_completed,sections_per_pass,source_pages
+                FROM research_jobs WHERE id=?""",(job_id,)).fetchone()
+            if row is None:
+                raise ValueError('Research job not found')
+        spec=json.loads(row[0])
+        return {'id':job_id,'title':spec['title'],'source_type':spec['source_type'],
+                'source_url':row[2] or spec['url'],'source_sha256':row[3],
+                'focus':spec['focus'],'passes':spec['passes'],'completed':row[4],
+                'state':row[1],'latest_notes':row[5], 'error':row[6],
+                'cancel_requested':bool(row[7]),'worker':row[8],
+                'created':row[9],'updated':row[10],'reviewed':False,
+                'weight_training':False,'section_completed':row[11],
+                'sections_per_pass':row[12],'source_pages':row[13],
+                'pdf_sha256':spec['pdf_sha256'],'page_start':spec['page_start'],
+                'page_end':spec['page_end']}
+
+    def research_sections(self, job_id, offset=0):
+        if not isinstance(job_id,str) or not VALID_ID.fullmatch(job_id):
+            raise ValueError('Invalid research job ID')
+        if type(offset) is not int or not 0 <= offset <= 999999:
+            raise ValueError('Invalid research section offset')
+        with db_connect(self.db) as con:
+            if con.execute('SELECT 1 FROM research_jobs WHERE id=?',(job_id,)).fetchone() is None:
+                raise ValueError('Research job not found')
+            rows=con.execute("""SELECT pass_number,section_number,pages,notes,sha256,created
+                FROM research_sections WHERE job_id=?
+                ORDER BY pass_number DESC,section_number DESC LIMIT 13 OFFSET ?""",
+                (job_id,offset)).fetchall()
+        results=[]
+        for pass_no,section_no,pages,notes,sha,created in rows[:12]:
+            results.append({'pass':pass_no,'section':section_no,
+                            'pages':json.loads(pages),'notes':notes,
+                            'sha256':sha,'created':created})
+        return {'id':job_id,'offset':offset,'sections':results,'has_more':len(rows)>12}
+
+    def cancel_research(self, job_id):
+        if not VALID_ID.fullmatch(job_id):
+            raise ValueError('Invalid research job ID')
+        with db_connect(self.db) as con:
+            con.execute('BEGIN IMMEDIATE')
+            row=con.execute('SELECT state FROM research_jobs WHERE id=?',(job_id,)).fetchone()
+            if row is None:
+                raise ValueError('Research job not found')
+            if row[0] in ('queued','running'):
+                new_state='canceled' if row[0]=='queued' else 'running'
+                con.execute('UPDATE research_jobs SET cancel_requested=1,state=?,updated=? WHERE id=?',
+                            (new_state,time.time(),job_id))
+        return self.research_status(job_id)
+
+    def run_research_one(self):
+        with db_connect(self.db) as con:
+            con.execute('BEGIN IMMEDIATE')
+            row=con.execute("""SELECT id,spec,target,model_id,source_url,source_sha256,
+                source_text,last_notes,pass_completed,section_completed,sections_per_pass,
+                source_updated_at FROM research_jobs
+                WHERE state='queued' ORDER BY created LIMIT 1""").fetchone()
+            if row is None:
+                return False
+            (job_id,raw,target,model_id,src_url,src_sha,src_text,notes,
+             completed,section_completed,sections_per_pass,source_stamp)=row
+            con.execute("UPDATE research_jobs SET state='running',updated=? WHERE id=?",
+                        (time.time(),job_id))
+        try:
+            spec=json.loads(raw)
+            if spec['source_type']=='pdf':
+                # No raw PDF upload or original binary access. Use the existing
+                # Gentoo extracted text database, read-only and page-attributed.
+                meta,segments=pdf_segments(spec)
+                if source_stamp and meta['updated_at']!=source_stamp:
+                    raise RuntimeError('PDF source changed during analysis. Rerun to use the new revision.')
+                if sections_per_pass and sections_per_pass!=len(segments):
+                    raise RuntimeError('PDF extraction changed its section count. Start a new run.')
+                src_sha=meta['sha256']
+                src_url='manual:'+src_sha
+                src_text=''
+                source_stamp=meta['updated_at']
+                pages=str(meta['page_start'])+'-'+str(meta['page_end'])
+                with db_connect(self.db) as con:
+                    con.execute("""UPDATE research_jobs SET source_url=?,source_sha256=?,
+                        sections_per_pass=?,source_updated_at=?,source_pages=?,updated=?
+                        WHERE id=?""",(src_url,src_sha,len(segments),source_stamp,pages,
+                                       time.time(),job_id))
+            else:
+                if not src_text:
+                    src_url,src_text,src_sha=read_source(spec)
+                    with db_connect(self.db) as con:
+                        con.execute("""UPDATE research_jobs SET source_url=?,source_text=?,
+                            source_sha256=?,sections_per_pass=1,updated=? WHERE id=?""",
+                            (src_url,src_text,src_sha,time.time(),job_id))
+                segments=[{'text':src_text,'pages':[]}]
+                if sections_per_pass and sections_per_pass!=1:
+                    raise RuntimeError('Unexpected research checkpoint section count.')
+            worker,endpoint=choose_worker(job_id,target,self.gpu_percent,model_id=model_id)
+            with db_connect(self.db) as con:
+                con.execute('UPDATE research_jobs SET worker=?,updated=? WHERE id=?',
+                            (worker,time.time(),job_id))
+            for pass_no in range(completed+1,spec['passes']+1):
+                start_section=section_completed if pass_no==completed+1 else 0
+                for section_no in range(start_section+1,len(segments)+1):
+                    with db_connect(self.db) as con:
+                        cancel=con.execute('SELECT cancel_requested FROM research_jobs WHERE id=?',
+                                           (job_id,)).fetchone()[0]
+                        if cancel:
+                            con.execute("UPDATE research_jobs SET state='canceled',updated=? WHERE id=?",
+                                        (time.time(),job_id))
+                            return True
+                    segment=segments[section_no-1]
+                    messages=pass_messages(spec,segment['text'],src_sha,pass_no,notes)
+                    if spec['source_type']=='pdf':
+                        messages[-1]['content']+=(
+                            "\\nPDF pages in this section: "+",".join(map(str,segment['pages']))+
+                            "\\nSection "+str(section_no)+" of "+str(len(segments))+
+                            ". Cite the actual PDF page labels. This section is not the entire PDF.")
+                    answer=chat(endpoint,messages,model_id=model_id,max_tokens=2048)
+                    if not isinstance(answer,str) or not answer.strip() or len(answer)>24000:
+                        raise RuntimeError('Local model returned invalid or oversized notes')
+                    notes=answer.strip()
+                    now=time.time()
+                    with db_connect(self.db) as con:
+                        con.execute('BEGIN IMMEDIATE')
+                        con.execute("""INSERT OR IGNORE INTO research_sections
+                            (job_id,pass_number,section_number,pages,notes,sha256,created)
+                            VALUES(?,?,?,?,?,?,?)""",
+                            (job_id,pass_no,section_no,
+                             json.dumps(segment['pages']),notes,
+                             hashlib.sha256(notes.encode()).hexdigest(),now))
+                        con.execute("""UPDATE research_jobs
+                            SET section_completed=?,last_notes=?,updated=?
+                            WHERE id=?""",(section_no,notes,now,job_id))
+                now=time.time()
+                with db_connect(self.db) as con:
+                    con.execute('BEGIN IMMEDIATE')
+                    con.execute("""INSERT OR IGNORE INTO research_passes
+                        (job_id,pass_number,notes,sha256,created) VALUES(?,?,?,?,?)""",
+                        (job_id,pass_no,notes,hashlib.sha256(notes.encode()).hexdigest(),now))
+                    con.execute("""UPDATE research_jobs
+                        SET pass_completed=?,section_completed=0,last_notes=?,updated=?
+                        WHERE id=?""",(pass_no,notes,now,job_id))
+                section_completed=0
+            with db_connect(self.db) as con:
+                con.execute("UPDATE research_jobs SET state='completed',updated=? WHERE id=?",
+                            (time.time(),job_id))
+        except Exception as exc:
+            with db_connect(self.db) as con:
+                con.execute("UPDATE research_jobs SET state='error',error=?,updated=? WHERE id=?",
+                            (str(exc)[:350],time.time(),job_id))
+        return True
+
+    def research_loop(self):
+        while not self.stop.is_set():
+            if not self.run_research_one():
+                self.stop.wait(1)
+
     def run_one(self):
         with db_connect(self.db) as con:
             con.execute('BEGIN IMMEDIATE')
@@ -324,11 +541,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.respond(200, {'status':'ok', 'channel':'input', 'workers':healthy,
                 'models':models, 'local_only':True, 'inference_host':'Gentoo localhost llama.cpp',
                 'gpu_task_target_percent':self.server.engine.gpu_percent})
+        elif self.path.startswith('/api/in/research/manuals'):
+            from urllib.parse import parse_qs
+            parsed=urlsplit(self.path)
+            if parsed.path!='/api/in/research/manuals':
+                return self.respond(404,{'error':'Not found'})
+            try:
+                q=parse_qs(parsed.query).get('q',[''])[0]
+                self.respond(200,{'manuals':list_local_manuals(q)})
+            except (ValueError,RetrievalUnavailable,sqlite3.Error) as exc:
+                self.respond(400,{'error':str(exc)[:180]})
+        elif re.fullmatch(r'/api/in/research/[a-f0-9]{32}/sections/[0-9]{1,6}',self.path):
+            try:
+                pieces=self.path.split('/')
+                self.respond(200,self.server.engine.research_sections(pieces[4],int(pieces[6])))
+            except ValueError as exc:
+                self.respond(404,{'error':str(exc)[:150]})
+        elif re.fullmatch(r'/api/in/research/[a-f0-9]{32}',self.path):
+            try:
+                self.respond(200,self.server.engine.research_status(self.path.rsplit('/',1)[-1]))
+            except ValueError as exc:
+                self.respond(404,{'error':str(exc)[:150]})
         else:
             self.respond(404, {'error': 'Not found'})
 
     def do_POST(self):
-        if self.path != '/api/in/jobs':
+        research_create=self.path=='/api/in/research'
+        research_cancel=re.fullmatch(r'/api/in/research/[a-f0-9]{32}/cancel',self.path)
+        if self.path!='/api/in/jobs' and not research_create and not research_cancel:
             return self.respond(404, {'error': 'Not found'})
         origin = self.headers.get('Origin')
         if origin and origin != 'https://sirussofts.com':
@@ -345,6 +585,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.respond(413, {'error': 'Request too large'})
         try:
             data = json.loads(self.rfile.read(n))
+            if not isinstance(data,dict):
+                raise ValueError('Expected JSON object')
+            if research_cancel:
+                self.respond(200,self.server.engine.cancel_research(self.path.split('/')[4]))
+                return
+            if research_create:
+                if data.get('local_only') is not True:
+                    raise ValueError('Local-only research required')
+                job_id=self.server.engine.enqueue_research(
+                    data.get('source'),data.get('target','auto'),
+                    data.get('model_id',DEFAULT_MODEL))
+                self.respond(202,{'job_id':job_id,'status':'queued',
+                                  'local_only':True,'weight_training':False})
+                return
             messages, target = data['messages'], data.get('target', 'auto')
             profile=data.get('profile','auto')
             model_id=data.get('model_id', DEFAULT_MODEL)
@@ -414,6 +668,7 @@ def main():
     for _ in range(args.workers):
         threading.Thread(target=engine.worker_loop, daemon=True).start()
     threading.Thread(target=engine.dispatch_loop, daemon=True).start()
+    threading.Thread(target=engine.research_loop, daemon=True).start()
     threading.Thread(target=manual_index_loop,args=(engine.stop,),daemon=True).start()
     server = http.server.ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     server.engine = engine
