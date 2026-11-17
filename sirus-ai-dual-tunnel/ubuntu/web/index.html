@@ -88,6 +88,7 @@
         <select id="researchSourceType">
           <option value="url">Public HTTPS website</option>
           <option value="text">Pasted text</option>
+          <option value="pdf">Existing Gentoo PDF (extracted)</option>
         </select>
         <div id="researchUrlFields">
           <label for="researchUrl">Website URL</label>
@@ -97,6 +98,26 @@
         <div id="researchTextFields" hidden>
           <label for="researchText">Text to analyze (up to 9,000 characters)</label>
           <textarea id="researchText" maxlength="9000" rows="5" placeholder="Paste document text, source excerpts or technical notes…"></textarea>
+        </div>
+        <div id="researchPdfFields" hidden>
+          <label for="researchPdfSearch">Find existing PDF by filename keyword</label>
+          <div class="research-pdf-search">
+            <input id="researchPdfSearch" type="search" maxlength="60" placeholder="HD11">
+            <button id="researchPdfFind" type="button">Find PDFs</button>
+          </div>
+          <label for="researchPdfSelect">Existing extracted Gentoo PDFs</label>
+          <select id="researchPdfSelect" disabled></select>
+          <small id="researchPdfHint">Search by a single keyword to locate a manual.
+            Ready (unreviewed) and approved PDFs can both be analyzed as drafts.
+            PDFs still queued for extraction cannot be analyzed yet.</small>
+          <div class="research-options">
+            <label>Start page<input id="researchPageStart" type="number" min="1" max="20000" step="1" value="1"></label>
+            <label>End page (0 = entire remainder)<input id="researchPageEnd" type="number"
+                min="0" max="20000" step="1" value="0"></label>
+          </div>
+          <small>Each inference pass processes <strong>every extracted section</strong> in the selected page range.
+          For large manuals, 10–100 passes can require thousands of local model calls.
+          Sections are checkpointed, cancellable and never auto-approved.</small>
         </div>
         <label for="researchFocus">Question or focus (optional)</label>
         <textarea id="researchFocus" maxlength="1200" rows="2" placeholder="What should the model examine in particular?"></textarea>
