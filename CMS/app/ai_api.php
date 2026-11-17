@@ -380,6 +380,10 @@ function cms_ai_api_run(PDO $db,string $path): never {
                 cms_ai_api_json(202,cms_ai_research_submit($db,$identity,cms_ai_api_input()));
             }
         }
+        if($method==='GET' &&
+           preg_match('#^/ai/api/research/([a-f0-9]{32})/sections/([0-9]{1,6})$#D',$path,$m)){
+            cms_ai_api_json(200,cms_ai_research_sections($db,$identity,$m[1],(int)$m[2]));
+        }
         if(preg_match('#^/ai/api/research/([a-f0-9]{32})$#D',$path,$m)&&$method==='GET'){
             cms_ai_api_json(200,cms_ai_research_view($db,$identity,$m[1]));
         }
