@@ -13,11 +13,14 @@ function cms_ai_research_validate(array $raw):array {
     $focus=$raw['focus']??'';
     $url=$raw['url']??'';
     $text=$raw['text']??'';
+    $pdf=$raw['pdf_sha256']??'';
+    $pageStart=$raw['page_start']??1;
+    $pageEnd=$raw['page_end']??0;
     $passes=$raw['passes']??null;
     $target=$raw['target']??'auto';
     $model=$raw['model_id']??null;
-    if(!in_array($kind,['url','text'],true))
-        throw new InvalidArgumentException('Choose a website or pasted text.');
+    if(!in_array($kind,['url','text','pdf'],true))
+        throw new InvalidArgumentException('Choose a website, pasted text, or existing extracted PDF.');
     if(!is_string($title)||trim($title)===''||mb_strlen($title,'UTF-8')>160
        ||strlen($title)>300)
         throw new InvalidArgumentException('Research title must be 1–160 characters.');
@@ -39,13 +42,26 @@ function cms_ai_research_validate(array $raw):array {
            (isset($parts['port'])&&(int)$parts['port']!==443)||
            filter_var($url,FILTER_VALIDATE_URL)===false||trim($text)!=='')
             throw new InvalidArgumentException('Supply one public HTTPS URL; no pasted text.');
-    }elseif(strlen(trim($text))<1||mb_strlen(trim($text),'UTF-8')>9000||trim($url)!==''){
-        throw new InvalidArgumentException('Pasted text must contain 1–9000 characters; no URL.');
+    }elseif($kind==='text'){
+        if(strlen(trim($text))<1||mb_strlen(trim($text),'UTF-8')>9000||trim($url)!=='')
+            throw new InvalidArgumentException('Pasted text must contain 1–9000 characters; no URL.');
+    }else{
+        if(!is_string($pdf)||!preg_match('/^[a-f0-9]{64}$/D',$pdf)||
+           trim($url)!==''||trim($text)!==''||
+           !is_int($pageStart)||!is_int($pageEnd)||
+           $pageStart<1||$pageStart>20000||$pageEnd<0||$pageEnd>20000||
+           ($pageEnd!==0&&$pageEnd<$pageStart))
+            throw new InvalidArgumentException('Select an extracted Gentoo PDF and a valid page range.');
     }
+    if($kind!=='pdf'&&($pdf!==''||$pageStart!==1||$pageEnd!==0))
+        throw new InvalidArgumentException('PDF options require a PDF source.');
     return [
        'source'=>['source_type'=>$kind,'title'=>trim($title),'focus'=>trim($focus),
                   'url'=>$kind==='url'?trim($url):'',
-                  'text'=>$kind==='text'?trim($text):'','passes'=>$passes],
+                  'text'=>$kind==='text'?trim($text):'','passes'=>$passes,
+                  'pdf_sha256'=>$kind==='pdf'?$pdf:'',
+                  'page_start'=>$kind==='pdf'?$pageStart:1,
+                  'page_end'=>$kind==='pdf'?$pageEnd:0],
        'target'=>$target,'model_id'=>$model,'local_only'=>true
     ];
 }
@@ -115,4 +131,15 @@ function cms_ai_research_rerun(PDO $db,array $identity,string $id):array {
     if(!is_array($spec))throw new RuntimeException('Saved research specification unavailable.');
     return cms_ai_research_submit($db,$identity,array_merge(
         $spec,['target'=>$row['target'],'model_id'=>$row['model_id']]));
+}
+
+function cms_ai_research_manuals(array $identity,string $query):array {
+    cms_ai_research_authorized($identity);
+    if(strlen($query)>60||!preg_match('/^[A-Za-z0-9_-]*$/D',$query))
+        throw new InvalidArgumentException('Search with one filename keyword (letters, numbers, hyphen or underscore).');
+    $reply=cms_ai_api_upstream('input','/api/in/research/manuals'.($query!==''?'?q='.$query:''));
+    $docs=$reply['manuals']??null;
+    if(!is_array($docs)||count($docs)>120)
+        throw new RuntimeException('Gentoo manual catalog response invalid.');
+    return $docs;
 }
