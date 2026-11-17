@@ -100,3 +100,19 @@ Gentoo dashboard bridge, CMS and Ubuntu AI frontend upgraders pass**.
 
 **Never run the first-time installers.** Existing release backups and manual
 SSDs must remain intact.
+
+## Optional live rendering acceptance test
+
+After the Gentoo dashboard bridge upgrade succeeds, run as root:
+
+```bash
+runuser -u sirusnode -- python3 -B /opt/sirus-gentoo-node/pdf_admin_probe.py \
+  --config /etc/sirus-gentoo-node/config.json --view-test
+```
+
+This makes a read-only signed status request, selects the newest approved
+document, resolves its metadata, and renders PDF page 1 through the actual
+installed loopback dashboard. It verifies JPEG bytes/approval without copying
+the original PDF over the tunnel or printing any credentials. If the selected
+manual is damaged or unusually resource-intensive, it may fail and must be
+investigated before enabling public image cards.
