@@ -96,12 +96,21 @@ mv "$stage" "$live"
 install -m 0644 -o root -g root "$src/nginx.ssl.conf_sirusai" "$ssl"
 nginx -t || fail 'Updated Hestia Nginx snippet invalid'
 systemctl restart sirus-ai-gateway || fail 'Output gateway restart failed'
-for _ in 1 2 3 4 5 6; do
-  curl -fsS --max-time 2 'http://127.0.0.1:18483/healthz' >/dev/null && break
+# systemd reports a successful restart before a Python listener is ready.
+# Readiness is HTTP 200 from the actual loopback receiver, not only "active".
+gateway_ready=0
+gateway_status=000
+for attempt in {1..20}; do
+  gateway_status="$(curl --silent --noproxy '*' --connect-timeout 1 --max-time 3 \
+    -o /dev/null -w '%{http_code}' 'http://127.0.0.1:18483/healthz' || true)"
+  if [[ "$gateway_status" == 200 ]]; then gateway_ready=1; break; fi
+  if (( attempt == 1 || attempt % 5 == 0 )); then
+    echo "Waiting for output gateway listener: HTTP $gateway_status (attempt $attempt/20)"
+  fi
   sleep 1
 done
-curl -fsS --max-time 3 'http://127.0.0.1:18483/healthz' >/dev/null ||
-  fail 'Output gateway health check failed'
+[[ "$gateway_ready" == 1 ]] ||
+  fail "Output gateway did not become healthy on 127.0.0.1:18483: HTTP $gateway_status"
 # Hestia often binds HTTPS only to the VPS public IP, not 127.0.0.1.
 # Verify the real domain's HTTPS vhost with its trusted certificate and DNS.
 # Ignore shell HTTP(S)_PROXY so an external proxy cannot mask local failures.
@@ -130,10 +139,47 @@ done
 [[ "$ready" == 1 ]] ||
   fail "New Nginx AI routes did not activate: UI HTTP $status_ui (expected 200), private HTTP $status_internal (expected 404); previous configuration will be restored"
 
-curl -fsS --max-time 8 --noproxy '*' \
-  'https://sirussofts.com/ai/api/state' |
-  python3 -c 'import json,sys; v=json.load(sys.stdin); assert v["local_only"] is True and v["role"]=="guest"' ||
-  fail 'CMS anonymous local-only state route failed'
+# A single curl|json pipeline obscured the HTTP/TLS failure and could
+# spuriously roll back a healthy deployment during a transient failed request.
+# Keep the original security assertions, TLS verification and rollback, but
+# retry boundedly while reporting status instead of emitting session/CSRF data.
+# Response bytes remain in the private, root-owned recovery directory.
+state_response="$(mktemp "$release/cms-state.XXXXXXXX")"
+chmod 0600 "$state_response"
+state_ready=0
+state_status=000
+state_curl_rc=0
+for attempt in {1..20}; do
+  state_curl_rc=0
+  state_status="$(curl --silent --noproxy '*' --connect-timeout 2 --max-time 8 \
+    -o "$state_response" -w '%{http_code}' \
+    'https://sirussofts.com/ai/api/state')" || state_curl_rc=$?
+  if [[ "$state_curl_rc" == 0 && "$state_status" == 200 ]] &&
+     python3 - "$state_response" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1], 'rb') as stream:
+        response = json.load(stream)
+except (OSError, UnicodeError, ValueError):
+    raise SystemExit(1)
+if not isinstance(response, dict):
+    raise SystemExit(1)
+raise SystemExit(0 if response.get('local_only') is True and
+                 response.get('role') == 'guest' else 1)
+PY
+  then
+    state_ready=1
+    break
+  fi
+  if (( attempt == 1 || attempt % 5 == 0 )); then
+    echo "Waiting for CMS anonymous local-only API: HTTP $state_status, curl exit $state_curl_rc, response bytes $(wc -c < "$state_response") (attempt $attempt/20)"
+  fi
+  sleep 1
+done
+rm -f -- "$state_response"
+[[ "$state_ready" == 1 ]] ||
+  fail "CMS anonymous local-only state route failed after retries (HTTP $state_status, curl exit $state_curl_rc); previous configuration will be restored"
 ok=1
 mkdir -p "$release/old"
 mv "$previous" "$release/old/ubuntu"
