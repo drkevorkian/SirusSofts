@@ -20,7 +20,7 @@ The PDF picker uses the **existing Gentoo** `/srv/sirussofts/storage/databases/p
 
 Each requested **pass** goes over **every extractable section within the selected page range**. Sections are bounded (~7.5k source characters per LLM input), include exact PDF page/part labels, and are processed in order. A large PDF can involve many local inference calls per pass; 10–100 passes over a multi-thousand-page manual can take substantial compute time. Start with a narrow page range for validation. A 100-pass job over an entire manual is a deliberate request, not a quick chat response.
 
-The worker saves each section result, SHA-256 digest, page list, pass number, and an updated checkpoint in its private SQLite `research_sections` table; it also saves completed pass digests in `research_passes`. After a Gentoo service restart, a running job resumes from the last committed section. The PDF's ingestion revision must not have changed during the job; otherwise it fails safely and the operator can start a new run.
+The worker saves each section result, SHA-256 digest, page list, pass number, and an updated checkpoint in its private SQLite `research_sections` table; it also saves completed pass digests in `research_passes`. The website's **Browse saved section drafts** control pages through all results (12 per page), shows each pass and original PDF page numbers, and allows copying individual unreviewed drafts. After a Gentoo service restart, a running job resumes from the last committed section. The PDF's ingestion revision must not have changed during the job; otherwise it fails safely and the operator can start a new run.
 
 PDF scanning/diagrams are not OCR'd by this feature. Page figures, tables and unreadable scans may need the original page viewer or existing extraction improvements. Unreviewed AI summaries are not evidence or verified repairs.
 
@@ -46,5 +46,6 @@ After reviewing the pinned commit and passing tests, use the existing CMS backup
 - `python3 -m unittest discover -s sirus-ai-dual-tunnel/tests -p 'test_web_source_summary.py' -v`
 - `php CMS/tests/ai_conversation_titles_test.php`
 - `php CMS/tests/ai_workspace_test.php`
+- `php CMS/tests/ai_research_test.php`
 - `node --check sirus-ai-dual-tunnel/ubuntu/web/app.js`
 - Run both GitHub Actions workflows and verify against a real 3-page extracted PDF before enabling a large multi-pass job.
