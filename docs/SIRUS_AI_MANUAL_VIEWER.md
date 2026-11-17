@@ -173,3 +173,32 @@ This is a **Gentoo AI router-only** source patch: existing approved PDFs,
 Gentoo PDF Admin/viewer bridge, Ubuntu CMS frontend, SSH tunnels, and
 databases remain intact. Use the pinned upgrade-in-place script, not a
 first-run installer.
+
+
+### Content-first validation of candidates
+
+- Filename, year, brand and platform are discovery metadata, **never a
+  substitute for checking indexed page contents**.
+- After broad same-year SSV candidates are discovered, the retriever searches
+  their authoritative \`excerpts\` table across **all extracted PDF pages**,
+  looking for the requested HD engine designation. A genuine content match
+  produces a cited page number and local excerpt with the HD reference; it
+  does not automatically prove all diagrams on that page are applicable.
+- The same search can discover a document with a **generic filename** when a
+  page explicitly contains a "wiring diagram" heading. It does not require
+  "Wiring Diagram" in the file title.
+- Explicit text restricting a document to a different engine ("HD11 only")
+  excludes that document from an HD10 candidate search; a mere mention of
+  HD11 is not enough to exclude a potentially multi-engine manual.
+- A PDF with no relevant extractable HD10 text is still offered only as an
+  *unverified candidate*, with the absence of evidence stated plainly.
+  It must never be asserted to contain a verified HD10 wiring diagram.
+- The existing local \`sirussofts-coder\` text model receives the relevant
+  extracted snippets and source citations, **not raw entire PDFs nor visual
+  pixels**. Scanned/vector-only wiring labels cannot be read or understood
+  without an explicit page-image vision/OCR pipeline and its own validation.
+  The image-only viewer is for a human to visually inspect existing pages;
+  it is not presently a multimodal LLM input.
+- No upload, reapproval, PDF copy, index schema change or external API is
+  required to search already indexed extracted text. Newly approved manuals
+  still follow the existing incremental sync.

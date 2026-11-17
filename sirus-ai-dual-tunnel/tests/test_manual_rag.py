@@ -362,6 +362,56 @@ class ManualRagTests(unittest.TestCase):
         self.assertEqual(rag.retrieve("2026 HD10 wiring diagram ignition switch",
                                       self.source,self.index),[])
 
+    def test_page_text_finds_hd10_despite_uninformative_pdf_filename(self):
+        sha = "f" * 64
+        # A real PDF may have a generic source filename. Its body is
+        # authoritative evidence of what its text actually says.
+        self.add(sha, "SSV 2026 Defender Technical Reference.pdf",
+                 "approved", 1,
+                 "Electrical systems — WIRING DIAGRAM. Applicable HD10 "
+                 "model discussed near the starter relay drawing.", page=26)
+        rag.sync(self.source, self.index)
+        refs = rag.retrieve("2026 HD10 wire diagram",self.source,self.index)
+        self.assertEqual(len(refs),1)
+        self.assertEqual(refs[0]["sha256"],sha)
+        self.assertEqual(refs[0]["page"],26)
+        self.assertTrue(refs[0]["engine_unverified"])
+        self.assertTrue(refs[0]["engine_mention"])
+        self.assertTrue(refs[0]["reference_only"])
+        ctx = rag.augment([{"role":"user","content":"2026 HD10 wire diagram"}],
+                          "2026 HD10 wire diagram",
+                          self.source,self.index)[0]["content"]
+        self.assertIn("HD10", ctx)
+        self.assertIn("mentions the requested engine",ctx)
+        self.assertIn("NOT proof",ctx)
+        self.assertIn("page 26",ctx)
+
+    def test_other_engine_exclusivity_in_pdf_content_rejects_hd10(self):
+        sha="f"*64
+        self.add(sha, "SSV 2026 Defender Technical Reference.pdf",
+                 "approved", 1, "WIRING DIAGRAM for HD11 only",page=14)
+        rag.sync(self.source,self.index)
+        self.assertEqual(rag.retrieve("2026 HD10 wire diagram",
+                                      self.source,self.index),[])
+        # A single mention of another engine without an exclusivity
+        # statement does not rule out a multi-engine wiring book.
+        with ingest.connect(self.disk) as db:
+            db.execute("UPDATE excerpts SET text=? WHERE sha256=?",
+                       ("Electrical wiring diagram: HD11 harness shown here",
+                        sha))
+            db.execute("UPDATE documents SET updated_at=updated_at+1 "
+                       "WHERE sha256=?",(sha,))
+        rag.sync(self.source,self.index)
+        refs=rag.retrieve("2026 HD10 wire diagram",self.source,self.index)
+        self.assertEqual(len(refs),1)
+        self.assertFalse(refs[0].get("engine_mention",False))
+        self.assertTrue(refs[0]["engine_unverified"])
+        self.assertEqual(refs[0]["page"],14)
+        ctx=rag.augment([{"role":"user","content":"2026 HD10 wire diagram"}],
+                        "2026 HD10 wire diagram",self.source,self.index)[0]["content"]
+        self.assertIn("No occurrence of the requested HD engine",ctx)
+        self.assertNotIn("matches the requested year and engine in its title",ctx)
+
     def test_broad_unnamed_engine_never_takes_other_named_hd_model(self):
         wrong = "d"*64
         other = "e"*64

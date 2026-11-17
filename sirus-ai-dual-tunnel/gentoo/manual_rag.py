@@ -205,6 +205,74 @@ def _broad_wiring_lookup(query):
     return not [term for term in _topic_terms(query) if term not in filler]
 
 
+def _engine_context_in_document(db, sha, query):
+    """Find a named engine in ALL extracted pages, independent of filenames.
+
+    This is lexical evidence of a mention, not a compatibility certificate.
+    Non-text diagrams require visual inspection in the image viewer.
+    """
+    match = re.search(r"\bhd[\s_-]*(\d{1,2})\b", query.lower())
+    if not match:
+        return None
+    engine = match.group(1)
+    phrase = re.compile(r"\bhd[\s_-]*" + re.escape(engine) + r"\b", re.I)
+    # Run against the existing ingest excerpts rather than the title index.
+    # A filename-only match can never be misrepresented as page evidence.
+    needle = f"%hd{engine}%"
+    separated = f"%hd {engine}%"
+    hyphen = f"%hd-{engine}%"
+    rows = db.execute("""
+        SELECT page,part,text FROM excerpts
+        WHERE sha256=? AND (
+            lower(text) LIKE ? OR lower(text) LIKE ?
+            OR lower(text) LIKE ?
+        ) ORDER BY page,part LIMIT 80
+    """, (sha, needle, separated, hyphen))
+    for row in rows:
+        found = phrase.search(row["text"])
+        if found is None:
+            continue
+        text = row["text"]
+        start = max(0, found.start() - 200)
+        end = min(len(text), found.end() + 300)
+        snippet = ("…" if start else "") + text[start:end]
+        if end < len(text):
+            snippet += "…"
+        return {"page": row["page"], "part": row["part"],
+                "text": snippet, "engine": "HD" + engine}
+    return None
+
+
+def _exclusive_other_engine_in_content(db, sha, query):
+    """Reject a document whose text explicitly restricts it to a different HD.
+
+    Ordinary mentions of other engines do not exclude a multi-engine manual;
+    only an explicit 'HD11 only' or 'only for HD11' statement does.
+    """
+    target = re.search(r"\bhd[\s_-]*(\d{1,2})\b", query.lower())
+    if db is None or target is None:
+        return False
+    if _engine_context_in_document(db, sha, query) is not None:
+        return False
+    rows = db.execute("""
+        SELECT text FROM excerpts WHERE sha256=?
+        AND lower(text) LIKE '%hd%' AND lower(text) LIKE '%only%'
+        ORDER BY page,part LIMIT 120
+    """, (sha,))
+    for row in rows:
+        text = row["text"].lower()
+        for mention in re.finditer(r"\bhd[\s_-]*(\d{1,2})\b", text):
+            if mention.group(1) == target.group(1):
+                continue
+            pre = text[max(0,mention.start()-50):mention.start()]
+            post = text[mention.end():mention.end()+50]
+            if (re.search(r"\bonly\s+(?:for\s+)?$",pre)
+                    or re.match(r"(?:\s+\w+){0,3}\s+only\b",post)
+                    or re.match(r"[\s,;:]*only\b",post)):
+                return True
+    return False
+
+
 def _engine_not_named(query, filename):
     """True only when a requested HD engine is absent from a candidate title."""
     model = re.search(r"\bhd[\s_-]*(?:\d{1,2})\b", query.lower())
@@ -215,7 +283,27 @@ def _engine_not_named(query, filename):
     return wanted not in title
 
 
-def _vehicle_scope(query, approved):
+def _document_contains_wiring_content(db, sha):
+    """Locate a diagram heading in indexed PDF CONTENT, not its file name.
+
+    This reads authoritative extracted page text. It does not attempt image
+    recognition and must never imply that a pictured circuit was inspected.
+    """
+    if db is None:
+        return False
+    row = db.execute("""
+        SELECT 1 FROM excerpts WHERE sha256=?
+          AND (lower(text) LIKE '%wiring diagram%'
+            OR lower(text) LIKE '%wire diagram%'
+            OR lower(text) LIKE '%wir diagram%'
+            OR lower(text) LIKE '%electrical schematic%'
+            OR lower(text) LIKE '%circuit diagram%')
+        LIMIT 1
+    """, (sha,)).fetchone()
+    return row is not None
+
+
+def _vehicle_scope(query, approved, source_db=None):
     """Scope explicit model/year/document-type questions before searching pages.
 
     Never return another model year/variant as the requested service manual.
@@ -262,6 +350,9 @@ def _vehicle_scope(query, approved):
                 and not re.search(r"\bx\s*3\b", title))
             if not engine_unverified:
                 continue
+            if source_db is not None and _exclusive_other_engine_in_content(
+                    source_db, row["sha256"], query):
+                continue
         if platform == "defender" and not ("defender" in title or "traxter" in title):
             continue
         if platform == "commander" and "commander" not in title:
@@ -271,6 +362,10 @@ def _vehicle_scope(query, approved):
             continue
         is_shop = "shop manual" in title or "service manual" in title or "repair manual" in title
         is_wiring = bool(WIRING_FILENAME.search(title))
+        if (browse_wiring and not is_wiring and
+                title.lstrip().startswith("ssv ") and
+                _document_contains_wiring_content(source_db, row["sha256"])):
+            is_wiring = True  # Diagram heading found in the actual PDF text.
         if (excludes_wiring and is_wiring) or (excludes_shop and is_shop):
             continue
         # Dedicated wiring documents are preferred. For a broad discovery
@@ -306,7 +401,7 @@ def _topic_terms(query):
     skip = STOP | {"can", "am", "shop", "service", "repair", "source", "page",
                    "pages", "numbers", "exact", "name", "title", "2024", "2025",
                    "2026", "2027", "defender", "traxter", "commander",
-                   "maverick", "hd10", "hd11", "hd9", "ssv", "atv",
+                   "maverick", "mav", "hd10", "hd11", "hd9", "ssv", "atv",
                    "substitute", "another", "different", "model", "year",
                    "years", "retrieved", "excerpts", "insufficient",
                    "identify", "missing", "steps", "step", "every", "not"}
@@ -415,7 +510,7 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
             SELECT sha256,filename FROM documents
             WHERE status='approved' AND reviewed=1 AND excerpts>0""").fetchall()
         doc_ids = {r["sha256"] for r in approved}
-        scoped = _vehicle_scope(query, approved)
+        scoped = _vehicle_scope(query, approved, original)
         scope_ids = [r[1] for r in scoped]
         if (re.search(r"\b20[12]\d\b|\bhd[\s_-]*\d+\b", query.lower())
                 or "shop manual" in query.lower()
@@ -497,12 +592,19 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
                     (sha,)).fetchone()
                 if fresh is None or fresh["status"] != "approved" or fresh["reviewed"] != 1:
                     continue
+                unverified = _engine_not_named(query, name)
+                # Inspect the full extracted content of every shortlisted PDF.
+                # Prefer evidence from an actual page that mentions the engine
+                # to any filename, contents-page guess or FTS body-only term.
+                engine_hit = (_engine_context_in_document(original, sha, query)
+                              if unverified else None)
                 ref = by_sha.get(sha)
-                # The term 'electrical' or 'circuit' on a random text
-                # page is insufficient evidence of a visual drawing.
-                if ref is not None and not _wiring_text_evidence(ref["text"]):
-                    ref = None
-                if ref is None:
+                if engine_hit is not None:
+                    ref = dict(sha256=sha, filename=name,
+                               page=engine_hit["page"], part=engine_hit["part"],
+                               text=engine_hit["text"], reference_only=True,
+                               engine_mention=True)
+                elif ref is None or not _wiring_text_evidence(ref["text"]):
                     first = original.execute(
                         "SELECT page,part FROM excerpts WHERE sha256=? "
                         "AND length(trim(text))>0 ORDER BY page,part LIMIT 1",
@@ -513,7 +615,7 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
                                part=first["part"], text="", reference_only=True)
                 else:
                     ref = dict(ref, reference_only=False)
-                ref["engine_unverified"] = _engine_not_named(query, name)
+                ref["engine_unverified"] = unverified
                 discovered.append(ref)
                 selected.add((sha, ref["page"]))
             # When few documents match, add only pages whose extracted
@@ -557,7 +659,7 @@ def augment(messages, question, source: Path = SOURCE, index: Path = INDEX):
                     "and make no claims about the unseen wiring artwork. Explain "
                     "that the user can browse the full manual in the image-only "
                     "viewer; ask for vehicle platform if multiple manuals match. "
-                    "Do not refuse simply because the query is brief.\\n")
+                    "Do not refuse simply because the query is brief.\n")
     if not refs:
         context += "No APPROVED matching manual excerpts were found; say that the search returned no evidence.\n"
     for i, ref in enumerate(refs, 1):
@@ -574,9 +676,18 @@ def augment(messages, question, source: Path = SOURCE, index: Path = INDEX):
                            "does NOT specify the requested HD engine. Do not "
                            "claim it is the HD10 circuit diagram without "
                            "checking the manual's coverage/vehicle applicability. "
-                           f"PDF page {ref['page']} is only a viewer STARTING "
-                           "PAGE, NOT a verified diagram page. Provide a link "
-                           "to this candidate manual, clearly labeled unverified.")
+                           + ("The extracted text on page "
+                              + str(ref["page"]) + " mentions the requested "
+                              "engine: " + str(ref["text"])[:700]
+                              + ". This is real page text, NOT proof the "
+                              "diagram covers this engine. "
+                              if ref.get("engine_mention") else
+                              "No occurrence of the requested HD engine was found "
+                              "in the available extracted text for this manual. ")
+                           + f"PDF page {ref['page']} is only a viewer "
+                           "STARTING PAGE, NOT a verified diagram page. "
+                           "Provide a link to this candidate manual, "
+                           "clearly labeled unverified.")
             else:
                 passage = ("CATALOG MATCH ONLY: This approved PDF matches the "
                            "requested year and engine in its title. Page "
