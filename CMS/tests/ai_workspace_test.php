@@ -41,7 +41,11 @@ catch(RuntimeException $e){check(str_contains($e->getMessage(),'quota'),'2 GiB e
 check(cms_ai_quota_used($db,$alice)===CMS_AI_MEMORY_QUOTA-5,'Failed charge is atomic');
 $db->prepare('UPDATE cms_ai_usage SET bytes_used=? WHERE account=?')->execute([$usage,$alice]);
 cms_ai_conversation_delete($db,$alice,$id);
-check(cms_ai_quota_used($db,$alice)===0,'Deletion refunds message storage');
+check(cms_ai_quota_used($db,$alice)===$usage,'Soft deletion retains charged storage');
+try {cms_ai_message_history($db,$alice,$id);throw new Exception('Deleted chat accessible');}
+catch(RuntimeException $e){check($e->getMessage()==='Conversation not found.','Deleted chat excluded from active access');}
+cms_ai_conversation_restore($db,$alice,$id);
+check(count(cms_ai_message_history($db,$alice,$id))===1,'Restore preserves messages');
 $guest=['role'=>'guest','account'=>null];
 $member=['role'=>'user','account'=>$alice];
 $admin=['role'=>'admin','account'=>'admin:1'];
