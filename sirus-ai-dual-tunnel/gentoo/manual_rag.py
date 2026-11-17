@@ -20,8 +20,8 @@ SOURCE = Path("/srv/sirussofts/storage/databases/pdf_ingest.sqlite3")
 INDEX = Path("/srv/sirussofts/storage/rag/manual_fts.sqlite3")
 STOP = set(("what which when where who why how this that these those them "
             "about could would should from into have with your each tell "
-            "please show give detail details manual manuals specs torque "
-            "procedure explain find information").split())
+            "please show give detail details manual manuals "
+            "explain find information").split())
 TERMS = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_-]{1,30}")
 MAX_CONTEXT = 6200
 
