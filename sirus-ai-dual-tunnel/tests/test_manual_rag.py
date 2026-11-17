@@ -133,7 +133,7 @@ class ManualRagTests(unittest.TestCase):
             "excerpts are insufficient, identify which steps are missing."
         )
         self.assertTrue(rag._negated_document_mention(
-            browser_question, r"\\bwiring\\s+diagrams?\\b"))
+            browser_question, r"\bwiring\s+diagrams?\b"))
         browser_refs = rag.retrieve(browser_question,self.source,self.index)
         self.assertTrue(browser_refs,"Negated wiring diagrams must not eliminate the shop manual")
         self.assertEqual(browser_refs[0]["sha256"],shop)
