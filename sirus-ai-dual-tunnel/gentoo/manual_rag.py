@@ -700,9 +700,11 @@ def augment(messages, question, source: Path = SOURCE, index: Path = INDEX):
             if ref.get("engine_unverified"):
                 passage = ("ENGINE APPLICABILITY UNVERIFIED: The PDF filename "
                            "does not explicitly identify the requested HD "
-                           "engine. Even a page mentioning wiring cannot "
-                           "establish HD10 compatibility. Check the manual "
-                           "coverage before relying on circuits.\n" + passage)
+                           "engine. No occurrence of the requested HD engine "
+                           "was found in the scanned extracted page text. "
+                           "Even a page mentioning wiring cannot establish "
+                           "HD10 compatibility. Check the manual coverage "
+                           "before relying on circuits.\n" + passage)
         context += heading+"[BEGIN MANUAL DATA]\n"+passage+"\n[END MANUAL DATA]\n"
     return [{"role":"system","content":context}, *messages]
 
