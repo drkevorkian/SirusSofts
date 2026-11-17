@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS cms_ai_usage (
 CREATE TABLE IF NOT EXISTS cms_ai_conversations (
     id TEXT PRIMARY KEY, account TEXT NOT NULL, title TEXT NOT NULL,
     title_locked INTEGER NOT NULL DEFAULT 0 CHECK(title_locked IN (0,1)),
+    deleted_at TEXT DEFAULT NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS cms_ai_conversation_owner ON cms_ai_conversations(account,updated_at);
@@ -82,6 +83,10 @@ SQL);
     $columns=$db->query('PRAGMA table_info(cms_ai_conversations)')->fetchAll(PDO::FETCH_ASSOC);
     if(!in_array('title_locked',array_column($columns,'name'),true))
         $db->exec('ALTER TABLE cms_ai_conversations ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0 CHECK(title_locked IN (0,1))');
+    if(!in_array('deleted_at',array_column($columns,'name'),true))
+        $db->exec('ALTER TABLE cms_ai_conversations ADD COLUMN deleted_at TEXT DEFAULT NULL');
+    $db->exec('CREATE INDEX IF NOT EXISTS cms_ai_conversation_visible
+        ON cms_ai_conversations(account,deleted_at,updated_at)');
     cms_ai_search_schema($db);
 }
 /** SQLite FTS5 covers the full account history, without sending data to any server. */
@@ -140,7 +145,7 @@ function cms_ai_charge(PDO $db,string $account,int $delta): void {
 }
 function cms_ai_require_conversation(PDO $db,string $account,string $id): void {
     if(!preg_match('/^[a-f0-9]{32}$/D',$id)) throw new InvalidArgumentException('Invalid conversation ID.');
-    $st=$db->prepare('SELECT 1 FROM cms_ai_conversations WHERE id=? AND account=?');
+    $st=$db->prepare('SELECT 1 FROM cms_ai_conversations WHERE id=? AND account=? AND deleted_at IS NULL');
     $st->execute([$id,$account]);
     if(!$st->fetchColumn()) throw new RuntimeException('Conversation not found.');
 }
@@ -200,22 +205,35 @@ function cms_ai_message_history(PDO $db,string $account,string $conversation,int
     $st->bindValue(3,max(1,min(100,$limit)),PDO::PARAM_INT);$st->execute();
     return $st->fetchAll(PDO::FETCH_ASSOC);
 }
+/** Reversible owner-only deletion; chat, attachments and quota retained. */
 function cms_ai_conversation_delete(PDO $db,string $account,string $conversation): void {
-    cms_ai_require_conversation($db,$account,$conversation);
     $db->beginTransaction();
     try {
-        $title=$db->prepare('SELECT title FROM cms_ai_conversations WHERE id=? AND account=?');
-        $title->execute([$conversation,$account]);$titleBytes=strlen((string)$title->fetchColumn());
-        $sum=$db->prepare('SELECT COALESCE(SUM(bytes),0) FROM cms_ai_messages WHERE account=? AND conversation_id=?');
-        $sum->execute([$account,$conversation]);
-        $bytes=(int)$sum->fetchColumn();
-        $db->prepare('DELETE FROM cms_ai_messages WHERE account=? AND conversation_id=?')
-          ->execute([$account,$conversation]);
-        $db->prepare('DELETE FROM cms_ai_conversations WHERE account=? AND id=?')
-          ->execute([$account,$conversation]);
-        $db->prepare('UPDATE cms_ai_memories SET conversation_id=NULL WHERE account=? AND conversation_id=?')
-          ->execute([$account,$conversation]); // saved memories survive conversation deletion
-        cms_ai_charge($db,$account,-($bytes+$titleBytes));
+        cms_ai_require_conversation($db,$account,$conversation);
+        $st=$db->prepare("SELECT 1 FROM cms_ai_requests
+            WHERE account=? AND conversation_id=? AND state IN ('queued','running') LIMIT 1");
+        $st->execute([$account,$conversation]);
+        if($st->fetchColumn())
+            throw new RuntimeException('Wait for generation to finish before deleting this conversation.');
+        $st=$db->prepare('UPDATE cms_ai_conversations SET deleted_at=?
+            WHERE account=? AND id=? AND deleted_at IS NULL');
+        $st->execute([cms_now(),$account,$conversation]);
+        if($st->rowCount()!==1)throw new RuntimeException('Conversation not found.');
+        $db->commit();
+    } catch(Throwable $e) {if($db->inTransaction())$db->rollBack();throw $e;}
+}
+/** No permanent-delete endpoint. Only the original owner may restore. */
+function cms_ai_conversation_restore(PDO $db,string $account,string $conversation): void {
+    if(!preg_match('/^[a-f0-9]{32}$/D',$conversation))
+        throw new InvalidArgumentException('Invalid conversation ID.');
+    $db->beginTransaction();
+    try {
+        $st=$db->prepare('UPDATE cms_ai_conversations
+            SET deleted_at=NULL,updated_at=?
+            WHERE account=? AND id=? AND deleted_at IS NOT NULL');
+        $st->execute([cms_now(),$account,$conversation]);
+        if($st->rowCount()!==1)
+            throw new RuntimeException('Deleted conversation not found.');
         $db->commit();
     } catch(Throwable $e) {if($db->inTransaction())$db->rollBack();throw $e;}
 }
@@ -270,7 +288,9 @@ function cms_ai_recall(PDO $db,string $account,string $query,?string $currentCon
         $st=$db->prepare('SELECT m.content,bm25(cms_ai_message_fts) AS rank
            FROM cms_ai_message_fts
            JOIN cms_ai_messages m ON m.id=cms_ai_message_fts.rowid
+           JOIN cms_ai_conversations c ON c.id=m.conversation_id AND c.account=m.account
            WHERE cms_ai_message_fts MATCH ? AND m.account=? AND m.conversation_id!=?
+              AND c.deleted_at IS NULL
            ORDER BY rank LIMIT 15');
         $st->execute([$match,$account,$currentConversation??'']);
         foreach($st->fetchAll(PDO::FETCH_ASSOC) as $row)
@@ -286,8 +306,10 @@ function cms_ai_recall(PDO $db,string $account,string $query,?string $currentCon
             if($score)$matches[]=['score'=>$score+10,
                 'text'=>$row['content'],'source'=>$row['source_url']];
         }
-        $st=$db->prepare("SELECT content FROM cms_ai_messages
-            WHERE account=? AND conversation_id!=? ORDER BY id DESC LIMIT 250");
+        $st=$db->prepare("SELECT m.content FROM cms_ai_messages m
+            JOIN cms_ai_conversations c ON c.id=m.conversation_id AND c.account=m.account
+            WHERE m.account=? AND m.conversation_id!=? AND c.deleted_at IS NULL
+            ORDER BY m.id DESC LIMIT 250");
         $st->execute([$account,$currentConversation??'']);
         foreach($st->fetchAll(PDO::FETCH_COLUMN) as $body){
             $score=0;$low=strtolower($body);

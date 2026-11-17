@@ -323,7 +323,7 @@ function cms_ai_api_run(PDO $db,string $path): never {
             $account=cms_ai_actor($identity);
             if($method==='GET'){
                 $st=$db->prepare('SELECT id,title,created_at,updated_at FROM cms_ai_conversations
-                   WHERE account=? ORDER BY updated_at DESC LIMIT 200');
+                   WHERE account=? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 200');
                 $st->execute([$account]);cms_ai_api_json(200,['conversations'=>$st->fetchAll(PDO::FETCH_ASSOC)]);
             }
             if($method==='POST'){
@@ -331,6 +331,20 @@ function cms_ai_api_run(PDO $db,string $path): never {
                 if(!is_string($title))throw new InvalidArgumentException('Invalid title.');
                 cms_ai_api_json(201,['id'=>cms_ai_conversation_new($db,$account,$title)]);
             }
+        }
+        if($path==='/ai/api/conversations/deleted'&&$method==='GET'){
+            $account=cms_ai_actor($identity);
+            $st=$db->prepare('SELECT id,title,deleted_at FROM cms_ai_conversations
+                WHERE account=? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT 200');
+            $st->execute([$account]);
+            cms_ai_api_json(200,['conversations'=>$st->fetchAll(PDO::FETCH_ASSOC)]);
+        }
+        if($method==='POST' &&
+           preg_match('#^/ai/api/conversations/([a-f0-9]{32})/restore$#D',$path,$m)){
+            $account=cms_ai_actor($identity);
+            cms_ai_api_rate($db,$actor,$identity['role']);
+            cms_ai_conversation_restore($db,$account,$m[1]);
+            cms_ai_api_json(200,['ok'=>true]);
         }
         if($method==='POST' &&
            preg_match('#^/ai/api/conversations/([a-f0-9]{32})/title$#D',$path,$m)){
@@ -344,7 +358,9 @@ function cms_ai_api_run(PDO $db,string $path): never {
             $account=cms_ai_actor($identity);$id=$m[1];
             if($method==='GET')cms_ai_api_json(200,['messages'=>cms_ai_message_history($db,$account,$id,100)]);
             if($method==='DELETE'){
-                cms_ai_conversation_delete($db,$account,$id);cms_ai_api_json(200,['ok'=>true]);
+                cms_ai_api_rate($db,$actor,$identity['role']);
+                cms_ai_conversation_delete($db,$account,$id);
+                cms_ai_api_json(200,['ok'=>true,'soft_deleted'=>true]);
             }
         }
         if($path==='/ai/api/memories'){

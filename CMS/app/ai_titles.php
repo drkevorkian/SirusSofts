@@ -89,7 +89,7 @@ function cms_ai_conversation_rename(PDO $db,string $account,
 /** One-time upgrade backfill. Never touch manually named conversations. */
 function cms_ai_backfill_conversation_titles(PDO $db,int $max=5000):int {
     $st=$db->prepare("SELECT c.id,c.account FROM cms_ai_conversations AS c
-       WHERE c.title='New conversation' AND c.title_locked=0
+       WHERE c.title='New conversation' AND c.title_locked=0 AND c.deleted_at IS NULL
        AND EXISTS(SELECT 1 FROM cms_ai_messages AS m
                   WHERE m.account=c.account AND m.conversation_id=c.id
                     AND m.role='user')

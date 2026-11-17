@@ -16,7 +16,9 @@
   <aside class="sidebar">
     <a class="brand" href="/"><span class="mark">S</span><span><b>SirusSofts</b><small>LOCAL AI // GENTOO</small></span></a>
     <button id="newChat" class="new" type="button">+ New conversation</button>
-    <div class="side-heading">Conversations</div><nav id="conversations" aria-label="Saved conversations"></nav>
+    <div class="side-heading" id="conversationsHeading">Conversations</div>
+    <nav id="conversations" aria-label="Saved conversations"></nav>
+    <button class="new subtle" id="deletedChatsToggle" type="button" hidden>Deleted chats</button>
     <div class="side-heading">Workspace</div>
     <button class="new subtle" id="knowledgeToggle" type="button">Browse knowledge</button>
     <button class="new subtle" id="memoryToggle" type="button" hidden>Personal AI memory</button>
@@ -44,6 +46,7 @@
       <span class="conversation-caption">Current conversation</span>
       <strong id="conversationName">New conversation</strong>
       <button id="renameCurrent" type="button" title="Rename this conversation">Rename</button>
+      <button id="deleteCurrent" type="button" title="Move this conversation to Deleted chats">Delete</button>
     </div>
     <section id="messages" class="messages" aria-live="polite"></section>
     <section id="knowledgePanel" class="workspace-panel" hidden>
@@ -75,7 +78,7 @@
     <div id="progress" class="progress" role="status" aria-live="polite"></div>
     <form id="composer" class="composer">
       <label class="sr-only" for="prompt">Message SirusSofts AI</label>
-      <textarea id="prompt" rows="3" maxlength="16000" placeholder="Message SirusSofts AI… (Enter to send)" required></textarea>
+      <textarea id="prompt" rows="2" maxlength="16000" placeholder="Message SirusSofts AI… (Enter to send)" required></textarea>
       <div class="controls">
         <label id="chatAttachLabel" class="attach-control" for="chatAttach" hidden>+ Attach files</label>
         <input type="file" id="chatAttach" hidden multiple
