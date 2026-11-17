@@ -88,6 +88,69 @@ class ManualRagTests(unittest.TestCase):
         self.assertTrue(rag.retrieve("gearbox torque",self.source,self.index))
         self.assertFalse(rag.retrieve("nitrogen reactor physics",self.source,self.index))
 
+    def test_2027_hd11_shop_procedure_not_wiring_or_contents(self):
+        shop = "1" * 64
+        wiring = "2" * 64
+        old = "3" * 64
+        wrong_model = "4" * 64
+        self.add(shop, "SSV 2027 DEFENDER_TRAXTER HD11 - Shop Manual_SM91Y027_en.pdf",
+                 "approved", 1, "TABLE OF CONTENTS\nPRIMARY CLUTCH REMOVAL .......... 214\n"
+                 "PRIMARY CLUTCH INSTALLATION .......... 217", page=15)
+        con = ingest.connect(self.disk)
+        # Real procedure appears far beyond a page's opening safety notes.
+        prefix = "Safety notices and introductory discussion.\n" * 45
+        procedure = (prefix + "\nPRIMARY CLUTCH REMOVAL\n"
+                     "Remove the belt guard. Disconnect the drive clutch bolt. "
+                     "Use the approved puller to remove the primary clutch. "
+                     "Observe the correct tool safety sequence.")
+        con.execute("INSERT INTO excerpts VALUES (?,?,?,?)", (shop, 214, 1, procedure))
+        con.execute("UPDATE documents SET excerpts=2 WHERE sha256=?", (shop,))
+        con.close()
+        self.add(wiring, "SSV 2027 Defender Traxter HD11 Wiring Diagram (2).pdf",
+                 "approved", 1, "PRIMARY CLUTCH REMOVAL wiring circuit circuit relay "
+                 "PRIMARY CLUTCH REMOVAL wiring circuit circuit relay", page=18)
+        self.add(old, "SSV 2026 DEFENDER_TRAXTER HD11 - Shop Manual_2026.pdf",
+                 "approved", 1, "PRIMARY CLUTCH REMOVAL. Remove the clutch.", page=200)
+        self.add(wrong_model, "SSV 2027 DEFENDER_TRAXTER HD10 - Shop Manual.pdf",
+                 "approved", 1, "PRIMARY CLUTCH REMOVAL. Remove the clutch.", page=130)
+        rag.sync(self.source, self.index)
+        question = ("In the 2027 Can-Am Defender HD11 shop manual, what is the "
+                    "primary clutch removal procedure? Give me the exact manual "
+                    "title and page numbers.")
+        refs = rag.retrieve(question, self.source, self.index)
+        self.assertTrue(refs)
+        self.assertEqual(refs[0]["sha256"], shop)
+        self.assertEqual(refs[0]["page"], 214)
+        self.assertTrue(all(row["sha256"] == shop for row in refs))
+        message = rag.augment([{"role": "user", "content": question}],
+                              question, self.source, self.index)[0]["content"]
+        self.assertIn("PDF page 214", message)
+        self.assertIn("Use the approved puller", message)
+        self.assertNotIn("Wiring Diagram", message)
+        self.assertNotIn("2026", message)
+        # The LLM may still deny access; the response guard must not pretend
+        # to know any repair details beyond the actual retrieved sources.
+        denial = ("I apologize, but I don't have access to the specific service manual "
+                  "for the 2027 Can-Am Defender HD11.")
+        corrected = rag.repair_false_no_access(
+            denial, [{"role": "system", "content": message},
+                     {"role": "user", "content": question}])
+        self.assertIn("Shop Manual_SM91Y027_en.pdf", corrected)
+        self.assertIn("PDF page 214", corrected)
+        self.assertNotIn("don't have access", corrected)
+        self.assertEqual(
+            rag.repair_false_no_access("Here is an answer based on [M1].",
+                                       [{"role": "system", "content": message}]),
+            "Here is an answer based on [M1].")
+
+    def test_requested_unavailable_year_must_not_mix_documents(self):
+        self.add("5" * 64, "SSV 2026 DEFENDER_TRAXTER HD11 - Shop Manual.pdf",
+                 "approved", 1, "PRIMARY CLUTCH REMOVAL Remove the bolt.", page=90)
+        rag.sync(self.source,self.index)
+        rows = rag.retrieve("2027 Defender HD11 shop manual primary clutch removal",
+                            self.source,self.index)
+        self.assertEqual(rows, [])
+
     def test_fail_closed_offline(self):
         with self.assertRaises(rag.RetrievalUnavailable):
             rag.retrieve("torque",self.source,self.index)

@@ -103,3 +103,26 @@ may be slow for thousands of long manuals; newly approved entries refresh
 in batches; cited model-generated claims must still be cross-checked; current
 chat attachments provide bounded excerpts, not an assurance that all pages of
 an arbitrary long file have been examined.
+
+## 2027 Defender HD11 retrieval reliability update
+
+- Diagnostic evidence from an actual 2027 HD11 administrator chat confirmed
+  four retrieved excerpts were included, but they favored shop-manual
+  introductory pages and wiring diagrams, and the local model falsely claimed
+  the manual was inaccessible.
+- The revised retrieval scopes explicit year, model, and manual type **before**
+  full-text search. An explicitly requested shop manual excludes wiring
+  diagrams. Missing year/model combinations fail closed rather than substituting
+  another model's mechanical specifications.
+- Search prioritizes matching terms in **page body** and actual procedural
+  language over filename/contents hits. Query-centered excerpt windows retain
+  relevant text even when it is deep in a long page extraction.
+- A local response guard detects false generic claims of no manual access when
+  verified [M#] passages were supplied and replaces that denial with a factual
+  source list. It does **not** invent steps or assert that all pages are visible.
+- No database migration and no rebuild of previously indexed manuals are
+  necessary; update the Gentoo router and RAG module with the existing pinned
+  in-place upgrader.
+- First real-data acceptance check must compare the 2027 HD11 source/page list
+  against the expected manual, then ask the local LLM to cite those pages.
+  Automated synthetic tests cannot establish the exact removal procedure.

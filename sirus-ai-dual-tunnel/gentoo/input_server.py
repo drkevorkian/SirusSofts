@@ -42,7 +42,8 @@ LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRe
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from knowledge import KnowledgeManager,PROFILES
-from manual_rag import augment as augment_manuals, sync as sync_manuals, RetrievalUnavailable
+from manual_rag import (augment as augment_manuals, sync as sync_manuals,
+                        repair_false_no_access, RetrievalUnavailable)
 
 
 @contextmanager
@@ -258,6 +259,10 @@ class Engine:
                 with db_connect(self.db) as con:
                     con.execute('UPDATE jobs SET worker=? WHERE id=?', (worker, job_id))
                 answer = chat(CPU,prompt_messages,model_id=model_id,max_tokens=max_tokens)
+            # The retrieved source list is independently verified. A weak local
+            # model must not falsely deny all manual access when those excerpts
+            # were included. Do not manufacture missing repair steps.
+            answer = repair_false_no_access(answer, prompt_messages)
             with db_connect(self.db) as con:
                 con.execute("UPDATE jobs SET state='completed' WHERE id=?", (job_id,))
                 add_completed_events(con, job_id, answer, worker)
