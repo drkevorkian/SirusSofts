@@ -144,3 +144,32 @@ investigated before enabling public image cards.
   Ubuntu CMS, AI gateway, viewer UI, signed Gentoo PDF bridge, PDFs, and
   document index format are unchanged. The incremental FTS sync should show
   \`new_or_changed: 0\` if no manual approvals have changed.
+
+
+## Engine-unlabeled BRP wiring documents (live corpus regression)
+
+The live 2026 Gentoo approved catalog includes wiring documents titled
+\`SSV 2026 Commander- Wiring Diagram_219101142_WD91Y026_en.pdf\`,
+\`SSV 2026 DEFENDER - Wiring Diagram_219101142_WD91Y026_en.pdf\`,
+and \`SSV 2026 MAV Trail_Sport - Wir Diagram_219101142_WD91Y026_en.pdf\`.
+None says HD10 in its filename. The same catalog includes an explicitly named
+\`SSV 2026 DEFENDER_TRAXTER HD11- Wiring Diagram...\`, which **must not**
+be mistaken for HD10.
+
+For a broad discovery query such as \`2026 HD10 wire diagram\`, the RAG
+search may now present *approved, same-year SSV documents with an unspecified
+HD engine* as **candidate wiring documents**. Exact engine matches rank
+first, and filenames explicitly stating other HD engines or Maverick X3 are
+excluded. The \`Wir Diagram\` title abbreviation is recognized.
+
+These candidate titles do not certify HD10 applicability or identify a
+diagram page. The response must carry an explicit **ENGINE APPLICABILITY
+UNVERIFIED** warning and direct the administrator to check coverage inside
+the image-only viewer before relying on a drawing. For targeted connector,
+pinout or color questions, the engine must still match explicitly and the
+answer must have page-attributed evidence. No approval or data changes occur.
+
+This is a **Gentoo AI router-only** source patch: existing approved PDFs,
+Gentoo PDF Admin/viewer bridge, Ubuntu CMS frontend, SSH tunnels, and
+databases remain intact. Use the pinned upgrade-in-place script, not a
+first-run installer.

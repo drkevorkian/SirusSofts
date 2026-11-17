@@ -168,7 +168,7 @@ WIRING_PATTERN = (r"\b(?:"
                   r"|(?:electrical|wiring)\s+prints?"
                   r")\b")
 WIRING_FILENAME = re.compile(
-    r"\b(?:wire\s+diagrams?|wiring|electrical|schematics?|circuit\s+diagrams?)\b"
+    r"\b(?:wir\s+diagrams?|wire\s+diagrams?|wiring|electrical|schematics?|circuit\s+diagrams?)\b"
 )
 
 
@@ -205,6 +205,16 @@ def _broad_wiring_lookup(query):
     return not [term for term in _topic_terms(query) if term not in filler]
 
 
+def _engine_not_named(query, filename):
+    """True only when a requested HD engine is absent from a candidate title."""
+    model = re.search(r"\bhd[\s_-]*(?:\d{1,2})\b", query.lower())
+    if not model:
+        return False
+    wanted = re.sub(r"[\s_-]+", "", model.group())
+    title = re.sub(r"[\s_-]+", "", str(filename).lower())
+    return wanted not in title
+
+
 def _vehicle_scope(query, approved):
     """Scope explicit model/year/document-type questions before searching pages.
 
@@ -226,7 +236,7 @@ def _vehicle_scope(query, approved):
         platform = "defender"
     elif "commander" in query_l:
         platform = "commander"
-    elif "maverick" in query_l:
+    elif "maverick" in query_l or re.search(r"\bmav\b", query_l):
         platform = "maverick"
 
     qualified = []
@@ -237,11 +247,27 @@ def _vehicle_scope(query, approved):
         compact = re.sub(r"[\s_-]+", "", title)
         if year and year.group() not in title:
             continue
+        engine_unverified = False
         if model_id and model_id not in compact:
-            continue
+            # BRP wiring document titles often state only year/platform,
+            # e.g. "SSV 2026 DEFENDER - Wiring Diagram", while their
+            # corresponding shop manual titles explicitly name engines.
+            # For broad catalog BROWSING only, permit such documents as
+            # unverified candidates. Explicitly named other HD engines
+            # are never substitutes.
+            named_engines = re.findall(r"\bhd\s*(\d{1,2})\b", title)
+            engine_unverified = bool(
+                browse_wiring and asks_wiring and year and
+                title.lstrip().startswith("ssv ") and not named_engines
+                and not re.search(r"\bx\s*3\b", title))
+            if not engine_unverified:
+                continue
         if platform == "defender" and not ("defender" in title or "traxter" in title):
             continue
-        if platform in ("commander", "maverick") and platform not in title:
+        if platform == "commander" and "commander" not in title:
+            continue
+        if platform == "maverick" and not (
+                "maverick" in title or re.search(r"\bmav\b", title)):
             continue
         is_shop = "shop manual" in title or "service manual" in title or "repair manual" in title
         is_wiring = bool(WIRING_FILENAME.search(title))
@@ -259,6 +285,10 @@ def _vehicle_scope(query, approved):
         prefer = (12 if is_shop and asks_shop else 0) + (
             12 if is_wiring and asks_wiring else 0) - (
             15 if is_wiring and not asks_wiring else 0)
+        # Explicit matching HD10 has higher confidence than filenames
+        # that do not declare an engine. No inference of compatibility.
+        if engine_unverified:
+            prefer -= 20
         qualified.append((prefer, row["sha256"], row["filename"], is_shop))
 
     if browse_wiring and asks_wiring and not asks_shop and not qualified:
@@ -483,6 +513,7 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
                                part=first["part"], text="", reference_only=True)
                 else:
                     ref = dict(ref, reference_only=False)
+                ref["engine_unverified"] = _engine_not_named(query, name)
                 discovered.append(ref)
                 selected.add((sha, ref["page"]))
             # When few documents match, add only pages whose extracted
@@ -493,7 +524,10 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
                     break
                 if (_wiring_text_evidence(ref["text"]) and
                         (ref["sha256"],ref["page"]) not in selected):
-                    discovered.append(dict(ref,reference_only=False))
+                    additional = dict(ref,reference_only=False)
+                    additional["engine_unverified"] = _engine_not_named(
+                        query, ref["filename"])
+                    discovered.append(additional)
                     selected.add((ref["sha256"],ref["page"]))
             return discovered
         return results
@@ -533,14 +567,31 @@ def augment(messages, question, source: Path = SOURCE, index: Path = INDEX):
         if free<=0:
             break
         if ref.get("reference_only"):
-            passage = ("CATALOG MATCH ONLY: This approved PDF matches the requested "
-                       "year/engine and document category by its TITLE. Page "
-                       f"{ref['page']} is a starting page for the image-only "
-                       "viewer, NOT a verified diagram page. No wiring image "
-                       "or circuit details have been inspected. Offer the "
-                       "manual viewer link; do not invent a diagram.")
+            if ref.get("engine_unverified"):
+                passage = ("CATALOG MATCH ONLY; ENGINE APPLICABILITY UNVERIFIED: "
+                           "This approved SSV wiring PDF matches the requested "
+                           "YEAR and possibly vehicle platform, but its TITLE "
+                           "does NOT specify the requested HD engine. Do not "
+                           "claim it is the HD10 circuit diagram without "
+                           "checking the manual's coverage/vehicle applicability. "
+                           f"PDF page {ref['page']} is only a viewer STARTING "
+                           "PAGE, NOT a verified diagram page. Provide a link "
+                           "to this candidate manual, clearly labeled unverified.")
+            else:
+                passage = ("CATALOG MATCH ONLY: This approved PDF matches the "
+                           "requested year and engine in its title. Page "
+                           f"{ref['page']} is a starting page for the image-only "
+                           "viewer, NOT a verified diagram page. No wiring image "
+                           "or circuit details have been inspected. Offer the "
+                           "manual viewer link; do not invent a diagram.")
         else:
             passage = _matched_excerpt(str(ref["text"]),question,min(free,1200))
+            if ref.get("engine_unverified"):
+                passage = ("ENGINE APPLICABILITY UNVERIFIED: The PDF filename "
+                           "does not explicitly identify the requested HD "
+                           "engine. Even a page mentioning wiring cannot "
+                           "establish HD10 compatibility. Check the manual "
+                           "coverage before relying on circuits.\n" + passage)
         context += heading+"[BEGIN MANUAL DATA]\n"+passage+"\n[END MANUAL DATA]\n"
     return [{"role":"system","content":context}, *messages]
 
@@ -596,7 +647,12 @@ def include_source_manifest(answer, messages):
         return answer
     # Put metadata first so an otherwise lengthy response can still preserve
     # its source references when the downstream CMS enforces length limits.
-    return SOURCE_START + "\n" + "\n".join(refs[:5]) + "\n" + SOURCE_END + "\n\n" + answer
+    caution = ("Engine applicability not verified: some retrieved wiring "
+               "manual filenames do not specify the requested HD engine. "
+               "Check the vehicle/model coverage inside the manual before "
+               "using any circuit diagrams.\n\n"
+               if "ENGINE APPLICABILITY UNVERIFIED" in ctx else "")
+    return SOURCE_START + "\n" + "\n".join(refs[:5]) + "\n" + SOURCE_END + "\n\n" + caution + answer
 
 
 def main():

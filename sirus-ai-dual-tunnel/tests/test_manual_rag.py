@@ -296,6 +296,82 @@ class ManualRagTests(unittest.TestCase):
         self.assertTrue(refs)
         self.assertTrue(all(x["sha256"]==shop for x in refs))
 
+    def test_real_bpr_2026_titles_broad_hd10_wiring_candidates(self):
+        # Real Gentoo filenames found in the 2026 catalog do not mention HD10.
+        # The exact PDF titles are evidence of year/platform, not engine fit.
+        commander = "6" * 64
+        defender = "7" * 64
+        mav = "8" * 64
+        named_hd11 = "9" * 64
+        x3 = "a" * 64
+        roadster = "b" * 64
+        wrong_year = "c" * 64
+        self.add(commander, "SSV 2026 Commander- Wiring Diagram_219101142_WD91Y026_en.pdf",
+                 "approved", 1, "TABLE OF CONTENTS", page=1)
+        self.add(defender, "SSV 2026 DEFENDER - Wiring Diagram_219101142_WD91Y026_en.pdf",
+                 "approved", 1, "BRP vehicle electrical overview", page=1)
+        self.add(mav, "SSV 2026 MAV Trail_Sport - Wir Diagram_219101142_WD91Y026_en.pdf",
+                 "approved", 1, "Electrical component reference illustration", page=1)
+        self.add(named_hd11, "SSV 2026 DEFENDER_TRAXTER HD11- Wiring Diagram_219101142_WD91Y026_en.pdf",
+                 "approved", 1, "WIRING DIAGRAM HD11 vehicle only", page=1)
+        self.add(x3, "SSV 2026 Maverick X3 - Wiring Diagram_219101142_WD91Y026_en.pdf",
+                 "approved", 1, "WIRING DIAGRAM X3", page=1)
+        self.add(roadster, "ROADSTER 2026 F3 - Wiring Diagram_219101147_WD61Y026_en.pdf",
+                 "approved", 1, "WIRING DIAGRAM F3", page=1)
+        self.add(wrong_year, "SSV 2025 DEFENDER - Wiring Diagram_219101142_WD91Y025_en.pdf",
+                 "approved", 1, "WIRING DIAGRAM 2025", page=1)
+        rag.sync(self.source, self.index)
+        query = "2026 HD10 wire diagram"
+        scope = rag._vehicle_scope(query, [
+            {"filename":title, "sha256":sha} for sha,title in [
+                (commander,"SSV 2026 Commander- Wiring Diagram_219101142_WD91Y026_en.pdf"),
+                (defender,"SSV 2026 DEFENDER - Wiring Diagram_219101142_WD91Y026_en.pdf"),
+                (mav,"SSV 2026 MAV Trail_Sport - Wir Diagram_219101142_WD91Y026_en.pdf"),
+                (named_hd11,"SSV 2026 DEFENDER_TRAXTER HD11- Wiring Diagram_219101142_WD91Y026_en.pdf"),
+            ]])
+        self.assertEqual({r[1] for r in scope},{commander,defender,mav})
+        refs = rag.retrieve(query,self.source,self.index)
+        self.assertEqual({r["sha256"] for r in refs},{commander,defender,mav})
+        self.assertTrue(all(r["engine_unverified"] for r in refs))
+        self.assertTrue(all(r["reference_only"] for r in refs))
+        self.assertTrue(all(r["page"]==1 for r in refs))
+        prompt = rag.augment([{"role":"user","content":query}],
+                             query,self.source,self.index)[0]["content"]
+        self.assertIn("ENGINE APPLICABILITY UNVERIFIED",prompt)
+        self.assertIn("does NOT specify the requested HD engine",prompt)
+        self.assertNotIn("DEFENDER_TRAXTER HD11-",prompt)
+        self.assertNotIn("Maverick X3",prompt)
+        self.assertNotIn("ROADSTER",prompt)
+        self.assertNotIn("SSV 2025",prompt)
+        result=rag.include_source_manifest("Candidate manual titles",[
+            {"role":"system","content":prompt}])
+        self.assertIn("[[SIRUS_MANUAL_SOURCES_START]]",result)
+        self.assertIn("Engine applicability not verified",result)
+        self.assertIn(commander,result)
+        self.assertIn(defender,result)
+        self.assertIn(mav,result)
+
+        for platform, expected in (
+            ("Defender",defender),("Commander",commander),("Mav",mav)
+        ):
+            results = rag.retrieve("2026 "+platform+" HD10 wire diagram",
+                                   self.source,self.index)
+            self.assertEqual({r["sha256"] for r in results},{expected})
+        # Detailed wiring answers still require verified, page-attributed
+        # evidence and cannot silently use an unspecified engine's diagram.
+        self.assertEqual(rag.retrieve("2026 HD10 wiring diagram ignition switch",
+                                      self.source,self.index),[])
+
+    def test_broad_unnamed_engine_never_takes_other_named_hd_model(self):
+        wrong = "d"*64
+        other = "e"*64
+        self.add(wrong,"SSV 2026 Defender HD11 Wiring Diagram.pdf",
+                 "approved",1,"WIRING DIAGRAM HD11 only")
+        self.add(other,"SSV 2026 Commander HD9 Wiring Diagram.pdf",
+                 "approved",1,"WIRING DIAGRAM HD9 only")
+        rag.sync(self.source,self.index)
+        self.assertEqual(rag.retrieve("2026 HD10 wire diagram",self.source,self.index),[])
+
     def test_missing_2026_hd10_broad_diagrams_do_not_mix_year_or_engine(self):
         self.add("0"*64,"SSV 2025 COMMANDER HD10 - Wire Diagram.pdf",
                  "approved",1,"Diagram legend")
