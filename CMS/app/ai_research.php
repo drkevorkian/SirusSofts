@@ -143,3 +143,14 @@ function cms_ai_research_manuals(array $identity,string $query):array {
         throw new RuntimeException('Gentoo manual catalog response invalid.');
     return $docs;
 }
+
+function cms_ai_research_sections(PDO $db,array $identity,string $id,int $offset):array {
+    cms_ai_research_owned($db,$identity,$id);
+    if($offset<0||$offset>999999)
+        throw new InvalidArgumentException('Invalid research section offset.');
+    $reply=cms_ai_api_upstream('input','/api/in/research/'.$id.'/sections/'.$offset);
+    if(($reply['id']??null)!==$id||!is_array($reply['sections']??null)||
+       count($reply['sections'])>12)
+        throw new RuntimeException('Invalid research section response.');
+    return $reply;
+}
