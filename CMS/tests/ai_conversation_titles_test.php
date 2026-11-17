@@ -142,4 +142,10 @@ cms_ai_workspace_schema($legacy);
 $columns=array_column($legacy->query('PRAGMA table_info(cms_ai_conversations)')->fetchAll(PDO::FETCH_ASSOC),'name');
 title_check(count(array_filter($columns,fn($c)=>$c==='title_locked'))===1,
     'Existing database upgraded by adding a single lock column');
+title_check(count(array_filter($columns,fn($c)=>$c==='deleted_at'))===1,
+    'Existing database upgraded with reversible deletion timestamp');
+cms_ai_workspace_schema($legacy);
+$columnsAgain=array_column($legacy->query('PRAGMA table_info(cms_ai_conversations)')->fetchAll(PDO::FETCH_ASSOC),'name');
+title_check(count(array_filter($columnsAgain,fn($c)=>$c==='deleted_at'))===1,
+    'Deletion migration stays idempotent');
 echo "PASS: private conversation naming, manual override, first-message topic, ownership, quota and legacy migration.\n";
