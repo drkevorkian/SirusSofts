@@ -122,6 +122,45 @@ class ManualRagTests(unittest.TestCase):
         self.assertEqual(refs[0]["sha256"], shop)
         self.assertEqual(refs[0]["page"], 214)
         self.assertTrue(all(row["sha256"] == shop for row in refs))
+        # Exact production browser prompt that previously produced zero
+        # sources: "Do not substitute wiring diagrams" is a NEGATION,
+        # not a positive request for wiring diagrams.
+        browser_question = (
+            "In the 2027 Can-Am Defender HD11 shop manual, give me the "
+            "primary clutch removal procedure step by step. Cite the exact "
+            "manual title and page number for every step. Do not substitute "
+            "wiring diagrams or another model year. If the retrieved "
+            "excerpts are insufficient, identify which steps are missing."
+        )
+        self.assertTrue(rag._negated_document_mention(
+            browser_question, r"\\bwiring\\s+diagrams?\\b"))
+        browser_refs = rag.retrieve(browser_question,self.source,self.index)
+        self.assertTrue(browser_refs,"Negated wiring diagrams must not eliminate the shop manual")
+        self.assertEqual(browser_refs[0]["sha256"],shop)
+        self.assertEqual(browser_refs[0]["page"],214)
+        self.assertTrue(all(r["sha256"]==shop for r in browser_refs))
+        self.assertFalse("wiring" in rag._topic_terms(browser_question))
+        browser_ctx = rag.augment(
+            [{"role":"user","content":browser_question}],
+            browser_question,self.source,self.index)[0]["content"]
+        self.assertIn("[M1]",browser_ctx)
+        self.assertNotIn("No APPROVED matching manual excerpts",browser_ctx)
+        self.assertNotIn("Wiring Diagram (2).pdf",browser_ctx)
+        # A positive wiring request still selects wiring documentation.
+        wiring_question = "2027 Defender HD11 wiring diagram primary clutch"
+        wiring_refs = rag.retrieve(wiring_question,self.source,self.index)
+        self.assertTrue(wiring_refs)
+        self.assertEqual(wiring_refs[0]["sha256"],wiring)
+        # Explicitly comparing two document types means either is allowed.
+        both_question = ("Compare 2027 Defender HD11 shop manual and wiring "
+                         "diagram for primary clutch removal")
+        scope = rag._vehicle_scope(both_question,[
+            {"filename":"SSV 2027 DEFENDER_TRAXTER HD11 - Shop Manual_SM91Y027_en.pdf",
+             "sha256":shop},
+            {"filename":"SSV 2027 Defender Traxter HD11 Wiring Diagram (2).pdf",
+             "sha256":wiring},
+        ])
+        self.assertEqual({r[1] for r in scope},{shop,wiring})
         message = rag.augment([{"role": "user", "content": question}],
                               question, self.source, self.index)[0]["content"]
         self.assertIn("PDF page 214", message)

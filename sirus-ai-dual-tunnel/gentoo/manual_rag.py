@@ -143,6 +143,26 @@ def keywords(text):
     return found[:14]
 
 
+def _negated_document_mention(query, pattern):
+    """Detect source types excluded by a nearby instruction, not requested.
+
+    Example: 'Do not substitute wiring diagrams' excludes wiring diagrams
+    despite mentioning them. This is a bounded heuristic, not a general NLP
+    parser; compare/combined queries can explicitly request both types.
+    """
+    for match in re.finditer(pattern, query, re.I):
+        preceding = query[max(0, match.start() - 130):match.start()]
+        # Negation must belong to the same clause, not an earlier sentence.
+        clause = re.split(r"[.!?;\n]", preceding)[-1]
+        if re.search(
+            r"\b(?:do\s+not|don't|does\s+not|doesn't|never|avoid|exclude|"
+            r"without|rather\s+than|instead\s+of|not)\b"
+            r"(?:[\s,/-]+\w+){0,8}[\s,/-]*$", clause, re.I
+        ):
+            return True
+    return False
+
+
 def _vehicle_scope(query, approved):
     """Scope explicit model/year/document-type questions before searching pages.
 
@@ -153,8 +173,12 @@ def _vehicle_scope(query, approved):
     year = re.search(r"\b20[12]\d\b", query_l)
     model = re.search(r"\bhd[\s_-]*(?:\d{1,2})\b", query_l)
     model_id = re.sub(r"[\s_-]+", "", model.group()) if model else ""
-    asks_shop = any(x in query_l for x in ("shop manual", "service manual", "repair manual"))
-    asks_wiring = "wiring diagram" in query_l or "electrical schematic" in query_l
+    shop_pattern = r"\b(?:shop|service|repair)\s+manuals?\b"
+    wiring_pattern = r"\b(?:wiring\s+diagrams?|electrical\s+schematics?)\b"
+    excludes_shop = _negated_document_mention(query_l, shop_pattern)
+    excludes_wiring = _negated_document_mention(query_l, wiring_pattern)
+    asks_shop = bool(re.search(shop_pattern,query_l)) and not excludes_shop
+    asks_wiring = bool(re.search(wiring_pattern,query_l)) and not excludes_wiring
     platform = ""
     if "defender" in query_l or "traxter" in query_l:
         platform = "defender"
@@ -177,11 +201,16 @@ def _vehicle_scope(query, approved):
             continue
         is_shop = "shop manual" in title or "service manual" in title or "repair manual" in title
         is_wiring = "wiring" in title or "schematic" in title
-        if asks_shop and not is_shop:
+        if (excludes_wiring and is_wiring) or (excludes_shop and is_shop):
             continue
-        if asks_wiring and not is_wiring:
+        # A request to compare shop and wiring documents should select
+        # either type, not require a filename to be both simultaneously.
+        if (asks_shop or asks_wiring) and not (
+                (asks_shop and is_shop) or (asks_wiring and is_wiring)):
             continue
-        prefer = (12 if is_shop and not asks_wiring else 0) - (15 if is_wiring and not asks_wiring else 0)
+        prefer = (12 if is_shop and asks_shop else 0) + (
+            12 if is_wiring and asks_wiring else 0) - (
+            15 if is_wiring and not asks_wiring else 0)
         qualified.append((prefer, row["sha256"], row["filename"], is_shop))
 
     constrained = bool(year or model or platform or asks_shop or asks_wiring)
@@ -197,7 +226,14 @@ def _topic_terms(query):
     skip = STOP | {"can", "am", "shop", "service", "repair", "source", "page",
                    "pages", "numbers", "exact", "name", "title", "2024", "2025",
                    "2026", "2027", "defender", "traxter", "commander",
-                   "maverick", "hd10", "hd11", "hd9", "ssv", "atv"}
+                   "maverick", "hd10", "hd11", "hd9", "ssv", "atv",
+                   "substitute", "another", "different", "model", "year",
+                   "years", "retrieved", "excerpts", "insufficient",
+                   "identify", "missing", "steps", "step", "every", "not"}
+    if _negated_document_mention(query.lower(),
+                                 r"\b(?:wiring\s+diagrams?|electrical\s+schematics?)\b"):
+        skip |= {"wiring", "diagram", "diagrams", "electrical",
+                 "schematic", "schematics"}
     return [word for word in keywords(query) if word not in skip and not re.fullmatch(r"20\d\d", word)]
 
 

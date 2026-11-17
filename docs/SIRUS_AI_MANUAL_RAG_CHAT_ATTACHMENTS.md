@@ -126,3 +126,21 @@ an arbitrary long file have been examined.
 - First real-data acceptance check must compare the 2027 HD11 source/page list
   against the expected manual, then ask the local LLM to cite those pages.
   Automated synthetic tests cannot establish the exact removal procedure.
+
+## Negated document-type filter correction
+
+Production read-only SQLite diagnostics found that requests including
+"Do not substitute wiring diagrams or another model year" were being
+misinterpreted as simultaneously *requesting* a shop manual and wiring diagram.
+No filename can satisfy both filters, so the router sent a "no approved matching"
+context even though the manual was approved, indexed, and directly searchable.
+
+The corrected filter treats a document type mentioned inside a local exclusion
+phrase ("do not substitute", "exclude", "avoid", "rather than", "without") as
+**excluded**, not required. Positive references still select the requested
+type; an explicit comparison can include both types. Excluded words are omitted
+from the ranking query. The exact browser question is covered by synthetic
+regression tests with same-year wiring/manual and wrong-year/model decoys.
+
+This is a Gentoo-only, in-place AI router update; no Ubuntu frontend change,
+no PDF reprocessing and no rebuild of the already populated FTS index.
