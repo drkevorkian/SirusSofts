@@ -2,11 +2,13 @@
 
 ## User experience
 
-- New signed-in conversations are created with the temporary name
-  `New conversation`. The first **substantive user message** creates a
-  short, topic-based title immediately after that message is accepted by the
-  CMS, without waiting for model inference and without sending a separate
-  naming request to an outside LLM. Example:
+- Signed-in users may provide an exact title in the **+ New conversation**
+  dialog before typing their first prompt. The optional title is saved as
+  private CMS metadata and protected against automatic overwrites. Leaving it
+  blank creates the temporary name `New conversation`. The first
+  **substantive user message** then creates a short, topic-based title
+  immediately after that message is accepted by the CMS, without waiting for
+  model inference and without sending a separate naming request to an outside LLM. Example:
   `2026 HD10 wire diagram` → `2026 HD10 Wire Diagram`.
 - A user may specify an exact title at the beginning of any message:
   `Name this conversation: 2026 HD10 Wiring`. They can add their
@@ -60,7 +62,9 @@
    `bash deploy/ubuntu24/07-audit-cms-routing.sh --live --user sirusweb --domain sirussofts.com`.
    In an authenticated browser, confirm existing chats have topic names,
    manual renaming works and persists after reload, first-line explicit
-   instructions persist, and a newly started topic chat auto-titles.
+   instructions persist, the optional title at conversation creation is saved
+   and locked, and a blank new-chat title auto-names after a useful prompt.
+   Check canceling the dialog, guest behavior and UTF-8 byte limits.
 5. Existing backups and rollback contracts remain unchanged. No Gentoo
    deployment, model restart, SSH tunnel change, or PDF reindex is required.
 
