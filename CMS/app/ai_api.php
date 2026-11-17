@@ -366,6 +366,11 @@ function cms_ai_api_run(PDO $db,string $path): never {
         }
         // Research jobs require a CMS admin identity. No browser-accessible
         // raw Gentoo research endpoint, no weight training or auto-approval.
+        if($path==='/ai/api/research/manuals'&&$method==='GET'){
+            $query=$_GET['q']??'';
+            if(!is_string($query))throw new InvalidArgumentException('Invalid manual search.');
+            cms_ai_api_json(200,['manuals'=>cms_ai_research_manuals($identity,$query)]);
+        }
         if($path==='/ai/api/research'){
             cms_ai_research_authorized($identity);
             if($method==='GET')
