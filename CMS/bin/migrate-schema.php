@@ -18,7 +18,8 @@ try {
     cms_release_schema($db);
     cms_ai_workspace_schema($db);
     $named=cms_ai_backfill_conversation_titles($db);
-    echo "PASS: CMS, Release Planner, and AI conversation schemas are current; existing data retained.\n";
+    echo "PASS: CMS and Release Planner schemas are current; existing data retained.\n";
+    echo "PASS: AI conversation title schema is current; existing messages and user titles retained.\n";
     echo "PASS: $named existing untitled AI conversations received topic-based names; explicit titles preserved.\n";
 } catch (Throwable $error) {
     error_log('CMS schema upgrade failed: ' . get_class($error));
