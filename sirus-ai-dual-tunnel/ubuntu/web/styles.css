@@ -97,3 +97,16 @@
  .conversation-titlebar{padding:8px 15px}
  .conversation-caption{display:none}
 }
+
+/* Mobile chat selector preserves access to older conversations and rename controls. */
+.mobile-chat-list-button{display:none}
+@media(max-width:780px){
+ .mobile-chat-list-button{display:inline-block;flex-shrink:0;
+  padding:7px 12px;border:1px solid #356084;background:#193653;
+  border-radius:8px;color:#d8eeff;font-size:12px}
+ .mobile-chat-list-button:hover,.mobile-chat-list-button:focus-visible{
+  background:#26577c}
+ .sidebar.mobile-list-open #conversations{display:grid;clear:both;
+  max-height:min(34vh,260px);overflow-y:auto;margin-top:12px;
+  background:#101e30;border:1px solid #294766;border-radius:9px;padding:5px}
+}
