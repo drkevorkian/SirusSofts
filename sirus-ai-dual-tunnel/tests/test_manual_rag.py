@@ -8,10 +8,10 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("manual_rag", ROOT / "manual_rag.py")
+spec = importlib.util.spec_from_file_location("manual_rag", ROOT / "gentoo" / "manual_rag.py")
 rag = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rag)
-ingest_path = ROOT.parents[1] / "gentoo-node" / "pdf_ingest.py"
+ingest_path = ROOT.parent / "gentoo-node" / "pdf_ingest.py"
 spec2 = importlib.util.spec_from_file_location("pdf_ingest", ingest_path)
 ingest = importlib.util.module_from_spec(spec2)
 spec2.loader.exec_module(ingest)
