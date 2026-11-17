@@ -150,6 +150,7 @@ async function newChat(title='New conversation'){
  if(s.busy)return false;
  if(s.role==='guest'){s.id=null;s.msgs=[];s.guest=[];sessionStorage.removeItem('sirus-ai-guest-history');}
  else {try{s.id=(await api('/conversations','POST',{title})).id;
+   s.deletedView=false;
    s.msgs=[];s.attachments=[];renderAttachments();await refreshConversations();}catch(e){status(e.message);return false;}}
  s.deletedView=false;
  closeMobileConversations();
