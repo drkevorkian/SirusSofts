@@ -113,7 +113,13 @@ foreach(['Hello','2026 Can-Am Defender HD10 wiring and fuse box'] as $message){
     $db->commit();
 }
 $custom=cms_ai_conversation_new($db,$alice,'My Manual Research');
+title_check(title_of($db,$custom)['title']==='My Manual Research',
+    'Optional new-chat title is saved immediately');
+title_check((int)title_of($db,$custom)['title_locked']===1,
+    'Initial user-selected title is locked before the first prompt');
 cms_ai_message_add($db,$alice,$custom,'user','Ask something else');
+title_check(title_of($db,$custom)['title']==='My Manual Research',
+    'Automatic naming never overwrites a title supplied at creation');
 $changes=cms_ai_backfill_conversation_titles($db);
 title_check($changes===1,'Only one historic placeholder backfilled');
 title_check(str_contains(title_of($db,$old)['title'],'Defender HD10'),

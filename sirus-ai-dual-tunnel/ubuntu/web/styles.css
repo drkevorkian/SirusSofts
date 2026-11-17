@@ -87,6 +87,7 @@
 .rename-dialog input{width:100%;padding:11px;border:1px solid #46749a;
  border-radius:8px;background:#172e48;color:#fff;font:inherit}
 .rename-dialog input:focus-visible{outline:2px solid #6bc9ff;outline-offset:1px}
+.rename-dialog .dialog-error{color:#ffb5be;font-size:12px;font-weight:600;margin:0}
 .rename-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:8px}
 .rename-actions button{padding:8px 14px;border-radius:8px;border:1px solid #46749a;
  background:#183d5f;color:#e4f4ff;font:inherit}
@@ -95,4 +96,17 @@
 @media(max-width:780px){
  .conversation-titlebar{padding:8px 15px}
  .conversation-caption{display:none}
+}
+
+/* Mobile chat selector preserves access to older conversations and rename controls. */
+.mobile-chat-list-button{display:none}
+@media(max-width:780px){
+ .mobile-chat-list-button{display:inline-block;flex-shrink:0;
+  padding:7px 12px;border:1px solid #356084;background:#193653;
+  border-radius:8px;color:#d8eeff;font-size:12px}
+ .mobile-chat-list-button:hover,.mobile-chat-list-button:focus-visible{
+  background:#26577c}
+ .sidebar.mobile-list-open #conversations{display:grid;clear:both;
+  max-height:min(34vh,260px);overflow-y:auto;margin-top:12px;
+  background:#101e30;border:1px solid #294766;border-radius:9px;padding:5px}
 }

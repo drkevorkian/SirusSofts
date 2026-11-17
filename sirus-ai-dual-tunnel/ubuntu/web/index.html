@@ -32,6 +32,8 @@
   <main class="main">
     <header class="topbar">
       <div class="titleline"><span class="glow"></span><div><h1>SirusSofts AI</h1><p>Local inference · private account data</p></div></div>
+      <button id="mobileConversations" class="mobile-chat-list-button" type="button"
+        aria-expanded="false" aria-controls="conversations">Chats</button>
       <div class="links"><a href="/">Home</a><a href="/projects">Projects</a></div>
     </header>
     <section class="statusbar" aria-label="AI connection status">
@@ -92,6 +94,20 @@
     <footer>AI inference runs on local Gentoo workers. Stored content is recalled by relevant excerpt, not sent to outside model providers.</footer>
   </main>
 </div>
+  <dialog id="newChatDialog" class="rename-dialog" aria-labelledby="newChatHeading">
+    <form id="newChatForm">
+      <h2 id="newChatHeading">Start a conversation</h2>
+      <p>Give your conversation a name now, or leave it blank to generate a topic-based title from your first message. You can rename it whenever you want.</p>
+      <label for="newChatTitle">Conversation title (optional)</label>
+      <input id="newChatTitle" type="text" maxlength="160" autocomplete="off"
+        placeholder="Automatically name from your first message">
+      <p id="newChatError" class="dialog-error" role="alert" hidden></p>
+      <div class="rename-actions">
+        <button id="newChatCancel" type="button">Cancel</button>
+        <button id="newChatSave" type="submit">Start chat</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="renameDialog" class="rename-dialog" aria-labelledby="renameHeading">
     <form id="renameForm">
       <h2 id="renameHeading">Rename conversation</h2>
