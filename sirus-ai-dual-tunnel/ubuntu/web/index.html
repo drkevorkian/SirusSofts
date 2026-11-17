@@ -147,6 +147,22 @@
         </div>
         <h4>Latest source-grounded draft (not verified)</h4>
         <pre id="researchNotes"></pre>
+        <div class="research-actions">
+          <button id="researchHistory" type="button">Browse saved section drafts</button>
+        </div>
+        <div id="researchHistoryPanel" hidden>
+          <h4>All saved inference sections — newest first</h4>
+          <p>These are unverified, source-attributed drafts. Browse past sections and
+            passes before deciding whether to save any findings to reviewed knowledge.</p>
+          <div id="researchSectionList" class="research-jobs"></div>
+          <div class="research-actions">
+            <button id="researchHistoryNewer" type="button">Newer</button>
+            <button id="researchHistoryOlder" type="button">Older</button>
+            <button id="researchHistoryCopy" type="button">Copy selected section</button>
+          </div>
+          <p id="researchHistoryPage" aria-live="polite"></p>
+          <pre id="researchHistoryNotes"></pre>
+        </div>
       </article>
     </section>
     <div id="attachmentTray" class="attachment-tray" aria-live="polite" hidden></div>
