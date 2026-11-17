@@ -92,12 +92,22 @@ async function openConversation(id){
   s.id=id;nav();panel('messages');draw();status('');await refreshAttachments();}
  catch(e){status(e.message);}
 }
-async function newChat(){
- if(s.busy)return;
+async function newChat(title='New conversation'){
+ if(s.busy)return false;
  if(s.role==='guest'){s.id=null;s.msgs=[];s.guest=[];sessionStorage.removeItem('sirus-ai-guest-history');}
- else {try{s.id=(await api('/conversations','POST',{title:'New conversation'})).id;
-   s.msgs=[];s.attachments=[];renderAttachments();await refreshConversations();}catch(e){status(e.message);return;}}
+ else {try{s.id=(await api('/conversations','POST',{title})).id;
+   s.msgs=[];s.attachments=[];renderAttachments();await refreshConversations();}catch(e){status(e.message);return false;}}
  panel('messages');draw();renderAttachments();$('prompt').focus();status('');
+ return true;
+}
+function showNewChatDialog(){
+ if(s.busy)return;
+ if(s.role==='guest'){void newChat();return;}
+ $('newChatTitle').value='';
+ $('newChatError').hidden=true;
+ $('newChatError').textContent='';
+ $('newChatDialog').showModal();
+ $('newChatTitle').focus();
 }
 function inventory(){
  const all=new Set();
@@ -267,7 +277,26 @@ async function send(event){
 $('composer').onsubmit=send;
 $('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){
  e.preventDefault();$('composer').requestSubmit();}};
-$('newChat').onclick=newChat;
+$('newChat').onclick=showNewChatDialog;
+$('newChatCancel').onclick=()=>$('newChatDialog').close();
+$('newChatForm').onsubmit=async e=>{
+ e.preventDefault();
+ if(s.busy)return;
+ const title=$('newChatTitle').value.trim();
+ const error=$('newChatError');
+ error.hidden=true;
+ if(title&&new TextEncoder().encode(title).length>160){
+  error.textContent='The title must be 160 UTF-8 bytes or fewer.';
+  error.hidden=false;return;
+ }
+ const save=$('newChatSave');save.disabled=true;
+ try{
+  const created=await newChat(title||'New conversation');
+  if(created){$('newChatDialog').close();$('prompt').focus();}
+  else{error.textContent=$('progress').textContent||'Could not create conversation.';
+   error.hidden=false;}
+ }finally{save.disabled=false;}
+};
 $('renameCurrent').onclick=()=>{if(s.id)showRename(s.id);};
 $('renameCancel').onclick=()=>$('renameDialog').close();
 $('renameDialog').addEventListener('close',()=>{s.renameTarget=null;});
