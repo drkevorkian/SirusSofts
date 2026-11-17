@@ -193,7 +193,16 @@ def _broad_wiring_lookup(query):
         return False
     if _negated_document_mention(q, WIRING_PATTERN):
         return False
-    return not _topic_terms(query)
+    # A browsing request should not become an exact page-text search merely
+    # because the user says "I need the PDF" or "where can I find it?".
+    filler = {"i", "you", "we", "me", "my", "the", "for", "are", "there",
+              "is", "do", "does", "need", "want", "looking", "look", "get",
+              "send", "provide", "show", "see", "view", "browse", "open",
+              "search", "find", "locate", "pdf", "pdfs", "file", "files",
+              "document", "documents", "available", "some", "any", "all",
+              "please", "link", "links", "can", "am", "would", "could",
+              "from", "can-am", "where", "have", "got"}
+    return not [term for term in _topic_terms(query) if term not in filler]
 
 
 def _vehicle_scope(query, approved):
@@ -275,7 +284,8 @@ def _topic_terms(query):
         skip |= {"wire", "wiring", "diagram", "diagrams", "electrical",
                  "schematic", "schematics", "circuit", "circuits",
                  "drawing", "drawings", "print", "prints"}
-    return [word for word in keywords(query) if word not in skip and not re.fullmatch(r"20\d\d", word)]
+    return [word for word in keywords(query) if word not in skip
+            and not re.fullmatch(r"20\d\d|hd[-_]?\d{1,2}", word)]
 
 
 def _fts_passes(query, scoped):
@@ -449,6 +459,14 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
             for _, sha, name, _ in scoped:
                 if len(discovered) >= limit:
                     break
+                # The source DB is authoritative. Do not expose a fallback
+                # catalog reference if approval was revoked since the initial
+                # title shortlist was read.
+                fresh = original.execute(
+                    "SELECT status,reviewed FROM documents WHERE sha256=?",
+                    (sha,)).fetchone()
+                if fresh is None or fresh["status"] != "approved" or fresh["reviewed"] != 1:
+                    continue
                 ref = by_sha.get(sha)
                 # The term 'electrical' or 'circuit' on a random text
                 # page is insufficient evidence of a visual drawing.

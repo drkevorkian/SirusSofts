@@ -205,7 +205,10 @@ class ManualRagTests(unittest.TestCase):
                  "ready", 0, "Electrical drawing", page=1)
         rag.sync(self.source,self.index)
         for query in ("2026 HD10 wire diagram", "2026 HD10 wiring diagrams",
-                      "Show me 2026 HD10 electrical schematics"):
+                      "Show me 2026 HD10 electrical schematics",
+                      "I need the 2026 HD10 wire diagram PDF",
+                      "Where can I find the 2026 HD10 wiring diagram?",
+                      "Can you provide a 2026 HD-10 wire diagram?"):
             self.assertTrue(rag._broad_wiring_lookup(query), query)
             refs = rag.retrieve(query,self.source,self.index)
             self.assertEqual({r["sha256"] for r in refs},
