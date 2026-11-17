@@ -17,6 +17,15 @@ db="/var/lib/sirus-ai-dual/input.sqlite3"
 [[ -e /etc/init.d/sirus-ai-input && -f /etc/sirus-ai-dual/secret ]] ||
   fail 'Expected installed input service and secret missing'
 python3 -m py_compile "$src"
+research_modules=(research_loop.py web_source_summary.py web_research.py manual_summary.py)
+for file in "${research_modules[@]}"; do
+  research_src="$source_dir/sirus-ai-dual-tunnel/gentoo/$file"
+  research_dest="/opt/sirus-ai-dual/gentoo/$file"
+  [[ -f "$research_src" && ! -L "$research_src" &&
+     ( ! -e "$research_dest" || ( -f "$research_dest" && ! -L "$research_dest" ) ) ]] ||
+    fail "Missing or unsafe research module: $file"
+  python3 -m py_compile "$research_src"
+done
 command -v curl >/dev/null || fail 'curl required'
 [[ -f "$source_dir/sirus-ai-dual-tunnel/gentoo/knowledge.py" ]] ||
   fail 'Missing current Gentoo knowledge dependency'
@@ -52,6 +61,7 @@ if [[ "$mode" == --plan ]]; then
   echo "Source: $src"
   echo "Installed: $dest"
   echo "SQLite: $db (never overwritten)"
+  echo "Adds local research modules; enables checkpointed 1-100-pass research jobs"
   echo "Will rebuild ONLY a derived FTS5 index of already approved manuals on the SSD"
   echo "Will grant sirusai read access to the ingest SQLite DB and its WAL sidecars"
   echo "Will restart: sirus-ai-input ONLY; no GPU, SSH, tunnel or OpenRC system changes"
@@ -65,6 +75,11 @@ release="/root/sirus-ai-upgrade-backups/release-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 mkdir -p -m 0700 "$release"
 chmod 0700 "$release"
 cp -p "$dest" "$release/input_server.py"
+for file in "${research_modules[@]}"; do
+  if [[ -f "/opt/sirus-ai-dual/gentoo/$file" ]]; then
+    cp -p "/opt/sirus-ai-dual/gentoo/$file" "$release/$file"
+  fi
+done
 [[ ! -f "$rag_dest" ]] || cp -p "$rag_dest" "$release/manual_rag.py"
 getfacl -p "$root" "$root/databases" "$manual_db" > "$release/manual-acls.txt"
 for suffix in '-wal' '-shm'; do
@@ -83,6 +98,13 @@ rollback(){
   if [[ "$ok" != 1 ]]; then
     echo 'ERROR: Restoring Gentoo input_server.py from private backup' >&2
     cp -p "$release/input_server.py" "$dest" || true
+    for file in "${research_modules[@]}"; do
+      if [[ -f "$release/$file" ]]; then
+        cp -p "$release/$file" "/opt/sirus-ai-dual/gentoo/$file" || true
+      else
+        rm -f -- "/opt/sirus-ai-dual/gentoo/$file" || true
+      fi
+    done
     if [[ -f "$release/manual_rag.py" ]]; then
       cp -p "$release/manual_rag.py" "$rag_dest" || true
     else
@@ -110,6 +132,11 @@ mv -f "${rag_dest}.next" "$rag_dest"
 echo 'Indexing approved Gentoo PDFs locally; this may take time for 1,500+ manuals.'
 runuser -u sirusai -- python3 -B "$rag_dest" --sync ||
   fail 'Manual full-text index build failed; router remains on old code'
+for file in "${research_modules[@]}"; do
+  install -m 0644 "$source_dir/sirus-ai-dual-tunnel/gentoo/$file" \
+    "/opt/sirus-ai-dual/gentoo/$file.next"
+  mv -f "/opt/sirus-ai-dual/gentoo/$file.next" "/opt/sirus-ai-dual/gentoo/$file"
+done
 install -m 0644 "$src" "${dest}.next"
 mv -f "${dest}.next" "$dest"
 rc-service sirus-ai-input restart || fail 'Input router restart failed'
