@@ -83,6 +83,48 @@ class PDFAdminTest(unittest.TestCase):
         with self.assertRaises(mod.PDFAdminError):
             self.request("retry", sha256=self.doc)
 
+    def test_approve_all_1500_idempotent_and_excludes_unsafe(self):
+        # One SQL transaction, not a loop of 1,500 network operations.
+        other = "b" * 64
+        no_text = "c" * 64
+        processing = "d" * 64
+        conn = ing.connect(self.root)
+        conn.execute("BEGIN")
+        for idx in range(1499):
+            digest = f"{idx:064x}"
+            conn.execute("""INSERT INTO documents
+                (sha256,filename,object_rel,bytes,status,pages,excerpts,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?)""",
+                (digest, f"BRP {idx}.pdf", "manuals/objects/" + digest,
+                 120, "ready", 1, 1, self.now, self.now))
+            conn.execute("INSERT INTO excerpts(sha256,page,part,text) VALUES (?,?,?,?)",
+                         (digest,1,1,"verified extract"))
+        for sha,state,excerpts in [(other, "failed", 0), (no_text,"ready",0),
+                                  (processing,"processing",1)]:
+            conn.execute("""INSERT INTO documents
+                (sha256,filename,object_rel,bytes,status,pages,excerpts,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?)""",
+                (sha, "Exception.pdf", "manuals/objects/" + sha,
+                 120, state, 1, excerpts, self.now, self.now))
+        conn.execute("COMMIT")
+        conn.close()
+        self.assertEqual(self.request("status", limit=1)["eligible_ready"], 1500)
+        with self.assertRaisesRegex(mod.PDFAdminError, "confirmation"):
+            self.request("approve_all")
+        self.assertEqual(self.request("status", limit=1)["eligible_ready"], 1500)
+        approved = self.request("approve_all", confirm="APPROVE ALL READY")
+        self.assertEqual(approved["approved_count"], 1500)
+        self.assertEqual(self.request("status")["counts"]["approved"], 1500)
+        self.assertEqual(self.request("status")["eligible_ready"], 0)
+        self.assertEqual(self.request("approve_all", confirm="APPROVE ALL READY")["approved_count"], 0)
+        conn = ing.connect(self.root)
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) FROM pdf_admin_audit WHERE action='approve_all'").fetchone()[0], 2)
+        for sha, state in [(other,"failed"),(no_text,"ready"),(processing,"processing")]:
+            self.assertEqual(conn.execute("SELECT status FROM documents WHERE sha256=?",
+                                          (sha,)).fetchone()[0], state)
+        conn.close()
+
     def test_controls(self):
         self.request("pause")
         self.assertTrue(self.request("status")["paused"])

@@ -28,6 +28,10 @@
         const key = node.getAttribute("data-pdf-count");
         node.textContent = String(counts[key] || 0);
       });
+      const eligible = panel.querySelector("[data-pdf-eligible]");
+      if (eligible) eligible.textContent = Number(data.eligible_ready || 0).toLocaleString();
+      const approveAll = panel.querySelector("[data-pdf-bulk-submit]");
+      if (approveAll) approveAll.disabled = Number(data.eligible_ready || 0) <= 0;
       const workers = panel.querySelector("[data-pdf-workers]");
       if (workers) workers.textContent = String(data.workers);
       const paused = panel.querySelector("[data-pdf-state]");

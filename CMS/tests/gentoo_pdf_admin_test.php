@@ -20,4 +20,12 @@ try {
     cms_gentoo_pdf_call('execute',['command'=>'rm -rf /']);
     throw new RuntimeException('Arbitrary operation incorrectly accepted');
 } catch(InvalidArgumentException $expected) {}
+check_gentoo(cms_gentoo_pdf_bulk_confirmation('APPROVE ALL READY','yes')==='APPROVE ALL READY',
+             'Bulk confirmation accepted');
+foreach([['APPROVE ALL READY',null],['NO','yes'],[null,'yes']] as $values){
+    try {
+        cms_gentoo_pdf_bulk_confirmation($values[0],$values[1]);
+        throw new RuntimeException('Missing bulk confirmation accepted');
+    }catch(InvalidArgumentException $expected){}
+}
 echo "PASS: Gentoo PDF CMS admin input routing helpers\n";

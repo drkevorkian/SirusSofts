@@ -4,7 +4,7 @@ if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 
 /** Admin-only server-side bridge over the EXISTING Gentoo SSH reverse tunnel. */
 function cms_gentoo_pdf_call(string $operation,array $fields=[]):array {
-    $allowed=['status','preview','pause','resume','workers','retry','approve','unapprove'];
+    $allowed=['status','preview','pause','resume','workers','retry','approve','unapprove','approve_all'];
     if(!in_array($operation,$allowed,true))
         throw new InvalidArgumentException('Unsupported Gentoo PDF operation.');
     $node=(string)(getenv('SIRUS_GENTOO_PDF_NODE_ID')?:'gentoo-home');
@@ -85,7 +85,8 @@ function cms_gentoo_pdf_post(PDO $cms,string $action):never {
     $map=[
         'gentoo_pdf_pause'=>'pause','gentoo_pdf_resume'=>'resume',
         'gentoo_pdf_workers'=>'workers','gentoo_pdf_retry'=>'retry',
-        'gentoo_pdf_approve'=>'approve','gentoo_pdf_unapprove'=>'unapprove'];
+        'gentoo_pdf_approve'=>'approve','gentoo_pdf_unapprove'=>'unapprove',
+        'gentoo_pdf_approve_all'=>'approve_all'];
     if(!isset($map[$action]))throw new InvalidArgumentException('Unsupported Gentoo PDF command.');
     $op=$map[$action];
     $params=[];
@@ -106,15 +107,28 @@ function cms_gentoo_pdf_post(PDO $cms,string $action):never {
             throw new InvalidArgumentException('Type APPROVE MANUAL before approving.');
         $params['confirm']='APPROVE MANUAL';
     }
+    if($op==='approve_all'){
+        $params['confirm']=cms_gentoo_pdf_bulk_confirmation(
+            $_POST['confirm']??null, $_POST['bulk_ack']??null);
+    }
     try {
         $result=cms_gentoo_pdf_call($op,$params);
     }catch(Throwable $error){
         error_log('Gentoo PDF admin command unavailable: '.get_class($error));
         throw new InvalidArgumentException('Gentoo PDF command could not be completed. Check connection and document state.',0,$error);
     }
-    cms_audit($cms,'gentoo-pdf-'.$op,substr((string)($params['sha256']??($params['workers']??'')),0,64));
+    $target=$op==='approve_all'
+        ? 'ready-approved:'.(int)($result['approved_count']??0)
+        : substr((string)($params['sha256']??($params['workers']??'')),0,64);
+    cms_audit($cms,'gentoo-pdf-'.$op,$target);
     cms_flash((string)($result['detail']??'Gentoo PDF control updated.'));
     cms_go('/admin/ai#gentoo-pdf');
+}
+/** Additional server-side safety gate independent of browser JavaScript. */
+function cms_gentoo_pdf_bulk_confirmation(mixed $confirmation,mixed $ack):string {
+    if($confirmation!=='APPROVE ALL READY'||$ack!=='yes')
+        throw new InvalidArgumentException('Confirm bulk manual approval before submitting.');
+    return 'APPROVE ALL READY';
 }
 function cms_gentoo_pdf_format_bytes(int $bytes):string {
     return number_format($bytes/1073741824,2).' GiB';
@@ -164,6 +178,28 @@ function cms_gentoo_pdf_panel(PDO $cms):void {
       <p class="muted">SSD free: <strong data-pdf-free><?=cms_esc(cms_gentoo_pdf_format_bytes((int)($data['storage']['free_bytes']??0)))?></strong>.
         Worker dispatch: <strong data-pdf-state><?=!empty($data['paused'])?'Paused':'Running'?></strong>.
         Configured concurrent workers: <strong data-pdf-workers><?=(int)($data['workers']??3)?></strong>.</p>
+      <div class="admin-panel">
+        <h3>Batch approve all successfully extracted manuals</h3>
+        <p><strong data-pdf-eligible><?=number_format((int)($data['eligible_ready']??0))?></strong>
+        ready manuals have extracted text and qualify for bulk approval across the
+        <strong>entire library</strong>, not just this page or current search.</p>
+        <form method="post" action="/admin/ai"
+          data-confirm="Bulk approve ALL ready manuals with extracted text, including manuals outside the current page and search results? This marks them reviewed without individual inspection.">
+          <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+          <input type="hidden" name="action" value="gentoo_pdf_approve_all">
+          <input type="hidden" name="confirm" value="APPROVE ALL READY">
+          <label><input type="checkbox" name="bulk_ack" value="yes" required>
+            I authorize approval of all successfully extracted manuals without individual review.</label>
+          <button class="btn primary" type="submit" data-pdf-bulk-submit
+            <?=(int)($data['eligible_ready']??0)===0?'disabled':''?>>
+            Approve All Ready Manuals
+          </button>
+        </form>
+        <p class="muted small">Failed, queued, processing and already-approved documents
+        are excluded. Only manuals with stored, nonblank extracted text qualify.
+        New manuals finishing later can be approved with another batch.
+        Approval does not automatically train a model or publish these PDFs.</p>
+      </div>
       <div class="form-actions">
         <form method="post" action="/admin/ai" class="inline-action">
           <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">

@@ -78,6 +78,13 @@ The Gentoo database records every accepted control action.
 
 - Admin counts, SSD capacity, pause/resume, workers 3–64, status search/filter
 - Pagination (30/page), bounded preview, retries, per-document approval
+- One confirmed bulk approval of **all** currently ready manuals with nonblank
+  stored extracted text, across all pages and independent of filters. SQL
+  transaction is atomic, repeat-safe, and logged with approved row count.
+  Failed/processing/queued/textless/previously approved manuals are excluded.
+  The form requires an authorization checkbox and browser confirmation.
+  Bulk approval is the administrator's corpus-level trust decision; it does
+  NOT represent individual text verification or train models automatically.
 - Python replay/HMAC tests and PHP wiring tests
 - No automatic model training or cross-node search/RAG export
 - No user-facing PDF upload transfer or source-PDF download over web yet

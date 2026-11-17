@@ -18,7 +18,7 @@ ROOT = Path("/srv/sirussofts/storage")
 MAX_BODY = 4096
 DOMAIN = b"sirus-pdf-admin-v1\n"
 ALLOWED_STATES = {"queued", "processing", "ready", "failed", "approved"}
-OPS = {"status", "preview", "pause", "resume", "workers", "retry", "approve", "unapprove"}
+OPS = {"status", "preview", "pause", "resume", "workers", "retry", "approve", "unapprove", "approve_all"}
 SHA = re.compile(r"[a-f0-9]{64}\Z")
 NONCE = re.compile(r"[a-f0-9]{32}\Z")
 
@@ -97,6 +97,13 @@ def snapshot(db: sqlite3.Connection, root: Path, payload: dict) -> dict:
     where = " WHERE " + " AND ".join(clauses) if clauses else ""
     totals = {row["status"]: row["n"] for row in db.execute(
         "SELECT status, COUNT(*) AS n FROM documents GROUP BY status")}
+    eligible_ready = db.execute("""
+        SELECT COUNT(*) FROM documents AS d
+        WHERE d.status='ready' AND d.reviewed=0 AND d.excerpts>0
+          AND EXISTS (
+            SELECT 1 FROM excerpts AS e WHERE e.sha256=d.sha256
+            AND length(trim(e.text))>0
+          )""").fetchone()[0]
     results = db.execute("SELECT COUNT(*) AS n FROM documents" + where, params).fetchone()["n"]
     rows = [dict(row) for row in db.execute(
         """SELECT sha256,filename,bytes,status,pages,excerpts,attempts,
@@ -111,6 +118,7 @@ def snapshot(db: sqlite3.Connection, root: Path, payload: dict) -> dict:
     storage = os.statvfs(root)
     return {"ok": True, "operation": "status",
             "total": sum(totals.values()), "filtered": results, "counts": totals,
+            "eligible_ready": eligible_ready,
             "workers": count, "paused": settings.get("paused") == "1",
             "storage": {"total_bytes": storage.f_blocks * storage.f_frsize,
                         "free_bytes": storage.f_bavail * storage.f_frsize},
@@ -136,6 +144,7 @@ def preview(db: sqlite3.Connection, payload: dict) -> dict:
 def update(db: sqlite3.Connection, payload: dict, op: str) -> dict:
     digest = ""
     detail = ""
+    approved_count = 0
     db.execute("BEGIN IMMEDIATE")
     try:
         if op == "pause":
@@ -148,6 +157,23 @@ def update(db: sqlite3.Connection, payload: dict, op: str) -> dict:
             count = integer(payload.get("workers"), 3, 64)
             db.execute("UPDATE settings SET value=? WHERE key='workers'", (str(count),))
             detail = "Configured workers: " + str(count)
+        elif op == "approve_all":
+            if payload.get("confirm") != "APPROVE ALL READY":
+                raise PDFAdminError("Explicit bulk approval confirmation missing")
+            # One transaction across the entire queue, independent of
+            # pagination, sorting, or active browser filters.
+            # Failed, processing, queued, already approved and textless
+            # documents remain untouched.
+            change = db.execute("""
+                UPDATE documents
+                   SET status='approved',reviewed=1,updated_at=?
+                 WHERE status='ready' AND reviewed=0 AND excerpts>0
+                   AND EXISTS (
+                     SELECT 1 FROM excerpts AS e WHERE e.sha256=documents.sha256
+                       AND length(trim(e.text))>0
+                   )""", (int(time.time()),))
+            approved_count = change.rowcount
+            detail = f"Bulk approved {approved_count} ready manuals with extracted text"
         else:
             digest = digest_arg(payload.get("sha256"))
             row = db.execute("SELECT status,excerpts FROM documents WHERE sha256=?",
@@ -185,7 +211,8 @@ def update(db: sqlite3.Connection, payload: dict, op: str) -> dict:
     except Exception:
         db.execute("ROLLBACK")
         raise
-    return {"ok": True, "operation": op, "detail": detail, "sha256": digest}
+    return {"ok": True, "operation": op, "detail": detail,
+            "sha256": digest, "approved_count": approved_count}
 
 
 def process(raw: bytes, signature: str, key: bytes, node_id: str,
