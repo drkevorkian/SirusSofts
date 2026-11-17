@@ -67,6 +67,7 @@ jobs:
           php CMS/tests/gentoo_pdf_admin_test.php
           php CMS/tests/ai_manual_view_test.php
           php CMS/tests/ai_workspace_test.php
+          php CMS/tests/ai_conversation_titles_test.php
           php CMS/tests/ai_chat_files_test.php
           php CMS/tests/session_auth_test.php
           php CMS/tests/smoke.php

@@ -1,6 +1,6 @@
 'use strict';
 const API='/ai/api', $=id=>document.getElementById(id);
-const s={role:'guest',csrf:'',models:{},categories:[],id:null,convs:[],msgs:[],guest:[],busy:false,job:null,attachments:[],uploading:false};
+const s={role:'guest',csrf:'',models:{},categories:[],id:null,convs:[],msgs:[],guest:[],busy:false,job:null,attachments:[],uploading:false,renameTarget:null};
 const el=(tag,t)=>{const n=document.createElement(tag);n.textContent=String(t);return n;};
 async function api(path,method='GET',body=null){
  const opt={method,credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}};
@@ -55,10 +55,32 @@ function draw(){
 }
 function nav(){
  const root=$('conversations');root.replaceChildren();
- if(s.role==='guest'){root.append(el('p','Guest chats last for this browser session.'));return;}
- for(const c of s.convs){const b=el('button',c.title);b.type='button';
- b.className=c.id===s.id?'active':'';
- b.onclick=()=>openConversation(c.id);root.append(b);}
+ const bar=$('conversationBar');
+ if(s.role==='guest'){
+  root.append(el('p','Guest chats last for this browser session.'));
+  bar.hidden=true;return;
+ }
+ for(const c of s.convs){
+  const row=el('div','');row.className='conversation-entry'+(c.id===s.id?' active':'');
+  const open=el('button',c.title);open.type='button';open.className='conversation-open';
+  open.title=c.title;open.setAttribute('aria-label','Open conversation: '+c.title);
+  open.onclick=()=>openConversation(c.id);
+  const rename=el('button','✎');rename.type='button';rename.className='conversation-rename';
+  rename.title='Rename conversation';rename.setAttribute('aria-label','Rename conversation: '+c.title);
+  rename.onclick=()=>showRename(c.id);
+  row.append(open,rename);root.append(row);
+ }
+ const current=s.convs.find(c=>c.id===s.id);
+ bar.hidden=!current;
+ if(current)$('conversationName').textContent=current.title;
+}
+function showRename(id){
+ if(s.role==='guest')return;
+ const c=s.convs.find(item=>item.id===id);if(!c)return;
+ s.renameTarget=id;
+ $('renameInput').value=c.title;
+ $('renameDialog').showModal();
+ $('renameInput').focus();$('renameInput').select();
 }
 async function refreshConversations(){
  if(s.role==='guest')return;
@@ -218,6 +240,8 @@ async function send(event){
    use_manuals:s.role==='admin'&&$('useManuals').checked};
   if(s.role==='guest')body.history=s.guest;else body.conversation_id=s.id;
   const result=await api('/jobs','POST',body);s.job=result.job_id;
+  // Update the sidebar title after the message is stored, not after inference.
+  if(s.role!=='guest')try{await refreshConversations();}catch(_){}
   while(s.busy&&s.job===result.job_id){
    try{
     const info=await api('/jobs/'+s.job);
@@ -244,6 +268,24 @@ $('composer').onsubmit=send;
 $('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){
  e.preventDefault();$('composer').requestSubmit();}};
 $('newChat').onclick=newChat;
+$('renameCurrent').onclick=()=>{if(s.id)showRename(s.id);};
+$('renameCancel').onclick=()=>$('renameDialog').close();
+$('renameDialog').addEventListener('close',()=>{s.renameTarget=null;});
+$('renameForm').onsubmit=async e=>{
+ e.preventDefault();
+ const id=s.renameTarget,title=$('renameInput').value.trim();
+ if(!id||!title)return;
+ const save=$('renameSave');save.disabled=true;
+ try{
+  const changed=await api('/conversations/'+id+'/title','POST',{title});
+  const current=s.convs.find(item=>item.id===id);
+  if(current)current.title=changed.title;
+  $('renameDialog').close();nav();
+  try{await refreshConversations();}catch(_){}
+  status('Conversation renamed.');
+ }catch(err){status(err.message);}
+ finally{save.disabled=false;}
+};
 $('knowledgeToggle').onclick=async()=>{panel('knowledgePanel');try{await knowledge();}catch(e){status(e.message);}};
 $('profile').addEventListener('change',async()=>{
  if(!$('knowledgePanel').hidden)try{await knowledge();}catch(e){status(e.message);}

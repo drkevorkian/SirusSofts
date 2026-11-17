@@ -3,6 +3,7 @@ declare(strict_types=1);
 if (!defined('SIRUS_CMS_BOOTSTRAPPED')) { http_response_code(404); exit; }
 require_once __DIR__.'/access.php';
 require_once __DIR__.'/ai_training.php';
+require_once __DIR__.'/ai_titles.php';
 
 /** Private account data: never write documents or chat records beneath public_html. */
 const CMS_AI_MEMORY_QUOTA = 2147483648; // 2 GiB, only messages and user memories
@@ -17,6 +18,7 @@ CREATE TABLE IF NOT EXISTS cms_ai_usage (
 );
 CREATE TABLE IF NOT EXISTS cms_ai_conversations (
     id TEXT PRIMARY KEY, account TEXT NOT NULL, title TEXT NOT NULL,
+    title_locked INTEGER NOT NULL DEFAULT 0 CHECK(title_locked IN (0,1)),
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS cms_ai_conversation_owner ON cms_ai_conversations(account,updated_at);
@@ -76,6 +78,10 @@ CREATE TABLE IF NOT EXISTS cms_ai_category_grants (
     profile TEXT NOT NULL, PRIMARY KEY(viewer_id,profile)
 );
 SQL);
+    // Additive migration for existing private SQLite databases.
+    $columns=$db->query('PRAGMA table_info(cms_ai_conversations)')->fetchAll(PDO::FETCH_ASSOC);
+    if(!in_array('title_locked',array_column($columns,'name'),true))
+        $db->exec('ALTER TABLE cms_ai_conversations ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0 CHECK(title_locked IN (0,1))');
     cms_ai_search_schema($db);
 }
 /** SQLite FTS5 covers the full account history, without sending data to any server. */
@@ -139,13 +145,14 @@ function cms_ai_require_conversation(PDO $db,string $account,string $id): void {
     if(!$st->fetchColumn()) throw new RuntimeException('Conversation not found.');
 }
 function cms_ai_conversation_new(PDO $db,string $account,string $title): string {
-    if(strlen($title)>160 || trim($title)==='') throw new InvalidArgumentException('Invalid title.');
+    $title=cms_ai_title_validate($title);
     $id=cms_ai_id(); $now=cms_now();
     $db->beginTransaction();
     try{
         cms_ai_charge($db,$account,strlen($title));
-        $db->prepare('INSERT INTO cms_ai_conversations(id,account,title,created_at,updated_at)
-            VALUES(?,?,?,?,?)')->execute([$id,$account,$title,$now,$now]);
+        $db->prepare('INSERT INTO cms_ai_conversations(id,account,title,created_at,updated_at,title_locked)
+            VALUES(?,?,?,?,?,?)')->execute([$id,$account,$title,$now,$now,
+                $title==='New conversation'?0:1]);
         $db->commit();
     }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
     return $id;
@@ -160,6 +167,24 @@ function cms_ai_message_add(PDO $db,string $account,string $conversation,string 
         cms_ai_charge($db,$account,$bytes);
         $db->prepare('INSERT INTO cms_ai_messages(conversation_id,account,role,content,bytes,created_at)
           VALUES(?,?,?,?,?,?)')->execute([$conversation,$account,$role,$content,$bytes,cms_now()]);
+        if($role==='user'){
+            // Only user-submitted instructions may rename conversations.
+            // A manual, attachment or assistant message cannot change a title.
+            $st=$db->prepare('SELECT title,title_locked FROM cms_ai_conversations
+                             WHERE id=? AND account=?');
+            $st->execute([$conversation,$account]);$current=$st->fetch(PDO::FETCH_ASSOC);
+            $explicit=cms_ai_explicit_title($content);
+            if($explicit!==null){
+                cms_ai_title_write($db,$account,$conversation,$current['title'],
+                                   $explicit,true,false);
+            }elseif($current['title']==='New conversation' &&
+                    (int)$current['title_locked']===0){
+                $suggested=cms_ai_topic_title($content);
+                if($suggested!==null && $suggested!=='New conversation')
+                    cms_ai_title_write($db,$account,$conversation,$current['title'],
+                                       $suggested,false,false);
+            }
+        }
         $db->prepare('UPDATE cms_ai_conversations SET updated_at=? WHERE id=? AND account=?')
           ->execute([cms_now(),$conversation,$account]);
         $db->commit();

@@ -83,6 +83,7 @@ if [[ "$mode" == --plan ]]; then
   echo "Installed code root: $DOCROOT"
   echo "Database preserved: $DB"
   echo 'The apply operation creates a consistent SQLite backup and private code rollback copy.'
+  echo 'AI conversation titles: additive title lock, auto-topic names for legacy untitled chats, manual names preserved.'
   echo 'Managed paths only: index.php api.php node-heartbeat.php node-work.php app assets bin .htaccess'
   echo 'Review source changes before --apply. No files were modified by --plan.'
   exit 0

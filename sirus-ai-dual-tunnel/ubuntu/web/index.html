@@ -38,6 +38,11 @@
       <span id="aiStatus" class="status">Checking local models…</span>
       <span id="privacyStatus" class="status">No outside LLMs</span>
     </section>
+    <div id="conversationBar" class="conversation-titlebar" hidden>
+      <span class="conversation-caption">Current conversation</span>
+      <strong id="conversationName">New conversation</strong>
+      <button id="renameCurrent" type="button" title="Rename this conversation">Rename</button>
+    </div>
     <section id="messages" class="messages" aria-live="polite"></section>
     <section id="knowledgePanel" class="workspace-panel" hidden>
       <h2>Knowledge library</h2>
@@ -87,4 +92,16 @@
     <footer>AI inference runs on local Gentoo workers. Stored content is recalled by relevant excerpt, not sent to outside model providers.</footer>
   </main>
 </div>
+  <dialog id="renameDialog" class="rename-dialog" aria-labelledby="renameHeading">
+    <form id="renameForm">
+      <h2 id="renameHeading">Rename conversation</h2>
+      <p>Choose any name. Your changes will be saved privately and will not be overwritten by automatic titles.</p>
+      <label for="renameInput">Conversation title</label>
+      <input id="renameInput" type="text" maxlength="160" autocomplete="off" required>
+      <div class="rename-actions">
+        <button id="renameCancel" type="button">Cancel</button>
+        <button id="renameSave" type="submit">Save title</button>
+      </div>
+    </form>
+  </dialog>
 </body></html>

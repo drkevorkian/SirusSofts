@@ -332,6 +332,14 @@ function cms_ai_api_run(PDO $db,string $path): never {
                 cms_ai_api_json(201,['id'=>cms_ai_conversation_new($db,$account,$title)]);
             }
         }
+        if($method==='POST' &&
+           preg_match('#^/ai/api/conversations/([a-f0-9]{32})/title$#D',$path,$m)){
+            $account=cms_ai_actor($identity);
+            $obj=cms_ai_api_input();$title=$obj['title']??null;
+            if(!is_string($title))throw new InvalidArgumentException('Invalid conversation title.');
+            cms_ai_api_rate($db,$actor,$identity['role']);
+            cms_ai_api_json(200,['title'=>cms_ai_conversation_rename($db,$account,$m[1],$title)]);
+        }
         if(preg_match('#^/ai/api/conversations/([a-f0-9]{32})$#D',$path,$m)){
             $account=cms_ai_actor($identity);$id=$m[1];
             if($method==='GET')cms_ai_api_json(200,['messages'=>cms_ai_message_history($db,$account,$id,100)]);
