@@ -82,7 +82,9 @@ class ManualResearchTests(unittest.TestCase):
             self.assertEqual(info["page_end"],3)
             combined="\n".join(s["text"] for s in segments)
             for mark,count in (("A",4000),("B",4200),("C",2000)):
-                self.assertIn(mark*count,combined)
+                # One long extracted page part can span multiple bounded
+                # prompts; verify no characters disappear at chunk splits.
+                self.assertEqual(combined.count(mark),count)
             self.assertEqual(sorted(set(p for s in segments for p in s["pages"])),[1,2,3])
             with self.assertRaises(ValueError):
                 bad=dict(spec,page_start=4)
