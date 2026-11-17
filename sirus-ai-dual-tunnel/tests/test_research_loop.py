@@ -122,6 +122,12 @@ class ManualResearchTests(unittest.TestCase):
             self.assertEqual(state["completed"],2)
             self.assertEqual(state["sections_per_pass"],2)
             self.assertEqual(len(prompts),4)
+            history=engine.research_sections(job,0)
+            self.assertEqual(len(history['sections']),4)
+            self.assertEqual(history['sections'][0]['pass'],2)
+            self.assertEqual(history['sections'][0]['section'],2)
+            self.assertEqual(history['sections'][0]['pages'],[2])
+            self.assertFalse(history['has_more'])
             self.assertEqual(sum("Page one technical details" in p for p in prompts),2)
             self.assertEqual(sum("Page two technical details" in p for p in prompts),2)
             with ai.db_connect(db) as con:
