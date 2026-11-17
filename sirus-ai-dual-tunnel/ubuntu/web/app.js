@@ -273,7 +273,11 @@ async function showResearch(id){
  $('researchProgress').max=info.passes;
  $('researchProgress').value=info.completed;
  $('researchProgressText').textContent=info.state+' · '+info.completed+'/'+
-  info.passes+' completed passes'+(info.cancel_requested?' · cancellation requested':'')+
+  info.passes+' completed passes'+
+  (info.sections_per_pass?
+   ' · current pass section '+info.section_completed+'/'+info.sections_per_pass:'')+
+  (info.source_pages?' · PDF pages '+info.source_pages:'')+
+  (info.cancel_requested?' · cancellation requested':'')+
   (info.error?' · '+info.error:'');
  $('researchNotes').textContent=info.latest_notes||'No completed passes yet.';
  $('researchCancel').disabled=!['queued','running'].includes(info.state)||
@@ -282,16 +286,57 @@ async function showResearch(id){
  $('researchCopy').disabled=!info.latest_notes;
 }
 $('researchSourceType').onchange=()=>{
- const url=$('researchSourceType').value==='url';
- $('researchUrlFields').hidden=!url;
- $('researchTextFields').hidden=url;
- $('researchUrl').required=url;
- $('researchText').required=!url;
+ const src=$('researchSourceType').value;
+ $('researchUrlFields').hidden=src!=='url';
+ $('researchTextFields').hidden=src!=='text';
+ $('researchPdfFields').hidden=src!=='pdf';
+ $('researchUrl').required=src==='url';
+ $('researchText').required=src==='text';
+ $('researchPdfSelect').required=src==='pdf';
+};
+async function researchManuals(){
+ if(s.role!=='admin')return;
+ const query=$('researchPdfSearch').value.trim();
+ if(!/^[A-Za-z0-9_-]{0,60}$/.test(query)){
+  $('researchPdfHint').textContent='Search using one keyword: letters, numbers, hyphen or underscore.';
+  return;
+ }
+ const data=await api('/research/manuals'+(query?'?q='+encodeURIComponent(query):''));
+ const select=$('researchPdfSelect'),current=select.value;
+ select.replaceChildren();
+ for(const manual of data.manuals||[]){
+  const label=manual.filename+' · '+manual.pages+' pages · '+
+   (manual.reviewed?'Approved':'Ready for review');
+  select.add(new Option(label,manual.sha256));
+ }
+ if([...select.options].some(o=>o.value===current))select.value=current;
+ select.disabled=!select.options.length;
+ const found=select.options.length;
+ $('researchPdfHint').textContent=found+
+  ' extracted PDFs found (up to 120). Results contain PDF metadata only. '+
+  'Use another keyword if the manual is not listed.';
+}
+$('researchPdfFind').onclick=()=>{
+ void researchManuals().catch(e=>{status(e.message);});
+};
+$('researchPdfSearch').onkeydown=event=>{
+ if(event.key==='Enter'){
+  event.preventDefault();
+  void researchManuals().catch(e=>{status(e.message);});
+ }
+};
+$('researchPdfSelect').onchange=()=>{
+ const option=$('researchPdfSelect').selectedOptions[0];
+ if(!option)return;
+ $('researchTitleInput').value=option.textContent.split(' · ')[0].slice(0,160);
 };
 $('researchToggle').onclick=async()=>{
  if(s.role!=='admin')return;
  panel('researchPanel');
- try{await researchJobs();}catch(e){status(e.message);}
+ try{
+  await researchJobs();
+  if(!$('researchPdfSelect').options.length)await researchManuals();
+ }catch(e){status(e.message);}
 };
 $('researchForm').onsubmit=async event=>{
  event.preventDefault();
@@ -302,6 +347,9 @@ $('researchForm').onsubmit=async event=>{
   source_type:src,
   url:src==='url'?$('researchUrl').value.trim():'',
   text:src==='text'?$('researchText').value.trim():'',
+  pdf_sha256:src==='pdf'?$('researchPdfSelect').value:'',
+  page_start:src==='pdf'?Number($('researchPageStart').value):1,
+  page_end:src==='pdf'?Number($('researchPageEnd').value):0,
   focus:$('researchFocus').value.trim(),
   passes:Number($('researchPasses').value),
   model_id:$('researchModel').value,target:$('researchTarget').value
