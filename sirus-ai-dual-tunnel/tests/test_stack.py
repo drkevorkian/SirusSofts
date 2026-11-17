@@ -69,6 +69,28 @@ def request(url, obj=None, headers=None):
 
 
 class TestSirusAI(unittest.TestCase):
+    def test_image_only_manual_static_routes(self):
+        gateway = server(out.Handler)
+        gateway.db = ':memory:'
+        gateway.secret = 's' * 64
+        try:
+            base = 'http://127.0.0.1:' + str(gateway.server_port)
+            for path, expected in [
+                ('/manual.html', b'Approved Manual Viewer'),
+                ('/assets/manual.js', b'manuals/page/'),
+                ('/assets/manual_sources.js', b'SIRUS_MANUAL_SOURCES_START')
+            ]:
+                with urllib.request.urlopen(base + path, timeout=4) as resp:
+                    self.assertEqual(resp.status, 200)
+                    self.assertIn(expected, resp.read())
+            for raw in ('/manual.pdf', '/assets/private.pdf', '/internal/pdf-admin'):
+                with self.assertRaises(urllib.error.HTTPError) as rejected:
+                    urllib.request.urlopen(base + raw, timeout=4)
+                self.assertEqual(rejected.exception.code, 404)
+        finally:
+            gateway.shutdown()
+            gateway.server_close()
+
     def test_router_exact_and_gpu_share(self):
         self.assertEqual(ai.choose_worker('a'*32,'amd',probe=lambda url:url == ai.AMD)[0],'amd')
         self.assertEqual(ai.choose_worker('a'*32,'auto',probe=lambda url:url == ai.CPU)[0],'cpu')

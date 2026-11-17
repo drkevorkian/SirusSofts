@@ -150,6 +150,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.json(400, {'error': 'Invalid event cursor'})
             return self.events(job, after)
         names = {'/': ('index.html', 'text/html; charset=utf-8'),
+                 '/manual.html': ('manual.html', 'text/html; charset=utf-8'),
+                 '/assets/manual.js': ('manual.js', 'application/javascript; charset=utf-8'),
+                 '/assets/manual_sources.js': ('manual_sources.js', 'application/javascript; charset=utf-8'),
                  '/assets/app.js': ('app.js', 'application/javascript; charset=utf-8'),
                  '/assets/styles.css': ('styles.css', 'text/css; charset=utf-8'),
                  '/assets/math.css': ('math.css', 'text/css; charset=utf-8'),
