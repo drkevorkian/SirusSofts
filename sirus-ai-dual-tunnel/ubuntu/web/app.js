@@ -1,6 +1,6 @@
 'use strict';
 const API='/ai/api', $=id=>document.getElementById(id);
-const s={role:'guest',csrf:'',models:{},categories:[],id:null,convs:[],msgs:[],guest:[],busy:false,job:null,attachments:[],uploading:false,renameTarget:null};
+const s={role:'guest',csrf:'',models:{},categories:[],id:null,convs:[],msgs:[],guest:[],busy:false,job:null,attachments:[],uploading:false,renameTarget:null,deletedView:false,deleted:[]};
 const el=(tag,t)=>{const n=document.createElement(tag);n.textContent=String(t);return n;};
 async function api(path,method='GET',body=null){
  const opt={method,credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}};
@@ -59,27 +59,71 @@ function closeMobileConversations(){
 }
 function nav(){
  const root=$('conversations');root.replaceChildren();
- const bar=$('conversationBar');
+ const bar=$('conversationBar'),trash=$('deletedChatsToggle');
  if(s.role==='guest'){
-  $('mobileConversations').hidden=true;
+  $('mobileConversations').hidden=true;trash.hidden=true;
   closeMobileConversations();
   root.append(el('p','Guest chats last for this browser session.'));
   bar.hidden=true;return;
  }
- $('mobileConversations').hidden=false;
- for(const c of s.convs){
-  const row=el('div','');row.className='conversation-entry'+(c.id===s.id?' active':'');
-  const open=el('button',c.title);open.type='button';open.className='conversation-open';
-  open.title=c.title;open.setAttribute('aria-label','Open conversation: '+c.title);
-  open.onclick=()=>{closeMobileConversations();void openConversation(c.id);};
-  const rename=el('button','✎');rename.type='button';rename.className='conversation-rename';
-  rename.title='Rename conversation';rename.setAttribute('aria-label','Rename conversation: '+c.title);
-  rename.onclick=()=>showRename(c.id);
-  row.append(open,rename);root.append(row);
+ $('mobileConversations').hidden=false;trash.hidden=false;
+ trash.textContent=s.deletedView?'← Back to conversations':'Deleted chats';
+ $('conversationsHeading').textContent=s.deletedView?'Deleted chats':'Conversations';
+ root.setAttribute('aria-label',s.deletedView?'Deleted conversations':'Saved conversations');
+ const visible=s.deletedView?s.deleted:s.convs;
+ if(!visible.length)root.append(el('p',s.deletedView?'No deleted conversations.':'No saved conversations yet.'));
+ for(const item of visible){
+  const row=el('div','');row.className='conversation-entry'+(!s.deletedView&&item.id===s.id?' active':'');
+  if(s.deletedView){
+   const name=el('span',item.title);name.className='deleted-conversation-name';name.title=item.title;
+   const restore=el('button','Restore');restore.type='button';restore.className='conversation-restore';
+   restore.title='Restore conversation: '+item.title;
+   restore.setAttribute('aria-label','Restore conversation: '+item.title);
+   restore.onclick=()=>{void restoreConversation(item.id);};
+   row.append(name,restore);
+  }else{
+   const open=el('button',item.title);open.type='button';open.className='conversation-open';
+   open.title=item.title;open.setAttribute('aria-label','Open conversation: '+item.title);
+   open.onclick=()=>{closeMobileConversations();void openConversation(item.id);};
+   const rename=el('button','✎');rename.type='button';rename.className='conversation-rename';
+   rename.title='Rename conversation';rename.setAttribute('aria-label','Rename conversation: '+item.title);
+   rename.onclick=()=>showRename(item.id);
+   const del=el('button','×');del.type='button';del.className='conversation-delete';
+   del.title='Move to Deleted chats';del.setAttribute('aria-label','Delete conversation: '+item.title);
+   del.onclick=()=>{void deleteConversation(item.id);};
+   row.append(open,rename,del);
+  }
+  root.append(row);
  }
  const current=s.convs.find(c=>c.id===s.id);
  bar.hidden=!current;
  if(current)$('conversationName').textContent=current.title;
+}
+async function deleteConversation(id){
+ if(s.role==='guest'||s.busy||s.uploading)return;
+ const item=s.convs.find(c=>c.id===id);if(!item)return;
+ if(!confirm('Move "'+item.title+'" to Deleted chats? It can be restored later.'))return;
+ try{
+  await api('/conversations/'+id,'DELETE');
+  if(s.id===id){
+   s.id=null;s.msgs=[];s.attachments=[];renderAttachments();
+   panel('messages');draw();
+  }
+  await refreshConversations();
+  closeMobileConversations();
+  status('Conversation moved to Deleted chats. It can be restored.');
+ }catch(e){status(e.message);}
+}
+async function restoreConversation(id){
+ if(s.role==='guest'||s.busy||s.uploading)return;
+ try{
+  await api('/conversations/'+id+'/restore','POST',{});
+  s.deletedView=false;
+  closeMobileConversations();
+  await refreshConversations();
+  await openConversation(id);
+  status('Conversation restored.');
+ }catch(e){status(e.message);}
 }
 function showRename(id){
  if(s.role==='guest')return;
@@ -92,7 +136,9 @@ function showRename(id){
 }
 async function refreshConversations(){
  if(s.role==='guest')return;
- s.convs=(await api('/conversations')).conversations||[];nav();
+ s.convs=(await api('/conversations')).conversations||[];
+ if(s.deletedView)s.deleted=(await api('/conversations/deleted')).conversations||[];
+ nav();
 }
 async function openConversation(id){
  if(s.busy)return;
@@ -105,6 +151,7 @@ async function newChat(title='New conversation'){
  if(s.role==='guest'){s.id=null;s.msgs=[];s.guest=[];sessionStorage.removeItem('sirus-ai-guest-history');}
  else {try{s.id=(await api('/conversations','POST',{title})).id;
    s.msgs=[];s.attachments=[];renderAttachments();await refreshConversations();}catch(e){status(e.message);return false;}}
+ s.deletedView=false;
  closeMobileConversations();
  panel('messages');draw();renderAttachments();$('prompt').focus();status('');
  return true;
@@ -251,7 +298,7 @@ async function send(event){
   status('An attached PDF failed parsing. Remove it or upload a readable file.');return;
  }
  if(s.role!=='guest'&&!s.id){await newChat();if(!s.id)return;}
- s.msgs.push({role:'user',content:text});$('prompt').value='';panel('messages');draw();
+ s.msgs.push({role:'user',content:text});$('prompt').value='';$('prompt').style.height='';panel('messages');draw();
  s.busy=true;inventory();status('Sending to local Gentoo model…');
  try{
   const body={message:text,profile:$('profile').value,
@@ -284,9 +331,22 @@ async function send(event){
  }catch(e){s.busy=false;s.job=null;inventory();renderAttachments();status(e.message);}
 }
 $('composer').onsubmit=send;
+$('prompt').addEventListener('input',()=>{
+ const field=$('prompt');
+ field.style.height='auto';
+ field.style.height=Math.min(field.scrollHeight,180)+'px';
+});
 $('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){
  e.preventDefault();$('composer').requestSubmit();}};
 $('newChat').onclick=showNewChatDialog;
+$('deleteCurrent').onclick=()=>{if(s.id)void deleteConversation(s.id);};
+$('deletedChatsToggle').onclick=async()=>{
+ if(s.role==='guest'||s.busy||s.uploading)return;
+ const previous=s.deletedView;
+ s.deletedView=!previous;
+ try{await refreshConversations();closeMobileConversations();}
+ catch(e){s.deletedView=previous;nav();status(e.message);}
+};
 $('mobileConversations').onclick=()=>{
  const open=document.querySelector('.sidebar').classList.toggle('mobile-list-open');
  $('mobileConversations').setAttribute('aria-expanded',String(open));
