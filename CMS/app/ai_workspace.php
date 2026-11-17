@@ -44,6 +44,14 @@ CREATE TABLE IF NOT EXISTS cms_ai_requests (
     worker TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS cms_ai_request_owner ON cms_ai_requests(account,conversation_id);
+CREATE TABLE IF NOT EXISTS cms_ai_research_jobs (
+    id TEXT PRIMARY KEY, account TEXT NOT NULL, title TEXT NOT NULL,
+    spec TEXT NOT NULL, target TEXT NOT NULL, model_id TEXT NOT NULL,
+    passes INTEGER NOT NULL CHECK(passes BETWEEN 1 AND 100),
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS cms_ai_research_owner
+    ON cms_ai_research_jobs(account,created_at);
 CREATE TABLE IF NOT EXISTS cms_ai_document_objects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sha256 TEXT NOT NULL UNIQUE, bytes INTEGER NOT NULL,
