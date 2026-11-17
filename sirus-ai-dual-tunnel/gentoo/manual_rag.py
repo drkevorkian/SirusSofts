@@ -78,10 +78,11 @@ def init_index(con):
     """)
 
 
-def sync(source: Path = SOURCE, index: Path = INDEX, *, batch_limit=None):
+def sync(source: Path = SOURCE, index: Path = INDEX, *, batch_limit=None, progress=False):
     """Incremental sync; only approved, reviewed docs enter the index."""
     checked_paths(source, index)
     with closing(connect_source(source)) as original, closing(connect_index(index, writable=True)) as dst:
+        dst.execute("PRAGMA journal_mode=WAL")
         init_index(dst)
         approved = {r["sha256"]: int(r["updated_at"]) for r in original.execute("""
             SELECT sha256,updated_at FROM documents
@@ -92,7 +93,10 @@ def sync(source: Path = SOURCE, index: Path = INDEX, *, batch_limit=None):
         removed = [sha for sha in cached if sha not in approved]
         if batch_limit is not None:
             changed = changed[:batch_limit]
-        for sha in [*removed, *changed]:
+        work = [*removed, *changed]
+        if progress:
+            print(f"Indexing {len(changed)} approved manuals; removing {len(removed)} revoked entries.", flush=True)
+        for position, sha in enumerate(work, 1):
             dst.execute("BEGIN IMMEDIATE")
             try:
                 # Delete only mapped chunks; avoid a full FTS scan on change.
@@ -120,6 +124,8 @@ def sync(source: Path = SOURCE, index: Path = INDEX, *, batch_limit=None):
                         dst.execute("INSERT INTO indexed_docs VALUES (?,?)",
                                     (sha, int(doc["updated_at"])))
                 dst.execute("COMMIT")
+                if progress and (position % 25 == 0 or position == len(work)):
+                    print(f"Indexed {position}/{len(work)} changes.", flush=True)
             except Exception:
                 dst.execute("ROLLBACK")
                 raise
@@ -220,7 +226,7 @@ def main():
         print("PASS: local FTS5 supported")
         return
     if args.sync:
-        print(sync())
+        print(sync(progress=True))
     if args.query:
         for r in retrieve(args.query):
             print(f"{r['filename']} page {r['page']} sha256 {r['sha256'][:12]}")
