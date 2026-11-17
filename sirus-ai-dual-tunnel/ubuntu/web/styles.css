@@ -179,3 +179,10 @@
  .research-options{grid-template-columns:1fr}
  .research-panel{padding:12px 14px}
 }
+
+#researchHistoryPanel{margin-top:16px;border-top:1px solid #2c4b67;padding-top:12px}
+#researchHistoryPage{font-size:11px;color:#91bddb}
+#researchHistoryNotes{white-space:pre-wrap;overflow-wrap:anywhere;
+ border:1px solid #294d69;background:#091a2b;border-radius:8px;
+ padding:13px;color:#dbeaff;font:12px/1.6 ui-monospace,monospace;
+ max-height:500px;overflow-y:auto}
