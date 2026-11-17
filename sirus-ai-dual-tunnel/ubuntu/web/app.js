@@ -344,7 +344,7 @@ $('deletedChatsToggle').onclick=async()=>{
  if(s.role==='guest'||s.busy||s.uploading)return;
  const previous=s.deletedView;
  s.deletedView=!previous;
- try{await refreshConversations();closeMobileConversations();}
+ try{await refreshConversations();}
  catch(e){s.deletedView=previous;nav();status(e.message);}
 };
 $('mobileConversations').onclick=()=>{
