@@ -310,6 +310,25 @@ class Engine:
                 'pdf_sha256':spec['pdf_sha256'],'page_start':spec['page_start'],
                 'page_end':spec['page_end']}
 
+    def research_sections(self, job_id, offset=0):
+        if not isinstance(job_id,str) or not VALID_ID.fullmatch(job_id):
+            raise ValueError('Invalid research job ID')
+        if type(offset) is not int or not 0 <= offset <= 999999:
+            raise ValueError('Invalid research section offset')
+        with db_connect(self.db) as con:
+            if con.execute('SELECT 1 FROM research_jobs WHERE id=?',(job_id,)).fetchone() is None:
+                raise ValueError('Research job not found')
+            rows=con.execute("""SELECT pass_number,section_number,pages,notes,sha256,created
+                FROM research_sections WHERE job_id=?
+                ORDER BY pass_number DESC,section_number DESC LIMIT 13 OFFSET ?""",
+                (job_id,offset)).fetchall()
+        results=[]
+        for pass_no,section_no,pages,notes,sha,created in rows[:12]:
+            results.append({'pass':pass_no,'section':section_no,
+                            'pages':json.loads(pages),'notes':notes,
+                            'sha256':sha,'created':created})
+        return {'id':job_id,'offset':offset,'sections':results,'has_more':len(rows)>12}
+
     def cancel_research(self, job_id):
         if not VALID_ID.fullmatch(job_id):
             raise ValueError('Invalid research job ID')
@@ -532,6 +551,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.respond(200,{'manuals':list_local_manuals(q)})
             except (ValueError,RetrievalUnavailable,sqlite3.Error) as exc:
                 self.respond(400,{'error':str(exc)[:180]})
+        elif re.fullmatch(r'/api/in/research/[a-f0-9]{32}/sections/[0-9]{1,6}',self.path):
+            try:
+                pieces=self.path.split('/')
+                self.respond(200,self.server.engine.research_sections(pieces[4],int(pieces[6])))
+            except ValueError as exc:
+                self.respond(404,{'error':str(exc)[:150]})
         elif re.fullmatch(r'/api/in/research/[a-f0-9]{32}',self.path):
             try:
                 self.respond(200,self.server.engine.research_status(self.path.rsplit('/',1)[-1]))
