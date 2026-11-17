@@ -53,18 +53,25 @@ function draw(){
  b.insertBefore(body,b.firstChild);b.insertBefore(h,b.firstChild);root.append(b);}
  root.scrollTop=root.scrollHeight;
 }
+function closeMobileConversations(){
+ document.querySelector('.sidebar').classList.remove('mobile-list-open');
+ $('mobileConversations').setAttribute('aria-expanded','false');
+}
 function nav(){
  const root=$('conversations');root.replaceChildren();
  const bar=$('conversationBar');
  if(s.role==='guest'){
+  $('mobileConversations').hidden=true;
+  closeMobileConversations();
   root.append(el('p','Guest chats last for this browser session.'));
   bar.hidden=true;return;
  }
+ $('mobileConversations').hidden=false;
  for(const c of s.convs){
   const row=el('div','');row.className='conversation-entry'+(c.id===s.id?' active':'');
   const open=el('button',c.title);open.type='button';open.className='conversation-open';
   open.title=c.title;open.setAttribute('aria-label','Open conversation: '+c.title);
-  open.onclick=()=>openConversation(c.id);
+  open.onclick=()=>{closeMobileConversations();void openConversation(c.id);};
   const rename=el('button','✎');rename.type='button';rename.className='conversation-rename';
   rename.title='Rename conversation';rename.setAttribute('aria-label','Rename conversation: '+c.title);
   rename.onclick=()=>showRename(c.id);
@@ -79,6 +86,7 @@ function showRename(id){
  const c=s.convs.find(item=>item.id===id);if(!c)return;
  s.renameTarget=id;
  $('renameInput').value=c.title;
+ closeMobileConversations();
  $('renameDialog').showModal();
  $('renameInput').focus();$('renameInput').select();
 }
@@ -97,6 +105,7 @@ async function newChat(title='New conversation'){
  if(s.role==='guest'){s.id=null;s.msgs=[];s.guest=[];sessionStorage.removeItem('sirus-ai-guest-history');}
  else {try{s.id=(await api('/conversations','POST',{title})).id;
    s.msgs=[];s.attachments=[];renderAttachments();await refreshConversations();}catch(e){status(e.message);return false;}}
+ closeMobileConversations();
  panel('messages');draw();renderAttachments();$('prompt').focus();status('');
  return true;
 }
@@ -278,6 +287,10 @@ $('composer').onsubmit=send;
 $('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){
  e.preventDefault();$('composer').requestSubmit();}};
 $('newChat').onclick=showNewChatDialog;
+$('mobileConversations').onclick=()=>{
+ const open=document.querySelector('.sidebar').classList.toggle('mobile-list-open');
+ $('mobileConversations').setAttribute('aria-expanded',String(open));
+};
 $('newChatCancel').onclick=()=>$('newChatDialog').close();
 $('newChatForm').onsubmit=async e=>{
  e.preventDefault();
