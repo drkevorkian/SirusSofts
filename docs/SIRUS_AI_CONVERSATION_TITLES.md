@@ -16,9 +16,10 @@
   than treating the instruction as a mere suggestion.
 - A `Rename` control in the current-conversation heading and a pencil
   button beside each conversation in the sidebar open the same accessible
-  save/cancel dialog. This works on mobile via the heading even when the
-  sidebar is collapsed. Manual names remain unchanged when other questions
-  are sent. In-chat explicit rename instructions also work at any time.
+  save/cancel dialog. Mobile layouts also provide a **Chats** control to
+  expand the list of saved conversations and access each chat's rename button.
+  Manual names remain unchanged when other questions are sent. In-chat
+  explicit rename instructions also work at any time.
 - Old conversations that are still named `New conversation` are renamed
   during the reviewed CMS upgrade from their first informative user turn.
   Greeting-only and entirely empty conversations are left as placeholders.
