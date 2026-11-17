@@ -1,6 +1,6 @@
 'use strict';
 const API='/ai/api', $=id=>document.getElementById(id);
-const s={role:'guest',csrf:'',models:{},categories:[],id:null,convs:[],msgs:[],guest:[],busy:false,job:null,attachments:[],uploading:false,renameTarget:null,deletedView:false,deleted:[],researchSelected:null,researchLast:null};
+const s={role:'guest',csrf:'',models:{},categories:[],id:null,convs:[],msgs:[],guest:[],busy:false,job:null,attachments:[],uploading:false,renameTarget:null,deletedView:false,deleted:[],researchSelected:null,researchLast:null,researchOffset:0,researchDraft:null};
 const el=(tag,t)=>{const n=document.createElement(tag);n.textContent=String(t);return n;};
 async function api(path,method='GET',body=null){
  const opt={method,credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}};
@@ -264,6 +264,9 @@ async function researchJobs(){
 async function showResearch(id){
  if(s.role!=='admin')return;
  const info=await api('/research/'+id);
+ if(s.researchSelected!==id){
+  $('researchHistoryPanel').hidden=true;s.researchOffset=0;s.researchDraft=null;
+ }
  s.researchSelected=id;s.researchLast=info;
  $('researchDetail').hidden=false;
  $('researchDetailTitle').textContent=info.title;
@@ -382,6 +385,51 @@ $('researchRerun').onclick=async()=>{
   await researchJobs();await showResearch(response.id);
   status('Research rerun queued.');
  }catch(e){status(e.message);}
+};
+async function researchHistory(){
+ if(!s.researchSelected||s.role!=='admin')return;
+ const data=await api('/research/'+s.researchSelected+'/sections/'+s.researchOffset);
+ const root=$('researchSectionList');root.replaceChildren();
+ for(const section of data.sections||[]){
+  const pages=section.pages?.length?' · PDF pages '+section.pages.join(', '):'';
+  const b=el('button','Pass '+section.pass+' · section '+section.section+pages);
+  b.type='button';b.className='research-job';
+  b.onclick=()=>{
+   s.researchDraft=section;
+   $('researchHistoryNotes').textContent=section.notes;
+  };
+  root.append(b);
+ }
+ if(!(data.sections||[]).length)root.append(el('p','No drafts on this page.'));
+ $('researchHistoryNewer').disabled=s.researchOffset===0;
+ $('researchHistoryOlder').disabled=!data.has_more;
+ $('researchHistoryPage').textContent='Saved section results '+(s.researchOffset+1)+
+  '–'+(s.researchOffset+(data.sections||[]).length)+
+  ' · review before reuse';
+ s.researchDraft=data.sections?.[0]||null;
+ $('researchHistoryNotes').textContent=s.researchDraft?.notes||'No draft selected.';
+}
+$('researchHistory').onclick=async()=>{
+ $('researchHistoryPanel').hidden=!$('researchHistoryPanel').hidden;
+ if(!$('researchHistoryPanel').hidden){
+  s.researchOffset=0;
+  try{await researchHistory();}catch(e){status(e.message);}
+ }
+};
+$('researchHistoryNewer').onclick=()=>{
+ s.researchOffset=Math.max(0,s.researchOffset-12);
+ void researchHistory().catch(e=>status(e.message));
+};
+$('researchHistoryOlder').onclick=()=>{
+ s.researchOffset+=12;
+ void researchHistory().catch(e=>status(e.message));
+};
+$('researchHistoryCopy').onclick=async()=>{
+ if(!s.researchDraft)return;
+ try{
+  await navigator.clipboard.writeText(s.researchDraft.notes);
+  status('Copied unverified section draft. Check the original PDF pages before approval.');
+ }catch(e){status('Clipboard unavailable: '+e.message);}
 };
 $('researchCopy').onclick=async()=>{
  if(!s.researchLast?.latest_notes)return;
