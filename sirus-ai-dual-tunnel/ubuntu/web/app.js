@@ -1,6 +1,6 @@
 'use strict';
 const API='/ai/api', $=id=>document.getElementById(id);
-const s={role:'guest',csrf:'',models:{},categories:[],id:null,convs:[],msgs:[],guest:[],busy:false,job:null,attachments:[],uploading:false,renameTarget:null,deletedView:false,deleted:[]};
+const s={role:'guest',csrf:'',models:{},categories:[],id:null,convs:[],msgs:[],guest:[],busy:false,job:null,attachments:[],uploading:false,renameTarget:null,deletedView:false,deleted:[],researchSelected:null,researchLast:null};
 const el=(tag,t)=>{const n=document.createElement(tag);n.textContent=String(t);return n;};
 async function api(path,method='GET',body=null){
  const opt={method,credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}};
@@ -11,7 +11,7 @@ async function api(path,method='GET',body=null){
  if(!res.ok)throw Error(data.error||'Request rejected');return data;
 }
 function status(t){$('progress').textContent=t;}
-function panel(id){for(const n of ['messages','knowledgePanel','memoryPanel','documentPanel'])$(n).hidden=n!==id;}
+function panel(id){for(const n of ['messages','knowledgePanel','memoryPanel','documentPanel','researchPanel'])$(n).hidden=n!==id;}
 function drawManualSources(article,raw){
  if(s.role!=='admin'||!window.SirusManualSources)return raw;
  const {prose,sources}=window.SirusManualSources.parse(raw);
@@ -176,6 +176,14 @@ function inventory(){
  if(all.has('sirussofts-coder'))select.value='sirussofts-coder';
  select.disabled=!all.size||s.role==='guest';
  $('send').disabled=!all.size||s.busy||s.uploading;
+ const researchModel=$('researchModel');
+ const prior=researchModel.value;
+ researchModel.replaceChildren();
+ for(const id of [...all].sort())researchModel.add(new Option(id+' · local',id));
+ if(all.has(prior))researchModel.value=prior;
+ else if(all.has('sirussofts-coder'))researchModel.value='sirussofts-coder';
+ researchModel.disabled=!all.size;
+ $('researchStart').disabled=!all.size;
  $('aiStatus').textContent=all.size?'● Local models available':'○ Inference unavailable';
  $('aiStatus').className='status '+(all.size?'on':'off');
 }
@@ -190,6 +198,7 @@ async function loadState(){
   s.role==='admin'?'/admin':'/admin/account';
  $('adminLink').hidden=s.role!=='admin';$('gentooLink').hidden=s.role!=='admin';
  $('memoryToggle').hidden=s.role==='guest';$('documentsToggle').hidden=s.role==='guest';
+ $('researchToggle').hidden=s.role!=='admin';
  $('chatAttachLabel').hidden=s.role==='guest';
  $('manualSearchLabel').hidden=s.role!=='admin';
  $('worker').hidden=s.role!=='admin';$('workerLabel').hidden=s.role!=='admin';
@@ -239,6 +248,109 @@ async function documents(){
   if(d.error)card.append(el('small',d.error));root.append(card);
  }
 }
+async function researchJobs(){
+ if(s.role!=='admin')return;
+ const root=$('researchJobList');root.replaceChildren();
+ const jobs=(await api('/research')).jobs||[];
+ if(!jobs.length)root.append(el('p','No research runs yet.'));
+ for(const job of jobs){
+  const b=el('button',job.title+' · '+job.passes+' passes');
+  b.type='button';b.className='research-job';
+  b.onclick=()=>{void showResearch(job.id);};
+  root.append(b);
+ }
+ if(!s.researchSelected&&jobs.length)await showResearch(jobs[0].id);
+}
+async function showResearch(id){
+ if(s.role!=='admin')return;
+ const info=await api('/research/'+id);
+ s.researchSelected=id;s.researchLast=info;
+ $('researchDetail').hidden=false;
+ $('researchDetailTitle').textContent=info.title;
+ $('researchDetailMeta').textContent=
+  (info.source_url||'Pasted text')+' · '+(info.worker||'Not assigned')+
+  ' · source SHA-256: '+(info.source_sha256||'Awaiting extraction');
+ $('researchProgress').max=info.passes;
+ $('researchProgress').value=info.completed;
+ $('researchProgressText').textContent=info.state+' · '+info.completed+'/'+
+  info.passes+' completed passes'+(info.cancel_requested?' · cancellation requested':'')+
+  (info.error?' · '+info.error:'');
+ $('researchNotes').textContent=info.latest_notes||'No completed passes yet.';
+ $('researchCancel').disabled=!['queued','running'].includes(info.state)||
+  Boolean(info.cancel_requested);
+ $('researchRerun').disabled=!['completed','error','canceled'].includes(info.state);
+ $('researchCopy').disabled=!info.latest_notes;
+}
+$('researchSourceType').onchange=()=>{
+ const url=$('researchSourceType').value==='url';
+ $('researchUrlFields').hidden=!url;
+ $('researchTextFields').hidden=url;
+ $('researchUrl').required=url;
+ $('researchText').required=!url;
+};
+$('researchToggle').onclick=async()=>{
+ if(s.role!=='admin')return;
+ panel('researchPanel');
+ try{await researchJobs();}catch(e){status(e.message);}
+};
+$('researchForm').onsubmit=async event=>{
+ event.preventDefault();
+ if(s.role!=='admin')return;
+ const src=$('researchSourceType').value;
+ const payload={
+  title:$('researchTitleInput').value.trim(),
+  source_type:src,
+  url:src==='url'?$('researchUrl').value.trim():'',
+  text:src==='text'?$('researchText').value.trim():'',
+  focus:$('researchFocus').value.trim(),
+  passes:Number($('researchPasses').value),
+  model_id:$('researchModel').value,target:$('researchTarget').value
+ };
+ const start=$('researchStart');start.disabled=true;
+ try{
+  const response=await api('/research','POST',payload);
+  s.researchSelected=response.id;
+  await researchJobs();
+  await showResearch(response.id);
+  status('Local research queued; passes continue if you close the browser.');
+ }catch(e){status(e.message);}
+ finally{start.disabled=false;}
+};
+$('researchCancel').onclick=async()=>{
+ if(!s.researchSelected)return;
+ if(!confirm('Cancel this research after its current inference pass? Completed draft passes will be retained.'))return;
+ try{
+  await api('/research/'+s.researchSelected+'/cancel','POST',{});
+  await showResearch(s.researchSelected);
+  status('Cancellation requested.');
+ }catch(e){status(e.message);}
+};
+$('researchRerun').onclick=async()=>{
+ if(!s.researchSelected)return;
+ if(!confirm('Start a new run from the same source and settings? It will fetch the URL again if applicable.'))return;
+ try{
+  const response=await api('/research/'+s.researchSelected+'/rerun','POST',{});
+  s.researchSelected=response.id;
+  await researchJobs();await showResearch(response.id);
+  status('Research rerun queued.');
+ }catch(e){status(e.message);}
+};
+$('researchCopy').onclick=async()=>{
+ if(!s.researchLast?.latest_notes)return;
+ try{
+  await navigator.clipboard.writeText(s.researchLast.latest_notes);
+  status('Copied unreviewed notes. Verify facts before importing to knowledge.');
+ }catch(e){status('Clipboard unavailable: '+e.message);}
+};
+let researchPolling=false;
+window.setInterval(async()=>{
+ if(s.role!=='admin'||!s.researchSelected||
+    $('researchPanel').hidden||document.hidden||researchPolling)return;
+ researchPolling=true;
+ try{await showResearch(s.researchSelected);}
+ catch(e){status('Research status unavailable: '+e.message);}
+ finally{researchPolling=false;}
+},5000);
 function renderAttachments(){
  const tray=$('attachmentTray');tray.replaceChildren();
  tray.hidden=s.role==='guest'||!s.attachments.length;
