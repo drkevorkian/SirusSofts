@@ -76,3 +76,36 @@ titles, lock preservation, owner-scoped edits, UTF-8 length/control
 validation, quota deltas, schema migration and legacy backfill. PHP CI
 also checks the original workspace and other CMS tests; JavaScript syntax
 checks cover the updated frontend.
+
+## Compact message composer and reversible chat deletion
+
+- The bottom message composer now spans the full chat area (within the main
+  panel, not over the navigation sidebar). It starts at two compact lines,
+  grows while typing to a bounded height, and permits manual vertical resize.
+  Model, knowledge, attachment and worker controls remain available.
+- Authenticated users have a **Delete** button on the current conversation
+  and an accessible delete control on each sidebar conversation. Confirmation
+  is required. **Deleted chats** opens the private, owner-only trash list.
+  Individual conversations can be restored, including their attachments
+  and original title. The mobile **Chats** menu exposes these controls.
+- Deletion is soft-only: `cms_ai_conversations.deleted_at` is set; no
+  messages, titles, files, saved memories or conversation rows are destroyed.
+  There is **no permanent-delete UI, purge job or hard-delete API** in this
+  feature. Restoring clears `deleted_at`.
+- Normal conversation listing, direct message access, attachments,
+  renaming and future model requests reject soft-deleted conversation IDs.
+  Search/recall excludes messages belonging to soft-deleted conversations,
+  including in the non-FTS fallback. Independently saved personal AI memories
+  remain independently visible.
+- Soft-deleted conversations continue counting against the original 2 GiB
+  logical account quota because their data still exists. A conversation with
+  an active queued/running model job cannot be deleted until the job finishes.
+- The schema change is additive for existing CMS SQLite databases. Original
+  chat IDs and message data remain unchanged. The existing CMS migration
+  automatically adds the nullable `deleted_at` column and index.
+
+Validate with `php CMS/tests/ai_workspace_test.php` and
+`php CMS/tests/ai_conversation_titles_test.php`. The existing AI frontend
+workflow checks JavaScript syntax. Review and test both workflows plus actual
+signed-in/mobile delete/restore behavior before any live installation.
+No live deployment is performed by merely merging source code.
