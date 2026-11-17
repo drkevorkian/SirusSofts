@@ -87,6 +87,7 @@
 .rename-dialog input{width:100%;padding:11px;border:1px solid #46749a;
  border-radius:8px;background:#172e48;color:#fff;font:inherit}
 .rename-dialog input:focus-visible{outline:2px solid #6bc9ff;outline-offset:1px}
+.rename-dialog .dialog-error{color:#ffb5be;font-size:12px;font-weight:600;margin:0}
 .rename-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:8px}
 .rename-actions button{padding:8px 14px;border-radius:8px;border:1px solid #46749a;
  background:#183d5f;color:#e4f4ff;font:inherit}
