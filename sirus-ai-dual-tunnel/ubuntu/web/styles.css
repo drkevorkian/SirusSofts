@@ -17,3 +17,12 @@
 .sidebar .subtle{background:#182b3e;border-color:#263d55}
 .sidebar-foot a{color:#81caff;display:inline-block;margin-right:10px}
 [hidden]{display:none!important}
+
+/* Conversation-scoped uploads and administrator-only approved-manual search. */
+.attachment-tray{display:flex;flex-wrap:wrap;gap:.4rem;padding:.45rem .8rem;max-height:6rem;overflow:auto}
+.attachment-tray[hidden]{display:none}
+.attached-file{display:inline-flex;align-items:center;gap:.35rem;background:#183047;color:#d8ecff;border:1px solid #42708f;padding:.3rem .5rem;border-radius:1rem;font-size:.8rem;max-width:100%;overflow-wrap:anywhere}
+.remove-attachment{border:0;background:transparent;color:#cce9ff;font-size:1.1rem;cursor:pointer}
+.attach-control{display:inline-flex;align-items:center;gap:.25rem;padding:.35rem .5rem;border:1px solid #45647a;border-radius:.45rem;cursor:pointer;color:#e0edfa;font-size:.8rem}
+.attach-control[hidden]{display:none}
+.attach-control input{accent-color:#53baff}

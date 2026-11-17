@@ -2,6 +2,7 @@
 declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 require_once __DIR__.'/ai_workspace.php';
+require_once __DIR__.'/ai_chat_files.php';
 
 /** All browser AI requests pass the CMS identity, quota and ACL checks. */
 function cms_ai_api_json(int $status,array $body): never {
@@ -173,6 +174,7 @@ function cms_ai_api_request(PDO $db,array $identity,array $input):array {
     if((int)$st->fetchColumn()>=($role==='admin'?3:1))
         throw new RuntimeException('A generation is already running for this account.');
     $conversation='';
+    $attachmentPrefix='';
     if($role==='guest'){
         $history=$input['history']??[];
         if(!is_array($history)||count($history)>5)throw new InvalidArgumentException('Guest history limit exceeded.');
@@ -188,10 +190,18 @@ function cms_ai_api_request(PDO $db,array $identity,array $input):array {
         $conversation=$input['conversation_id']??null;
         if(!is_string($conversation))throw new InvalidArgumentException('Choose a conversation.');
         cms_ai_require_conversation($db,$actor,$conversation);
+        // Conversation attachments are account-scoped and NOT promoted into global knowledge.
+        $files=cms_ai_chat_context($db,$actor,$conversation,$message);
+        if($files['pending'])
+            throw new RuntimeException('Attached PDF extraction is still running. Wait until files are ready before sending.');
+        if($files['failed'])
+            throw new RuntimeException('An attached PDF could not be extracted. Remove the failed attachment to continue.');
+        $attachmentPrefix=$files['context'];
         cms_ai_message_add($db,$actor,$conversation,'user',$message);
         $messages=cms_ai_message_history($db,$actor,$conversation,19);
     }
     $prefix=cms_ai_api_context($db,$identity,$profile,$message);
+    if($attachmentPrefix!=='')$prefix.=$attachmentPrefix."\nCurrent user question:\n";
     $last=count($messages)-1;
     // Preserve the entire submitted question: only retrieved context may be truncated.
     $allowedPrefix=max(0,16000-strlen($messages[$last]['content']));
@@ -201,6 +211,12 @@ function cms_ai_api_request(PDO $db,array $identity,array $input):array {
        'skip_knowledge'=>true,'model_id'=>$selected,'local_only'=>true,
        'max_tokens'=>$role==='guest'?512:($role==='user'?2048:8192)
     ];
+    // The Gentoo manual library is private to administrator conversations.
+    $manuals=$input['use_manuals']??true;
+    if(!is_bool($manuals))
+        throw new InvalidArgumentException('Invalid manual retrieval choice.');
+    $request['use_manuals']=$role==='admin' && $manuals;
+    if($request['use_manuals'])$request['manual_query']=$message;
     $answer=cms_ai_api_upstream('input','/api/in/jobs',$request);
     $job=$answer['job_id']??'';
     if(!is_string($job)||!preg_match('/^[a-f0-9]{32}$/D',$job))
@@ -263,7 +279,7 @@ function cms_ai_api_collect(PDO $db,string $actor,string $job):array {
 }
 function cms_ai_api_run(PDO $db,string $path): never {
     if(!cms_https()&&!cms_local())cms_ai_api_json(403,['error'=>'HTTPS required']);
-    cms_session();cms_ai_workspace_schema($db);
+    cms_session();cms_ai_workspace_schema($db);cms_ai_chat_schema($db);
     // Transient guest jobs are not conversation history and must expire.
     $db->prepare("DELETE FROM cms_ai_requests WHERE account LIKE 'guest:%'
       AND updated_at < ?")->execute([gmdate('Y-m-d\TH:i:s\Z',time()-86400)]);
@@ -322,6 +338,27 @@ function cms_ai_api_run(PDO $db,string $path): never {
         }
         if(preg_match('#^/ai/api/memories/([a-f0-9]{32})$#D',$path,$m)&&$method==='DELETE'){
             cms_ai_memory_delete($db,cms_ai_actor($identity),$m[1]);
+            cms_ai_api_json(200,['ok'=>true]);
+        }
+        if(preg_match('#^/ai/api/conversations/([a-f0-9]{32})/attachments$#D',$path,$m)){
+            $account=cms_ai_actor($identity);
+            if($identity['account']===null)
+                throw new RuntimeException('Sign in to attach files.');
+            if($method==='GET')cms_ai_api_json(200,[
+                'attachments'=>cms_ai_chat_list($db,$account,$m[1])]);
+            if($method==='POST'){
+                $profile=$_POST['profile']??null;
+                if(!is_string($profile)||!is_array($_FILES['file']??null))
+                    throw new InvalidArgumentException('Select an attachment and category.');
+                cms_ai_api_json(201,cms_ai_chat_attach(
+                    $db,$identity,$m[1],$_FILES['file'],$profile));
+            }
+        }
+        if(preg_match('#^/ai/api/conversations/([a-f0-9]{32})/attachments/([a-f0-9]{32})$#D',$path,$m)
+             && $method==='DELETE'){
+            if($identity['account']===null)
+                throw new RuntimeException('Sign in to remove an attachment.');
+            cms_ai_chat_remove($db,cms_ai_actor($identity),$m[1],$m[2]);
             cms_ai_api_json(200,['ok'=>true]);
         }
         if($path==='/ai/api/documents'){

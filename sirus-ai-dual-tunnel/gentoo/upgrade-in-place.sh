@@ -20,6 +20,26 @@ python3 -m py_compile "$src"
 command -v curl >/dev/null || fail 'curl required'
 [[ -f "$source_dir/sirus-ai-dual-tunnel/gentoo/knowledge.py" ]] ||
   fail 'Missing current Gentoo knowledge dependency'
+rag_src="$source_dir/sirus-ai-dual-tunnel/gentoo/manual_rag.py"
+rag_dest="/opt/sirus-ai-dual/gentoo/manual_rag.py"
+root=/srv/sirussofts/storage
+manual_db="$root/databases/pdf_ingest.sqlite3"
+[[ -f "$rag_src" ]] || fail 'Missing approved-manual retrieval module'
+python3 -m py_compile "$rag_src"
+python3 "$rag_src" --check || fail 'Gentoo Python lacks SQLite FTS5'
+for cmd in mountpoint setfacl getfacl runuser findmnt blkid; do
+  command -v "$cmd" >/dev/null || fail "Missing PDF RAG prerequisite: $cmd"
+done
+id sirusai >/dev/null || fail 'Existing inference service account missing'
+mountpoint -q "$root" || fail 'Dedicated SSD not mounted'
+[[ "$(findmnt -M "$root" -n -o FSTYPE)" == ext4 ]] || fail 'Unexpected SSD filesystem'
+[[ "$(blkid -s UUID -o value /dev/sdc1)" == "2531d241-3f0d-4fe8-af82-8059328ad3b3" ]] ||
+  fail 'Unexpected PDF SSD UUID; refusing RAID0 fallback'
+[[ -f "$manual_db" && ! -L "$manual_db" && -d "$root/databases" &&
+   ! -L "$root/databases" ]] || fail 'Approved manual database missing'
+[[ ! -e "$rag_dest" || ( -f "$rag_dest" && ! -L "$rag_dest" ) ]] ||
+  fail 'Existing manual RAG installation is linked or unsafe'
+[[ ! -L "$root/rag" ]] || fail 'Unsafe manual FTS index directory'
 git -C "$source_dir" diff --quiet && git -C "$source_dir" diff --cached --quiet ||
   fail 'Tracked source has uncommitted edits'
 expected="$(printenv SIRUS_EXPECTED_COMMIT || true)"
@@ -32,6 +52,8 @@ if [[ "$mode" == --plan ]]; then
   echo "Source: $src"
   echo "Installed: $dest"
   echo "SQLite: $db (never overwritten)"
+  echo "Will rebuild ONLY a derived FTS5 index of already approved manuals on the SSD"
+  echo "Will grant sirusai read access to the ingest SQLite DB and its WAL sidecars"
   echo "Will restart: sirus-ai-input ONLY; no GPU, SSH, tunnel or OpenRC system changes"
   echo "Rollback code and consistent DB snapshot kept under /root/sirus-ai-upgrade-backups"
   exit 0
@@ -43,6 +65,11 @@ release="/root/sirus-ai-upgrade-backups/release-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 mkdir -p -m 0700 "$release"
 chmod 0700 "$release"
 cp -p "$dest" "$release/input_server.py"
+[[ ! -f "$rag_dest" ]] || cp -p "$rag_dest" "$release/manual_rag.py"
+getfacl -p "$root" "$root/databases" "$manual_db" > "$release/manual-acls.txt"
+for suffix in '-wal' '-shm'; do
+  [[ ! -f "$manual_db$suffix" ]] || getfacl -p "$manual_db$suffix" >> "$release/manual-acls.txt"
+done
 python3 - "$db" "$release/input.sqlite3" <<'PY'
 import sqlite3,sys
 src=sqlite3.connect(f'file:{sys.argv[1]}?mode=ro',uri=True)
@@ -56,12 +83,33 @@ rollback(){
   if [[ "$ok" != 1 ]]; then
     echo 'ERROR: Restoring Gentoo input_server.py from private backup' >&2
     cp -p "$release/input_server.py" "$dest" || true
+    if [[ -f "$release/manual_rag.py" ]]; then
+      cp -p "$release/manual_rag.py" "$rag_dest" || true
+    else
+      rm -f -- "$rag_dest" || true
+    fi
     rc-service sirus-ai-input restart || true
     echo "Recovery directory: $release" >&2
     echo 'The live SQLite database was never replaced; use snapshot only after manual review.' >&2
   fi
 }
 trap rollback EXIT
+# Keep live model services untouched while building the new search index.
+install -d -o sirusai -g sirusai -m 0700 "$root/rag"
+setfacl -m u:sirusai:--x "$root" "$root/databases"
+setfacl -m u:sirusai:r-- "$manual_db"
+# SQLite WAL/SHM may be recreated while the PDF worker runs.
+setfacl -d -m u:sirusai:r-- "$root/databases"
+for suffix in '-wal' '-shm'; do
+  [[ ! -f "$manual_db$suffix" ]] || setfacl -m u:sirusai:r-- "$manual_db$suffix"
+done
+runuser -u sirusai -- test -r "$manual_db" ||
+  fail 'AI service cannot read reviewed SQLite database'
+install -m 0644 "$rag_src" "${rag_dest}.next"
+mv -f "${rag_dest}.next" "$rag_dest"
+echo 'Indexing approved Gentoo PDFs locally; this may take time for 1,500+ manuals.'
+runuser -u sirusai -- python3 -B "$rag_dest" --sync ||
+  fail 'Manual full-text index build failed; router remains on old code'
 install -m 0644 "$src" "${dest}.next"
 mv -f "${dest}.next" "$dest"
 rc-service sirus-ai-input restart || fail 'Input router restart failed'

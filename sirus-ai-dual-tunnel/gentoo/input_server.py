@@ -42,6 +42,7 @@ LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRe
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from knowledge import KnowledgeManager,PROFILES
+from manual_rag import augment as augment_manuals, sync as sync_manuals, RetrievalUnavailable
 
 
 @contextmanager
@@ -360,12 +361,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ValueError('Invalid message format')
             if messages[-1]['role'] != 'user':
                 raise ValueError('Last message must be from the user')
+            use_manuals=data.get('use_manuals',False)
+            if type(use_manuals) is not bool:
+                raise ValueError('Invalid manual retrieval policy')
+            if use_manuals:
+                question=data.get('manual_query',messages[-1]['content'])
+                if not isinstance(question,str) or not 0<len(question)<=MAX_TEXT:
+                    raise ValueError('Invalid manual search query')
+                # These are source-backed system references, not user messages;
+                # keep the original chat and selected model unchanged.
+                messages=augment_manuals(messages,question)
             job_id = self.server.engine.enqueue(messages,target,profile,model_id,skip_knowledge,max_tokens)
             self.respond(202, {'job_id':job_id, 'status':'queued', 'model_id':model_id, 'local_only':True, 'output':'separate-output-tunnel'})
         except (ValueError, KeyError, TypeError) as e:
             self.respond(400, {'error': str(e)[:150]})
         except RuntimeError as e:
             self.respond(503, {'error': str(e)[:150]})
+
+
+def manual_index_loop(stop):
+    # Never write to the ingest database; the private FTS sidecar is derived
+    # and can be recreated. Newly approved sources appear after next sync.
+    while not stop.is_set():
+        try:
+            sync_manuals(batch_limit=20)
+        except (OSError, sqlite3.Error, RetrievalUnavailable, ValueError) as error:
+            print('Manual index sync unavailable:',type(error).__name__,file=sys.stderr,flush=True)
+        stop.wait(60)
 
 
 def main():
@@ -385,6 +407,7 @@ def main():
     for _ in range(args.workers):
         threading.Thread(target=engine.worker_loop, daemon=True).start()
     threading.Thread(target=engine.dispatch_loop, daemon=True).start()
+    threading.Thread(target=manual_index_loop,args=(engine.stop,),daemon=True).start()
     server = http.server.ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     server.engine = engine
     print('Sirus AI INPUT listening on 127.0.0.1:%s' % args.port, flush=True)

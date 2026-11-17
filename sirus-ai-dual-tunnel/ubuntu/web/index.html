@@ -63,11 +63,16 @@
       </form>
       <div id="documentEntries"></div>
     </section>
+    <div id="attachmentTray" class="attachment-tray" aria-live="polite" hidden></div>
     <div id="progress" class="progress" role="status" aria-live="polite"></div>
     <form id="composer" class="composer">
       <label class="sr-only" for="prompt">Message SirusSofts AI</label>
       <textarea id="prompt" rows="3" maxlength="16000" placeholder="Message SirusSofts AI… (Enter to send)" required></textarea>
       <div class="controls">
+        <label id="chatAttachLabel" class="attach-control" for="chatAttach" hidden>+ Attach files</label>
+        <input type="file" id="chatAttach" hidden multiple
+          accept=".pdf,.txt,.md,.markdown,.csv,.json,.log,.py,.js,.ts,.rs,.c,.h,.cpp,.hpp,.sh,.css,.html,.xml,.yml,.yaml,.ini,.toml,.sql,.java,.go,.rb,.php">
+        <label id="manualSearchLabel" class="attach-control" hidden><input type="checkbox" id="useManuals" checked> Search approved manuals</label>
         <label for="profile">Knowledge</label><select id="profile"><option value="auto">General</option></select>
         <label for="model">Local LLM</label><select id="model" aria-label="Local language model" disabled><option>Checking…</option></select>
         <label for="worker" id="workerLabel" hidden>Compute</label>

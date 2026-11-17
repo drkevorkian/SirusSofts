@@ -1,6 +1,6 @@
 'use strict';
 const API='/ai/api', $=id=>document.getElementById(id);
-const s={role:'guest',csrf:'',models:{},categories:[],id:null,convs:[],msgs:[],guest:[],busy:false,job:null};
+const s={role:'guest',csrf:'',models:{},categories:[],id:null,convs:[],msgs:[],guest:[],busy:false,job:null,attachments:[],uploading:false};
 const el=(tag,t)=>{const n=document.createElement(tag);n.textContent=String(t);return n;};
 async function api(path,method='GET',body=null){
  const opt={method,credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}};
@@ -40,15 +40,15 @@ async function refreshConversations(){
 async function openConversation(id){
  if(s.busy)return;
  try{s.msgs=(await api('/conversations/'+id)).messages||[];
-  s.id=id;nav();panel('messages');draw();status('');}
+  s.id=id;nav();panel('messages');draw();status('');await refreshAttachments();}
  catch(e){status(e.message);}
 }
 async function newChat(){
  if(s.busy)return;
  if(s.role==='guest'){s.id=null;s.msgs=[];s.guest=[];sessionStorage.removeItem('sirus-ai-guest-history');}
  else {try{s.id=(await api('/conversations','POST',{title:'New conversation'})).id;
-   s.msgs=[];await refreshConversations();}catch(e){status(e.message);return;}}
- panel('messages');draw();$('prompt').focus();status('');
+   s.msgs=[];s.attachments=[];renderAttachments();await refreshConversations();}catch(e){status(e.message);return;}}
+ panel('messages');draw();renderAttachments();$('prompt').focus();status('');
 }
 function inventory(){
  const all=new Set();
@@ -59,7 +59,7 @@ function inventory(){
  if(!all.size)select.add(new Option('No local models',''));
  if(all.has('sirussofts-coder'))select.value='sirussofts-coder';
  select.disabled=!all.size||s.role==='guest';
- $('send').disabled=!all.size||s.busy;
+ $('send').disabled=!all.size||s.busy||s.uploading;
  $('aiStatus').textContent=all.size?'● Local models available':'○ Inference unavailable';
  $('aiStatus').className='status '+(all.size?'on':'off');
 }
@@ -74,6 +74,8 @@ async function loadState(){
   s.role==='admin'?'/admin':'/admin/account';
  $('adminLink').hidden=s.role!=='admin';$('gentooLink').hidden=s.role!=='admin';
  $('memoryToggle').hidden=s.role==='guest';$('documentsToggle').hidden=s.role==='guest';
+ $('chatAttachLabel').hidden=s.role==='guest';
+ $('manualSearchLabel').hidden=s.role!=='admin';
  $('worker').hidden=s.role!=='admin';$('workerLabel').hidden=s.role!=='admin';
  $('quotaLabel').textContent=s.role==='guest'?'Sign in for persistent memory':
   (Number(data.used_bytes||0)/1048576).toFixed(1)+' MiB / 2048 MiB memories and chats';
@@ -121,15 +123,72 @@ async function documents(){
   if(d.error)card.append(el('small',d.error));root.append(card);
  }
 }
+function renderAttachments(){
+ const tray=$('attachmentTray');tray.replaceChildren();
+ tray.hidden=s.role==='guest'||!s.attachments.length;
+ for(const item of s.attachments){
+  const badge=el('span',item.name+' · '+item.status);badge.className='attached-file';
+  if(item.status==='failed' && item.error)badge.title=item.error;
+  if(!s.busy){
+   const remove=el('button','×');remove.type='button';remove.className='remove-attachment';
+   remove.title='Remove attachment from this conversation';
+   remove.onclick=async()=>{
+    if(!s.id)return;
+    try{await api('/conversations/'+s.id+'/attachments/'+item.id,'DELETE');
+     await refreshAttachments();status('Attachment removed.');}
+    catch(e){status(e.message);}
+   };
+   badge.append(remove);
+  }
+  tray.append(badge);
+ }
+}
+async function refreshAttachments(){
+ if(s.role==='guest'||!s.id){s.attachments=[];renderAttachments();return;}
+ const data=await api('/conversations/'+s.id+'/attachments');
+ s.attachments=data.attachments||[];renderAttachments();
+}
+$('chatAttach').addEventListener('change',async()=>{
+ const files=[...$('chatAttach').files];$('chatAttach').value='';
+ if(!files.length||s.role==='guest'||s.uploading||s.busy)return;
+ if(!s.id){await newChat();if(!s.id)return;}
+ s.uploading=true;inventory();
+ try{
+  for(const file of files){
+   const form=new FormData();
+   form.append('file',file);
+   const selected=$('profile').value;
+   form.append('profile',selected==='auto'?(s.categories[0]||{}).slug:selected);
+   status('Attaching '+file.name+'…');
+   await api('/conversations/'+s.id+'/attachments','POST',form);
+  }
+  await refreshAttachments();
+  status('Attachments added. Text files are ready; PDF processing may take longer.');
+ }catch(e){status(e.message);try{await refreshAttachments();}catch(_){}}
+ finally{s.uploading=false;inventory();}
+});
+window.setInterval(async()=>{
+ if(s.role==='guest'||!s.id||s.uploading||
+    !s.attachments.some(a=>a.status==='queued'||a.status==='processing')||document.hidden)return;
+ try{await refreshAttachments();}catch(_){}
+},3500);
 async function send(event){
  event.preventDefault();if(s.busy)return;
  const text=$('prompt').value.trim();if(!text)return;
+ if(s.uploading){status('Wait for the current attachment upload.');return;}
+ if(s.attachments.some(a=>a.status==='queued'||a.status==='processing')){
+  status('Your attached PDF is still being extracted; wait for its status to say parsed.');return;
+ }
+ if(s.attachments.some(a=>a.status==='failed')){
+  status('An attached PDF failed parsing. Remove it or upload a readable file.');return;
+ }
  if(s.role!=='guest'&&!s.id){await newChat();if(!s.id)return;}
  s.msgs.push({role:'user',content:text});$('prompt').value='';panel('messages');draw();
  s.busy=true;inventory();status('Sending to local Gentoo model…');
  try{
   const body={message:text,profile:$('profile').value,
-   model_id:$('model').value,target:$('worker').value};
+   model_id:$('model').value,target:$('worker').value,
+   use_manuals:s.role==='admin'&&$('useManuals').checked};
   if(s.role==='guest')body.history=s.guest;else body.conversation_id=s.id;
   const result=await api('/jobs','POST',body);s.job=result.job_id;
   while(s.busy&&s.job===result.job_id){
@@ -141,18 +200,18 @@ async function send(event){
       s.guest=s.msgs.slice(-5);
       sessionStorage.setItem('sirus-ai-guest-history',JSON.stringify(s.guest));
      }else{s.msgs=(await api('/conversations/'+s.id)).messages||[];await refreshConversations();}
-     s.busy=false;s.job=null;draw();inventory();await loadState();
+     s.busy=false;s.job=null;draw();inventory();renderAttachments();await loadState();
      status('Completed on '+(info.worker||'local worker'));return;
     }
     if(info.state==='error'){
-     s.busy=false;s.job=null;inventory();
+     s.busy=false;s.job=null;inventory();renderAttachments();
      status('Inference failed. Check the saved conversation before retrying.');return;
     }
     status(info.state==='running'?'Generating on Gentoo…':'Queued for inference…');
    }catch(e){status('Waiting for output: '+e.message);}
    await new Promise(resolve=>setTimeout(resolve,1700));
   }
- }catch(e){s.busy=false;s.job=null;inventory();status(e.message);}
+ }catch(e){s.busy=false;s.job=null;inventory();renderAttachments();status(e.message);}
 }
 $('composer').onsubmit=send;
 $('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){

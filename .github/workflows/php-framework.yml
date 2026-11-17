@@ -64,6 +64,7 @@ jobs:
           php CMS/tests/ai_pdf_pipeline_test.php
           php CMS/tests/gentoo_pdf_admin_test.php
           php CMS/tests/ai_workspace_test.php
+          php CMS/tests/ai_chat_files_test.php
           php CMS/tests/session_auth_test.php
           php CMS/tests/smoke.php
           php CMS/tests/theme_test.php
@@ -98,6 +99,10 @@ jobs:
           python3 gentoo-node/pdf_admin_probe.py --check
           python3 -m unittest discover -s gentoo-node/tests -p 'test_pdf_admin.py' -v
           python3 gentoo-node/pdf_ingest.py --check
+          python3 sirus-ai-dual-tunnel/gentoo/manual_rag.py --check
+          python3 -m unittest discover -s sirus-ai-dual-tunnel/tests -p 'test_manual_rag.py' -v
+          bash -n sirus-ai-dual-tunnel/gentoo/upgrade-in-place.sh
+          bash -n sirus-ai-dual-tunnel/ubuntu/upgrade-in-place.sh
           python3 -m unittest discover -s gentoo-node/tests -p 'test_pdf_ingest.py' -v
       - name: JavaScript syntax
         run: |
