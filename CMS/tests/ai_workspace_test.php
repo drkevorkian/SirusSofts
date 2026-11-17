@@ -40,12 +40,34 @@ try {cms_ai_memory_save($db,$alice,'This cannot fit in five bytes.');
 catch(RuntimeException $e){check(str_contains($e->getMessage(),'quota'),'2 GiB enforced');}
 check(cms_ai_quota_used($db,$alice)===CMS_AI_MEMORY_QUOTA-5,'Failed charge is atomic');
 $db->prepare('UPDATE cms_ai_usage SET bytes_used=? WHERE account=?')->execute([$usage,$alice]);
+// The server must not soft-delete a conversation that still has an active job.
+$job=str_repeat('a',32);
+$db->prepare("INSERT INTO cms_ai_requests
+(job_id,account,conversation_id,state,created_at,updated_at)
+VALUES(?,?,?,'queued',?,?)")->execute([$job,$alice,$id,$now,$now]);
+try {cms_ai_conversation_delete($db,$alice,$id);throw new Exception('Deleted an active job');}
+catch(RuntimeException $e) {check(str_contains($e->getMessage(),'generation'),
+    'Active inference blocks chat deletion');}
+$db->prepare("UPDATE cms_ai_requests SET state='completed' WHERE job_id=?")->execute([$job]);
 cms_ai_conversation_delete($db,$alice,$id);
 check(cms_ai_quota_used($db,$alice)===$usage,'Soft deletion retains charged storage');
+$st=$db->prepare('SELECT deleted_at FROM cms_ai_conversations WHERE id=? AND account=?');
+$st->execute([$id,$alice]);
+check(is_string($st->fetchColumn()),'Soft deletion preserves the conversation row');
 try {cms_ai_message_history($db,$alice,$id);throw new Exception('Deleted chat accessible');}
 catch(RuntimeException $e){check($e->getMessage()==='Conversation not found.','Deleted chat excluded from active access');}
+check(cms_ai_recall($db,$alice,'timing chain')==='','Deleted chats excluded from cross-chat recall');
+try {cms_ai_conversation_restore($db,$bob,$id);throw new Exception('Other user restored chat');}
+catch(RuntimeException $e){check($e->getMessage()==='Deleted conversation not found.',
+    'Another account cannot restore a private chat');}
+try {cms_ai_conversation_delete($db,$alice,$id);throw new Exception('Double delete succeeded');}
+catch(RuntimeException $e){check($e->getMessage()==='Conversation not found.',
+    'Already-deleted conversations cannot be deleted twice');}
 cms_ai_conversation_restore($db,$alice,$id);
 check(count(cms_ai_message_history($db,$alice,$id))===1,'Restore preserves messages');
+check(str_contains(cms_ai_recall($db,$alice,'timing chain'),'timing chain'),
+    'Restored chats are again eligible for normal recall');
+check(cms_ai_quota_used($db,$alice)===$usage,'Restore does not charge twice');
 $guest=['role'=>'guest','account'=>null];
 $member=['role'=>'user','account'=>$alice];
 $admin=['role'=>'admin','account'=>'admin:1'];
