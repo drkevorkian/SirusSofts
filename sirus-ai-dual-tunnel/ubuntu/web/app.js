@@ -199,6 +199,7 @@ async function loadState(){
  $('adminLink').hidden=s.role!=='admin';$('gentooLink').hidden=s.role!=='admin';
  $('memoryToggle').hidden=s.role==='guest';$('documentsToggle').hidden=s.role==='guest';
  $('researchToggle').hidden=s.role!=='admin';
+ $('researchQuick').hidden=s.role!=='admin';
  $('chatAttachLabel').hidden=s.role==='guest';
  $('manualSearchLabel').hidden=s.role!=='admin';
  $('worker').hidden=s.role!=='admin';$('workerLabel').hidden=s.role!=='admin';
@@ -333,14 +334,16 @@ $('researchPdfSelect').onchange=()=>{
  if(!option)return;
  $('researchTitleInput').value=option.textContent.split(' · ')[0].slice(0,160);
 };
-$('researchToggle').onclick=async()=>{
+async function openResearch(){
  if(s.role!=='admin')return;
  panel('researchPanel');
  try{
   await researchJobs();
   if(!$('researchPdfSelect').options.length)await researchManuals();
  }catch(e){status(e.message);}
-};
+}
+$('researchToggle').onclick=()=>{void openResearch();};
+$('researchQuick').onclick=()=>{void openResearch();};
 $('researchForm').onsubmit=async event=>{
  event.preventDefault();
  if(s.role!=='admin')return;
@@ -627,5 +630,8 @@ $('uploadForm').onsubmit=async e=>{
     if(Array.isArray(old))s.msgs=s.guest=old.slice(-5);}catch(_){}}
   else{await refreshConversations();if(s.convs.length)await openConversation(s.convs[0].id);}
   nav();draw();
+  if(s.role==='admin' &&
+     new URLSearchParams(window.location.search).get('view')==='research')
+    await openResearch();
  }catch(e){status('Workspace unavailable: '+e.message);}
 })();
