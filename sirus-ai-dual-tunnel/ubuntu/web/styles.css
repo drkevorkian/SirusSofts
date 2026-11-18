@@ -186,3 +186,26 @@
  border:1px solid #294d69;background:#091a2b;border-radius:8px;
  padding:13px;color:#dbeaff;font:12px/1.6 ui-monospace,monospace;
  max-height:500px;overflow-y:auto}
+
+/* Research navigation remains accessible at shorter desktop viewport heights. */
+@media(min-width:781px){
+ .sidebar{height:100dvh;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+ .sidebar .sidebar-foot{flex-shrink:0}
+}
+.research-shortcut{
+ display:inline-flex;align-items:center;justify-content:center;
+ flex-shrink:0;white-space:nowrap;margin-left:auto;
+ border:1px solid #3984ad;border-radius:9px;padding:9px 13px;
+ color:#e4f6ff;background:#165078;font-size:12px;font-weight:700
+}
+.research-shortcut:hover,.research-shortcut:focus-visible{
+ background:#20719e;color:#fff
+}
+@media(max-width:780px){
+ .research-shortcut{margin-left:auto;padding:7px 9px;font-size:11px}
+ .topbar{gap:8px}
+ .topbar .titleline{min-width:0;overflow:hidden}
+ .topbar .titleline h1{font-size:15px}
+ .topbar .titleline p{font-size:10px}
+ .topbar .mobile-chat-list-button{margin-left:0}
+}
