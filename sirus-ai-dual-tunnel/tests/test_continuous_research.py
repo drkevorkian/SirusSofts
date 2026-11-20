@@ -171,6 +171,41 @@ class ContinuousResearchTests(unittest.TestCase):
                 self.assertGreater(row["duration_ms"],0)
                 self.assertGreater(row["output_chars"],0)
 
+    def test_targeted_reanalysis_does_not_repeat_unchanged_sources_early(self):
+        self.add_doc(SHA,text="Old unchanged source specification.")
+        self.add_doc(FAILED,text="Other source unaffected.")
+        self.research.inventory()
+        self.research.control("configure",value={
+            "passes":1,"revisit_seconds":3600})
+        self.research.control("enable")
+        for _ in range(2):
+            lease=self.research.claim()
+            self.assertIsNotNone(lease)
+            self.assertTrue(self.research.finish(lease,"Unreviewed draft"))
+        self.assertEqual(self.research.status()["cycle"]["state"],"completed")
+        self.assertIsNone(self.research.claim())
+        with sqlite3.connect(self.pdf) as db:
+            db.execute("UPDATE excerpts SET text='Updated evidence.' WHERE sha256=?",
+                       (SHA,))
+            db.execute("UPDATE documents SET updated_at=2 WHERE sha256=?",(SHA,))
+        self.research.inventory()
+        updated=self.research.claim()
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated["source_id"],"pdf:"+SHA)
+        self.assertTrue(self.research.finish(updated,"Reanalysis from current source"))
+        self.assertEqual(self.research.status()["cycle"]["state"],"completed")
+        self.assertIsNone(self.research.claim())
+        with connect(self.db) as db:
+            count=db.execute("SELECT count(*) FROM cr_cycles").fetchone()[0]
+            self.assertEqual(count,2)
+            other=db.execute("""SELECT count(*) FROM cr_jobs j
+                JOIN cr_sections s ON s.slot=j.slot AND s.revision=j.revision
+                WHERE s.source_id=?""",("pdf:"+FAILED,)).fetchone()[0]
+            self.assertEqual(other,1)
+        # Full revisit is still permitted once the configured interval elapses.
+        after=self.research.claim(now=time.time()+3601)
+        self.assertIsNotNone(after)
+
     def test_source_history_is_complete_paginated_and_preserves_old_revisions(self):
         self.add_doc()
         self.research.inventory()
