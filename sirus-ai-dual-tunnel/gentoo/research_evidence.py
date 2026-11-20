@@ -6,11 +6,13 @@ automatically, never calls a network service and never exports RAG/training data
 It operates only on the source manifest and the original read-only PDF catalog.
 """
 import re
+from contextlib import closing
 import sqlite3
 import time
 from decimal import Decimal, InvalidOperation
 
 from continuous_research import connect, digest
+from research_loop import _manual_connection
 
 # Deliberately narrow conservative parser. Ambiguous procedures, diagrams,
 # unit conversions and inferred applications require human interpretation.
@@ -71,6 +73,7 @@ def init_schema(path):
           revision TEXT NOT NULL, source_revision TEXT NOT NULL,
           source_updated_at INTEGER NOT NULL DEFAULT 0,
           page INTEGER NOT NULL, part INTEGER NOT NULL,
+          byte_offset INTEGER NOT NULL,
           applicability TEXT NOT NULL DEFAULT '',
           label TEXT NOT NULL, value TEXT NOT NULL, unit TEXT NOT NULL,
           quote TEXT NOT NULL, quote_sha TEXT NOT NULL, created REAL NOT NULL
@@ -201,6 +204,13 @@ class EvidenceLedger:
                 # Do not mark a changed/unavailable original as fully indexed.
                 continue
             candidates=parse_evidence(text)
+            with closing(_manual_connection(self.research.source,self.research.index)) as pdf:
+                pdf_meta=pdf.execute("""SELECT updated_at FROM documents
+                    WHERE sha256=? AND status IN ('ready','approved')""",
+                    (lease["source_id"][4:],)).fetchone()
+            if pdf_meta is None:
+                continue
+            source_updated_at=pdf_meta["updated_at"]
             stamp=time.time()
             with connect(self.db_path) as db:
                 db.execute("BEGIN IMMEDIATE")
@@ -220,10 +230,12 @@ class EvidenceLedger:
                                           label,value,unit,digest(quote))))
                     db.execute("""INSERT OR IGNORE INTO cr_evidence(
                         id,source_id,slot,revision,source_revision,
-                        page,part,applicability,label,value,unit,quote,quote_sha,created)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        source_updated_at,page,part,byte_offset,applicability,
+                        label,value,unit,quote,quote_sha,created)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (eid,lease["source_id"],lease["slot"],lease["revision"],
-                         lease["source_revision"],lease["page"],lease["part"],
+                         lease["source_revision"],source_updated_at,
+                         lease["page"],lease["part"],lease["byte_offset"],
                          scope,label,value,unit,quote,digest(quote),stamp))
                     discovered+=1
                 db.execute("""INSERT OR IGNORE INTO cr_evidence_indexed
@@ -266,44 +278,44 @@ class EvidenceLedger:
             db.execute("UPDATE cr_evidence_settings SET compare_cursor='' WHERE id=1")
         return {"source_id":source_id,"applicability":scope}
 
-    def compare_batch(self, limit=40):
-        """Persist only candidate disagreements in identically scoped sources.
+    def compare_batch(self, limit=64):
+        """Complete paged comparison of identically scoped original documents.
 
-        No cross-unit conversions or assertions of evidence independence.
-        A matching scope is a human-provided applicability key; source IDs
-        merely distinguish documents, not editorial independence.
+        A keyset cursor records the last (a,b) candidate pair. Unlike a
+        fixed-per-source peer cap, this never silently skips additional
+        disagreements when many independent documents share a property.
         """
-        if type(limit) is not int or not 1<=limit<=64:
+        if type(limit) is not int or not 1<=limit<=256:
             raise ValueError("Invalid comparison batch limit")
         with connect(self.db_path) as db:
             db.execute("BEGIN IMMEDIATE")
-            cursor=db.execute("SELECT compare_cursor FROM cr_evidence_settings WHERE id=1").fetchone()[0]
-            source=db.execute("""SELECT e.* FROM cr_evidence e WHERE e.id>?
-                AND e.applicability<>'' AND """
-                +self._current_clause("e")+"""
-                ORDER BY e.id LIMIT ?""",(cursor,limit)).fetchall()
-            if not source:
+            token=db.execute("SELECT compare_cursor FROM cr_evidence_settings WHERE id=1").fetchone()[0]
+            left,right=token.split(":",1) if token else ("","")
+            matches=db.execute("""SELECT a.id a,b.id b,a.applicability scope
+                FROM cr_evidence a JOIN cr_evidence b
+                  ON a.applicability=b.applicability AND a.label=b.label
+                  AND a.unit=b.unit AND a.value<>b.value
+                  AND a.source_id<>b.source_id AND a.id<b.id
+                WHERE a.applicability<>'' AND
+                (a.id>? OR (a.id=? AND b.id>?)) AND """
+                +self._current_clause("a")+" AND "+self._current_clause("b")+"""
+                ORDER BY a.id,b.id LIMIT ?""",(left,left,right,limit)).fetchall()
+            if not matches:
                 db.execute("UPDATE cr_evidence_settings SET compare_cursor='' WHERE id=1")
-                return {"compared":0,"new_conflicts":0}
-            inserted=0
-            for evidence in source:
-                peers=db.execute("""SELECT e.id,e.source_id FROM cr_evidence e
-                    WHERE e.applicability=? AND e.label=? AND e.unit=?
-                    AND e.value<>? AND e.source_id<>? AND """
-                    +self._current_clause("e")+"""
-                    ORDER BY e.id LIMIT 32""",
-                    (evidence["applicability"],evidence["label"],evidence["unit"],
-                     evidence["value"],evidence["source_id"])).fetchall()
-                for peer in peers:
-                    a,b=sorted((evidence["id"],peer["id"]))
-                    cur=db.execute("""INSERT OR IGNORE INTO cr_conflicts
-                        (id,a,b,applicability,created)
-                        VALUES(?,?,?,?,?)""",
-                        (digest(a+"|"+b),a,b,evidence["applicability"],time.time()))
-                    inserted+=cur.rowcount
-            db.execute("UPDATE cr_evidence_settings SET compare_cursor=?,updated=? WHERE id=1",
-                       (source[-1]["id"],time.time()))
-            return {"compared":len(source),"new_conflicts":inserted}
+                return {"compared_pairs":0,"new_conflicts":0,"wrapped":True}
+            added=0
+            for pair in matches:
+                cur=db.execute("""INSERT OR IGNORE INTO cr_conflicts
+                    (id,a,b,applicability,created) VALUES(?,?,?,?,?)""",
+                    (digest(pair["a"]+"|"+pair["b"]),pair["a"],pair["b"],
+                     pair["scope"],time.time()))
+                added+=cur.rowcount
+            last=matches[-1]
+            db.execute("""UPDATE cr_evidence_settings
+                SET compare_cursor=?,updated=? WHERE id=1""",
+                (last["a"]+":"+last["b"],time.time()))
+            return {"compared_pairs":len(matches),"new_conflicts":added,
+                    "wrapped":False}
 
     def review(self, evidence_id, quote_sha, revision, reviewer, action, reason=""):
         """Human-only review. No AI worker calls this; CMS guards the route."""
@@ -334,6 +346,16 @@ class EvidenceLedger:
         if state=="supported" and not (current["reviewed"] or
                                         current["extraction_status"]=="approved"):
             raise ValueError("Original PDF must be independently approved first")
+        # The ingestion metadata is authoritative; a status-only update must
+        # also invalidate review even if extracted text happens not to change.
+        with closing(_manual_connection(self.research.source,self.research.index)) as pdf:
+            current_meta=pdf.execute("""SELECT updated_at,status,reviewed
+                FROM documents WHERE sha256=?""",(row["source_id"][4:],)).fetchone()
+        if (current_meta is None or current_meta["updated_at"]!=row["source_updated_at"]
+            or current_meta["status"] not in ("ready","approved")
+            or (state=="supported" and not
+                (current_meta["reviewed"] or current_meta["status"]=="approved"))):
+            raise ValueError("Original extraction approval or revision changed")
         # Re-read original bytes from the private extraction DB and check the
         # quote exists in exactly the indexed page/part before any promotion.
         text=self.research._section_text(dict(row))
