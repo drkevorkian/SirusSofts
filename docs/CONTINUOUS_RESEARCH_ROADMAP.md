@@ -1,18 +1,253 @@
 # SirusSofts — Continuous Autonomous Research & Learning Roadmap
 
-**Source implementation status (November 19, 2026):** Phase A foundation, initial Phase B original-source comparison and a separately review-gated Phase C claim history coded on main. Not deployed, not accepted against the production corpus. The root README now defines **main as the only working branch**; the former dedicated-development-branch instruction is retired.
+**Status:** Approved roadmap — source implementation underway; production deployment and acceptance pending  
+**Priority:** High  
+**Tracking baseline:** 7774d7fddc69 (last verified source baseline, 2026-11-19)  
+**Platform:** Gentoo local AI workers + Ubuntu public CMS gateway  
+**Objective:** Enable the local LLM to continuously revisit, analyze, cross-reference, and improve its understanding of the entire available knowledge library without requiring a user to initiate each research session.
 
-**Hard boundary:** Gentoo holds private source data, checkpoint state, and local inference. Ubuntu CMS acts as an authenticated administrator facade. No code push installs either server, promotes LLM outputs, or trains model weights.
+### Checklist rules
 
-## Phases and dependencies
+- **[x] Complete in the GitHub source and covered by existing automated tests or a validated source boundary.** A checkmark **does not** mean the feature is installed on Gentoo/Ubuntu, accepted against the private PDF library, or safe for unrestricted production use.
+- **[ ] Open or partially implemented.** Each partial item retains its unchecked state until its **whole** requirement is met; source-only progress is noted beside it.
+- **Section 11 is real deployment/acceptance testing.** Synthetic unit tests are noted as partial evidence but do not close real-system acceptance tasks.
+- **No source or checklist update deploys servers.** In particular, the 32-byte private signed administrative bridge key still needs secure provisioning in an approved maintenance window. Model-weight training remains disabled.
+- **Git workflow:** The repository root README specifies `main` only; the original dedicated-development-branch requirement is superseded rather than performed. Keep history and rollbacks through normal reviewed commits.
 
-| Phase | Status | Remaining gate |
-|---|---|---|
-| A — Inventory, section revisions, scheduling, recovery | **Implemented in source; live validation pending** | Reconcile the actual mounted SSD catalog, restart test with 100 passes, exercise backup and restore, measure queue scaling |
-| B — Cross-document comparisons and contradictions | **Partial** | Deterministic, source-linked numeric measurement candidates and manually scoped contradiction tracking implemented; semantic entity linking, conversion and independent-authorship review pending |
-| C — Verified, versioned knowledge | **Partial** | Private append-only claim revisions, explicit human approval/reversal and source-change supersession implemented. No automatic RAG export/retrieval; full claim semantics and independent source verification pending |
-| D — Autonomous service and resource protection | **Partial** | Chat queue, CPU load, minimum host RAM and UTC quiet hours implemented; GPU/VRAM constraints, preemption, multi-node coordination, energy limits, retention and chat load testing pending |
-| E — Optional LoRA/fine-tuning | **Disabled** | Separate operator approval, curated reviewed datasets, held-out evaluation and offline rollback |
+**Overall source checklist: 61 / 138 checked (44.2%).** This is development progress, **not production readiness**.
+
+| Section | Source-complete | Still open |
+|---|---:|---:|
+| 1. Core requirements | 5/10 | 5 |
+| 2. Knowledge inventory | 6/10 | 4 |
+| 3. Scheduler | 10/12 | 2 |
+| 4. Multi-pass reasoning | 4/12 | 8 |
+| 5. Verification and memory | 9/12 | 3 |
+| 6. Cross-document intelligence | 1/9 | 8 |
+| 7. Resource management | 2/11 | 9 |
+| 8. Administrator dashboard | 9/15 | 6 |
+| 9. Safety and reliability | 7/12 | 5 |
+| 10. Optional model training | 1/9 | 8 |
+| 11. Acceptance tests | 0/12 | 12 |
+| 12. Implementation and deployment | 7/14 | 7 |
+
+**Primary implementation:** [Gentoo scheduler](../sirus-ai-dual-tunnel/gentoo/continuous_research.py) · [Original-source evidence ledger](../sirus-ai-dual-tunnel/gentoo/research_evidence.py) · [Signed private bridge](../sirus-ai-dual-tunnel/gentoo/research_admin_auth.py) · [CMS controls](../CMS/app/ai_continuous.php) · [Deployment and acceptance procedure](CONTINUOUS_RESEARCH_DEPLOYMENT.md).
+
+## 1. Core Operating Requirements
+
+- [ ] Run a continuous autonomous inference service on the Gentoo compute node. **Partial (source):** Background worker is coded, but not installed on Gentoo.
+- [x] Operate without a browser session or active conversation.
+- [x] Automatically schedule another research cycle when work finishes.
+- [ ] Resume automatically after unexpected crashes, system restarts, or temporary model unavailability. **Partial (source):** SQLite recovery, retry and 100-pass engine-recreation tests pass; real crash/restart and prolonged model outage testing remain.
+- [ ] Process **all eligible indexed knowledge**, not merely recent documents. **Partial (source):** PDF ingestion records and saved one-off research snapshots are indexed; other knowledge formats remain.
+- [x] Revisit previously analyzed material indefinitely.
+- [x] Maintain persistent state across cycles and software updates.
+- [ ] Allow administrators to start, pause, resume, cancel, and reprioritize research. **Partial (source):** Start/pause/resume/stop and source priorities exist; targeted per-job cancellation is incomplete.
+- [ ] Allow the system to run continuously while maintaining interactive chatbot availability. **Partial (source):** Interactive-queue admission exists; in-flight inference cannot yet be preempted.
+- [x] Never silently modify model weights or promote generated claims into verified facts.
+
+## 2. Complete Knowledge Inventory
+
+- [x] Inventory existing PDF files and extracted PDF sections on Gentoo.
+- [ ] Inventory available website snapshots, text documents, and supported research records. **Partial (source):** Stored website/text research snapshots are indexed; general text-file import is not.
+- [ ] Inventory existing extracted knowledge, source citations, and research history. **Partial (source):** PDF extracts and existing one-off snapshots are indexed; separately approved CMS knowledge is not.
+- [ ] Identify duplicate files through content hashes. **Partial (source):** SHA-256 source identities exist, but a complete duplicate-file report/deduplication policy does not.
+- [x] Maintain source IDs, page numbers, document versions, timestamps, and extraction status.
+- [x] Detect additions, deletions, and changed source content.
+- [ ] Track inaccessible or incompletely extracted files. **Partial (source):** Failed/zero-text ingestion records are counted; files absent from the catalog are not enumerated.
+- [x] Queue previously unprocessed material.
+- [x] Record the last successful analysis of every eligible section.
+- [x] Provide administrator controls for excluding sources or selecting research priorities.
+
+**Completion criterion:** Every eligible source can be accounted for, including sources that failed processing.
+
+## 3. Continuous Research Scheduler
+
+- [x] Build a durable, database-backed autonomous work queue.
+- [x] Divide large documents into independently checkpointed sections.
+- [x] Assign work according to priority, age, source changes, and coverage.
+- [x] Process each section through a configurable number of inference passes.
+- [x] Support repeated analysis across multiple research cycles.
+- [x] Ensure completed work is checkpointed before proceeding.
+- [x] Recover interrupted jobs without losing valid completed results.
+- [ ] Prevent duplicate execution of the same job. **Partial (source):** Fencing prevents duplicate commits, but an expired lease can briefly overlap physical inference.
+- [x] Detect stalled workers and recover abandoned jobs safely.
+- [x] Implement exponential backoff for repeated failures.
+- [x] Automatically begin another coverage cycle when eligible work has been completed.
+- [ ] Preserve a complete audit trail of completed and failed jobs. **Partial (source):** Job states, results and events are stored; exhaustive per-pass/error audit exports remain.
+
+**Important:** A complete cycle does not mean a source is permanently finished. It becomes eligible for analysis again.
+
+## 4. Multi-Pass Reasoning Engine
+
+For each selected document or document section:
+
+- [ ] Extract factual claims and technical relationships. **Partial (source):** Only narrow numeric measurement lines are extracted directly from PDFs; general relationships are not.
+- [ ] Identify assumptions, ambiguities, and missing explanations.
+- [ ] Compare the section against related sources. **Partial (source):** Cross-source numeric candidates are compared, not arbitrary related prose.
+- [ ] Detect contradictions between documents. **Partial (source):** Narrow equal-scope/equal-unit measurement conflicts are flagged; procedural/semantic contradictions remain.
+- [ ] Evaluate calculations, measurements, and units where possible. **Partial (source):** Values and literal units are parsed; conversions and independent calculations are not.
+- [ ] Identify procedures that may have become outdated.
+- [ ] Generate questions requiring additional evidence.
+- [ ] Re-examine earlier conclusions using fresh source context.
+- [x] Store each pass separately for later inspection.
+- [x] Distinguish verified evidence from model-generated hypotheses.
+- [x] Avoid treating repeated agreement between the model's own outputs as independent confirmation.
+- [x] Support configurable inference passes, preserving the existing 1–100-pass research functionality.
+
+## 5. Knowledge Verification and Memory
+
+- [x] Create a versioned knowledge-claim database linked to original sources.
+- [x] Store exact supporting citations for every promoted factual claim.
+- [x] Track contradictory evidence rather than automatically discarding it.
+- [x] Separate proposed findings from verified findings.
+- [x] Assign verification states: unreviewed, supported, disputed, rejected, and superseded.
+- [x] Require source-backed evidence before promoting new factual knowledge.
+- [x] Maintain historical versions and reversal capability.
+- [ ] Preserve human review controls for safety-critical technical procedures. **Partial (source):** All support actions are admin-only and require original-source confirmation; procedure-specific review rules remain.
+- [ ] Make verified knowledge available through the existing retrieval system.
+- [x] Avoid overwriting original documents or extracted source material.
+- [ ] Detect circular references and unsupported generated claims. **Partial (source):** Model-generated drafts cannot become evidence; cross-source circularity and independent-authorship detection remain.
+- [x] Recheck conclusions when source documents change.
+
+**Completion criterion:** The system becomes better at finding and applying verified information without contaminating its evidence base.
+
+## 6. Cross-Document Intelligence
+
+- [ ] Connect related facts across different manuals and knowledge sources. **Partial (source):** Only restricted same-property numeric PDF evidence is currently joined.
+- [ ] Identify repeated components, specifications, part numbers, and procedures. **Partial (source):** Numeric measurement labels only; no general part-number/procedure relationship index.
+- [ ] Compare manuals for conflicting torque specifications, electrical values, tolerances, and service procedures. **Partial (source):** Torque and other simple numeric lines are compared; service-procedure contradictions are not.
+- [x] Preserve model, year, engine, revision, and application boundaries.
+- [ ] Detect when apparently contradictory specifications actually apply to different equipment. **Partial (source):** Explicitly mismatched scope prevents false comparisons; the software does not infer equipment applicability.
+- [ ] Generate source-linked technical summaries.
+- [ ] Identify missing reference documents.
+- [ ] Maintain a searchable relationship index for parts, systems, and procedures.
+- [ ] Automatically revisit unresolved contradictions as new source material becomes available. **Partial (source):** Source revisions invalidate old candidates; complete automated re-adjudication of all open conflicts is not yet validated.
+
+## 7. Resource and Performance Management
+
+- [ ] Detect available CPU, RAM, GPU, and VRAM resources. **Partial (source):** Host CPU-load and available-RAM signals exist; GPU/VRAM admission is missing.
+- [x] Respect the existing Gentoo inference worker configuration.
+- [ ] Reserve resources for interactive chat and existing system services. **Partial (source):** New background work defers to chat; it cannot reserve resources or preempt a running model call.
+- [ ] Allow configurable background inference concurrency.
+- [x] Throttle research when resource utilization exceeds configured limits.
+- [ ] Monitor memory consumption, inference latency, and queue growth. **Partial (source):** CPU, RAM headroom and queue are displayed; per-inference latency is not tracked.
+- [ ] Track tokens processed per second and per research job.
+- [ ] Prevent uncontrolled database growth through configurable retention and archival.
+- [ ] Avoid continuously reprocessing unchanged material at unnecessarily high priority.
+- [ ] Support quiet hours, power-management policies, and operator overrides. **Partial (source):** UTC quiet hours and admin overrides exist; power-management policy is missing.
+- [ ] Track resource consumption and estimated energy costs.
+
+## 8. Administrator Dashboard
+
+Add a **Continuous Research** section to the existing SirusSofts AI administration interface.
+
+- [x] Master enable/disable control.
+- [x] Start, pause, resume, and stop controls.
+- [x] Active research job and currently selected source.
+- [x] Current document, page, section, and inference pass.
+- [ ] Coverage cycle number and progress. **Partial (source):** Cycle ID/state are displayed, but there is no end-to-end percentage/progress estimate.
+- [x] Total indexed documents and sections.
+- [x] Processed, pending, failed, and excluded counts.
+- [ ] Estimated processing throughput.
+- [ ] Resource utilization and active worker status. **Partial (source):** CPU load, RAM headroom and active worker appear; GPU/VRAM utilization is absent.
+- [ ] Recently verified findings. **Partial (source):** Latest human claim revisions are listed; a dedicated filtered verified-findings feed is missing.
+- [x] Outstanding contradictions and review requests.
+- [ ] Source-specific research histories. **Partial (source):** Limited recent evidence/claim lists exist; complete per-source research drilldown is missing.
+- [x] Research priorities and scheduling configuration.
+- [ ] Downloadable research reports.
+- [x] Visible explanations when jobs are blocked or repeatedly failing.
+
+## 9. Safety, Access, and Reliability
+
+- [x] Keep model inference and internal research databases on private infrastructure.
+- [x] Continue using the existing secured Gentoo-to-Ubuntu communication architecture.
+- [x] Preserve administrator-only job management.
+- [x] Enforce authentication, authorization, and CSRF protections.
+- [x] Treat documents and websites as untrusted input, not instructions to the research controller.
+- [x] Prevent unauthorized network requests and local file access.
+- [ ] Set bounded job limits, source sizes, and timeouts. **Partial (source):** Section sizes, pass counts, retries and API request limits are bounded; hard limits on all model calls require validation.
+- [ ] Protect credentials and private source data from generated reports. **Partial (source):** No public report export is created; safe redacted report generation remains.
+- [ ] Maintain database backup and restore procedures. **Partial (source):** Backup-backed upgrade procedures are documented; restore has not been exercised on live data.
+- [x] Provide safe shutdown and restart behavior.
+- [ ] Test job interruption, database corruption recovery, and queue resumption. **Partial (source):** Synthetic restart tests pass, but database-corruption recovery has not been tested.
+- [ ] Maintain detailed operational logging without exposing secrets. **Partial (source):** Private job and event tables exist; operational audit/retention and log coverage are incomplete.
+
+## 10. Optional Future Model Training
+
+This phase is separate from continuous inference.
+
+- [ ] Build curated training examples from verified, source-backed findings.
+- [ ] Remove duplicated, contradictory, or unsupported training material.
+- [ ] Establish evaluation datasets and regression benchmarks.
+- [ ] Determine which locally supported models and hardware can handle adapter fine-tuning.
+- [ ] Evaluate LoRA/QLoRA or other practical fine-tuning methods. **Partial (source):** An offline opt-in QLoRA runner exists outside this autonomous service; no production training acceptance.
+- [ ] Train offline on controlled, versioned snapshots—not continuously on raw generated output.
+- [ ] Test candidate adapters against the existing production model.
+- [ ] Preserve the ability to reject or roll back degraded models. **Partial (source):** Separate controlled training validation/rollback is future work.
+- [x] Keep fine-tuning disabled until separately approved.
+
+**Guiding principle:** Continuous inference and knowledge-base refinement come first. Model-weight training is a later, independently validated capability.
+
+## 11. Testing and Acceptance Criteria
+
+- [ ] Verify complete coverage of a selected multipage PDF.
+- [ ] Verify a 100-pass job resumes after interruption. **Partial (source):** Automated 100-pass restart-by-engine-recreation test passed; real process-kill recovery test remains.
+- [ ] Verify continuous cycles restart without manual interaction. **Partial (source):** Synthetic recurring-cycle tests pass; real unattended endurance test remains.
+- [ ] Verify no sections are permanently skipped. **Partial (source):** Chunk coverage checks and >32-measurement no-truncation tests pass; live full-library proof remains.
+- [ ] Verify duplicate jobs do not execute concurrently. **Partial (source):** Atomic-claim/fencing tests pass; physical inference overlap after lease expiry needs testing.
+- [ ] Verify citations always map to the correct source and page. **Partial (source):** Tests check page/part source metadata; representative real manuals still need audit.
+- [ ] Verify unsupported conclusions cannot enter the verified knowledge store. **Partial (source):** Database rejects promoting drafts and checks human-backed originals; live acceptance remains.
+- [ ] Verify changed documents trigger targeted re-analysis.
+- [ ] Verify interactive AI chat remains available during background work. **Partial (source):** Chat priority admission is implemented; measured peak-load latency is missing.
+- [ ] Verify pause, cancellation, and restoration behavior. **Partial (source):** Unit tests cover pause/stop/resume; interruption and service restoration tests remain.
+- [ ] Verify that an administrator can inspect and reverse promoted findings. **Partial (source):** Unit tests cover admin review/reversal; real CMS/Gentoo acceptance remains.
+- [ ] Test database migration, backup, restore, and rollback. **Partial (source):** Additive migrations tested; consistent backup/restore and rollback not yet performed.
+
+## 12. Safe Implementation and Deployment
+
+- [x] **Superseded by repository policy:** ~~Create a dedicated GitHub development branch.~~ Work directly on `main` (root `README.md`).
+- [x] Review existing research-loop services and reuse working components.
+- [x] Implement changes in small, independently testable increments.
+- [x] Add or update automated unit and integration tests.
+- [x] Run GitHub CI and confirm relevant tests pass.
+- [x] Review security and source-isolation boundaries.
+- [x] Prepare a pinned-commit deployment plan.
+- [ ] Run read-only deployment checks before changing installed services. **Partial (source):** A reviewed in-place deployment runbook exists; the operator must select and pin a green SHA for a maintenance window.
+- [ ] Use reviewed in-place upgrades rather than full server installers. **Partial (source):** Read-only --plan workflows exist; they have not been run on the live hosts.
+- [ ] Preserve the existing CMS, PDF library, AI databases, and model files. **Partial (source):** In-place upgrade scripts are prepared; no live upgrade has occurred.
+- [ ] Retain automatic rollback and database backups. **Partial (source):** Source changes leave originals untouched; deployed-state preservation needs real validation.
+- [ ] Validate worker and gateway health after each deployment.
+- [ ] Begin with a controlled small-library trial.
+- [ ] Expand gradually to full-library continuous operation after successful validation.
+
+---
+
+## Implementation Priority
+
+**Phase A — Foundation:** Inventory, coverage tracking, scheduling, and recovery.
+
+**Phase B — Intelligence:** Repeated analysis, cross-document comparisons, and contradiction detection.
+
+**Phase C — Verified Knowledge:** Provenance, approval rules, versioned knowledge, and retrieval integration.
+
+**Phase D — Autonomous Operation:** Resource-aware indefinite research, monitoring, and administrator controls.
+
+**Phase E — Advanced Learning:** Optional curated model training, benchmarking, and controlled model upgrades.
+
+## Definition of Done
+
+The system can operate without an active user session, repeatedly work through the entire eligible knowledge library, preserve its progress, investigate conflicting evidence, maintain a verified and versioned knowledge base, and continue functioning after service interruptions.
+
+The research service must not interfere with normal website operations, expose private data, or silently modify the underlying model.
+
+**Target outcome:** An autonomous, continuously researching SirusSofts knowledge system that improves its source-grounded understanding while retaining administrator oversight and operational control.
+
+---
+
+## Implementation evidence and unresolved engineering gates
+
+The complete 12-section checklist above is the **single source of progress tracking**. The following engineering notes are retained from the previously published source roadmap so that prior implementation detail and acceptance limitations are not lost. Their descriptions indicate source-code status, not live approval.
 
 ## Phase A1: Complete eligible-source visibility — coded
 
@@ -50,9 +285,9 @@ Continuous research results reside only in private cr_results with review_state 
 
 ## Phase B: First original-source comparison index — partial
 
-**Implemented:** \`sirus-ai-dual-tunnel/gentoo/research_evidence.py\` indexes strictly formatted measurement lines (for example, \`Rear axle torque: 40 Nm\`) directly from original PDF extracted sections. It records page, part, stable section ID, source content revision, exact bounded quote, SHA-256 hash, numeric value and original unit. Ineligible/removed sections are ignored. It never treats LLM notes or prior model passes as source material. Source text remains on Gentoo.
+**Implemented:** `sirus-ai-dual-tunnel/gentoo/research_evidence.py` indexes strictly formatted measurement lines (for example, `Rear axle torque: 40 Nm`) directly from original PDF extracted sections. It records page, part, stable section ID, source content revision, exact bounded quote, SHA-256 hash, numeric value and original unit. Ineligible/removed sections are ignored. It never treats LLM notes or prior model passes as source material. Source text remains on Gentoo.
 
-An administrator can assign an explicit applicability key such as \`brp/defender/2026/hd11/clutch\`; unscoped documents are **never automatically compared**. Only equal normalized property labels, equal literal units, equal applicability keys and different source document identities produce \`cr_conflicts\` candidates. A durable paginated comparison cursor covers pairs rather than truncating to a hard per-document peer limit. Differences stay \`unreviewed\` until the administrator inspects them; dismissed or superseded candidates keep their history.
+An administrator can assign an explicit applicability key such as `brp/defender/2026/hd11/clutch`; unscoped documents are **never automatically compared**. Only equal normalized property labels, equal literal units, equal applicability keys and different source document identities produce `cr_conflicts` candidates. A durable paginated comparison cursor covers pairs rather than truncating to a hard per-document peer limit. Differences stay `unreviewed` until the administrator inspects them; dismissed or superseded candidates keep their history.
 
 **Not implemented:** General text/diagram and procedural extraction, unit conversion, reliable part-number/entity alignment, source-authorship independence determination, applicability inference, automatic model/year mapping and semantic contradiction classification. Explicitly different source SHA-256 values **do not** establish independent authorship. Contradictions are *review requests*, not claims that either manual is wrong.
 
@@ -60,11 +295,11 @@ An administrator can assign an explicit applicability key such as \`brp/defender
 
 ## Phase C: Private versioned review ledger — partial
 
-**Implemented:** \`cr_evidence\`, \`cr_claims\`, \`cr_claim_versions\` and comparison records are additive, private Gentoo SQLite tables. The first proposal remains unreviewed until an authenticated CMS administrator submits a CSRF-checked, rate-limited review action from \`/admin/ai\`. To record \`supported\`, the administrator must type \`I VERIFIED ORIGINAL\`, and Gentoo rechecks the exact original PDF quote, content revision, ingestion status, and existing independent PDF approval. Support, dispute, rejection and supersession append immutable claim revisions with the reviewer identity. Database triggers reject update/delete of prior history. Changed or excluded source revisions automatically supersede previously supported claims while retaining older history. Model inference cannot call the approval path.
+**Implemented:** `cr_evidence`, `cr_claims`, `cr_claim_versions` and comparison records are additive, private Gentoo SQLite tables. The first proposal remains unreviewed until an authenticated CMS administrator submits a CSRF-checked, rate-limited review action from `/admin/ai`. To record `supported`, the administrator must type `I VERIFIED ORIGINAL`, and Gentoo rechecks the exact original PDF quote, content revision, ingestion status, and existing independent PDF approval. Support, dispute, rejection and supersession append immutable claim revisions with the reviewer identity. Database triggers reject update/delete of prior history. Changed or excluded source revisions automatically supersede previously supported claims while retaining older history. Model inference cannot call the approval path.
 
 **Critical evidence semantics:** A supported record means **the human checked that the quoted statement exists in an approved original source**. It is not proof that a service procedure is safe/correct in every application. Repeated LLM analysis is never independent evidence.
 
-**Not implemented:** New approved claims are **not** written into existing \`cms_ai_documents\`, exported as verified RAG knowledge, or added to training datasets. That integration requires explicit transfer, licensing, source scope checks, human approval policy, and retrieval rollback. Cross-document human corroboration and richer claim semantic models remain pending.
+**Not implemented:** New approved claims are **not** written into existing `cms_ai_documents`, exported as verified RAG knowledge, or added to training datasets. That integration requires explicit transfer, licensing, source scope checks, human approval policy, and retrieval rollback. Cross-document human corroboration and richer claim semantic models remain pending.
 
 **Measurable acceptance:** The new PHP/Python tests enforce administrator-only actions, explicit review confirmation, exact SHA/page/part provenance, rejection of stale or unapproved originals, immutable review history, reversible human decisions and automatic source-revision supersession. A controlled source update and restoration test is required against the real private library.
 
@@ -90,3 +325,4 @@ No autonomous LoRA or model-weight changes. Future training requires curated **h
 **Safe installation plan:** docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md. Pin and review a green main SHA; use existing backup-backed in-place upgrade scripts, not the old full installers. No Ubuntu/Gentoo apply, service restart, model change, or destructive storage operation has been done during this implementation.
 
 **Full-roadmap definition of done (NOT met):** End-to-end multi-format inventory, validated repeat cycles after outages, deeper independent cross-document reasoning, reviewed-claim retrieval integration and rollback, measured interactive responsiveness, monitoring and archival, plus explicit operator acceptance on both servers. All optional LoRA training remains disconnected and disabled.
+
