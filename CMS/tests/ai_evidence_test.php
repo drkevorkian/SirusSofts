@@ -79,4 +79,17 @@ try{
     cms_check_csrf();
     throw new LogicException('Missing CSRF accepted');
 }catch(InvalidArgumentException $e){}
+require_once dirname(__DIR__).'/app/ai_api.php';
+$key=str_repeat('k',32);
+$timestamp='1760000000';
+$nonce=str_repeat('a',32);
+$path='/api/in/research/evidence/control';
+$raw='{"local_only":true,"action":"review"}';
+$expected=hash_hmac('sha256',"sirus-research-admin-v1\n".$timestamp."\n".
+    $nonce."\n".$path."\n".$raw,$key);
+evidence_check(cms_ai_admin_signature($key,$timestamp,$nonce,$path,$raw)===$expected,
+    'Signed internal control requests match Python HMAC format');
+try{cms_ai_admin_signature($key,$timestamp,$nonce,'/api/in/jobs',$raw);
+    throw new LogicException('Arbitrary path signed');}
+catch(InvalidArgumentException $e){}
 echo "PASS: private source review, admin and CSRF gating, explicit human confirmation, strict scope validation.\n";
