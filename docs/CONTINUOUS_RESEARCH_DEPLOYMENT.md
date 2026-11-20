@@ -9,6 +9,18 @@ This document is a **future operator runbook**. A GitHub commit and green CI are
 3. On Gentoo, inspect the dedicated /srv/sirussofts/storage SSD mount, private pdf_ingest.sqlite3 (including WAL), the sirusai account's read permission and running local llama.cpp models. Do not fall back to a different disk without operator approval.
 4. Run Python tests including test_research_evidence.py, php CMS/tests/ai_continuous_test.php, php CMS/tests/ai_evidence_test.php, full CMS tests, PHP lint, Python compileall, shellcheck and the two Actions workflows.
 5. Verify capacity for growth of unreviewed drafts before enabling more than one small PDF.
+6. Stage the **separate private administrative bridge key** described below before relying on any controller panel or claim review. Without it, private research GET/POST endpoints intentionally reject requests while existing chat and one-off research remain available.
+
+## Privileged CMS-to-Gentoo bridge: mandatory key provisioning
+
+**Never write the key into this repository, a command argument, HTTP query string, server log, web root or chat.** On the authorized maintenance window, generate exactly **32 raw random bytes** once with the operating system CSPRNG and transfer the same binary key over the preexisting trusted, host-key-pinned administrator channel.
+
+- Ubuntu: place the binary bytes at `cms_private_directory()/research-admin.key`, outside the public document root, mode `0600`, owned/readable only by the CMS PHP-FPM service account (`sirusweb`). Resolve the actual private root using the deployed CMS, not a guessed path.
+- Gentoo: place the same 32 raw bytes at `/etc/sirus-ai-dual/research-admin.key`, a regular non-symlink file mode `0600`, owned/readable only by the `sirusai` input-service account. Do not change existing tunnel keys or the outbox authentication secret.
+- Independently compare secure SHA-256 fingerprints without exposing the key contents. Synchronize both system clocks to within **120 seconds**; stale timestamps are rejected. Reuse of a nonce is rejected and recorded in private SQLite.
+- Rotate this key with the controller disabled and both copies updated as one reviewed operation; old signatures are rejected after rotation. Back up the key through the existing approved **private** secrets recovery process, not the public CMS release archive.
+
+Both `/api/in/research/continuous` and `/api/in/research/evidence` reads, plus their `/control` mutations, now require timestamp/nonce/HMAC proof. The CMS still enforces its normal session authorization, CSRF and rate limiting. A missing key fails closed and the CMS panels show unavailable, rather than opening an unauthenticated fallback. The Gentoo model and legacy chat routes do not depend on the new key.
 
 ## Stage 1: Backups and read-only plans
 
@@ -24,8 +36,8 @@ Check actual usage and read each plan. Do **not** use the original Gentoo/Ubuntu
 
 1. Drain manually requested research and verify all prior jobs/checkpoints were backed up. Keep PDF ingestion and local models unchanged.
 2. Use the Gentoo **in-place** upgrade's reviewed apply flow. It backs up and installs the input router and continuous_research.py plus research_evidence.py, and restarts only sirus-ai-input. Recheck local input health and ensure controller mode remains disabled. The source evidence/claim schemas are additive; no existing records may be replaced.
-3. Use the Hestia-owned **in-place CMS** upgrade flow to install the admin UI and helpers, preserving the site's private database, permissions and TLS. Do not modify SSH keys, firewall, models or source objects.
-4. In /admin/ai, authenticate as admin and inspect the controller. Request Scan inventory. Compare eligible, excluded, failed/pending, missing-text, historical/current and removed source counts to the private ingestion catalog.
+3. Use the Hestia-owned **in-place CMS** upgrade flow to install the admin UI and helpers, preserving the site's private database, permissions and TLS. Verify the private bridge key ownership before the first authenticated dashboard request. Do not modify SSH keys, firewall, models or source objects.
+4. In /admin/ai, authenticate as admin and inspect the controller. Verify an unsigned direct request to the internal evidence/status routes is refused with HTTP 403, then verify the signed CMS panel works. Request Scan inventory. Compare eligible, excluded, failed/pending, missing-text, historical/current and removed source counts to the private ingestion catalog.
 5. Exclude all but one **non-sensitive** three-page PDF, select one pass and a long revisit interval, configure conservative free-RAM and UTC quiet hours, then explicitly enable for a controlled test. Confirm original source labels, private draft-only storage, one lease, no unintended network/model actions, and normal chat availability.
 6. In the administrator evidence panel, index a small original PDF, set two deliberately matching applicability scopes, review a known measurement discrepancy, and verify that a human-supported claim requires an approved original and explicit confirmation. Revise one original and confirm claim supersession while preserving history. Do not sync supported claims into existing CMS RAG or training exports.
 7. Only during the planned test, simulate a worker stop/restart and verify safe checkpoint resume and lease fencing. Then run a 100-pass test with interruption and repeat a full coverage cycle under monitored CPU/GPU/RAM/disk load.

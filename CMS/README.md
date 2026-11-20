@@ -384,3 +384,13 @@ See [the Gentoo deployment guide](../gentoo-node/WEB-GATEWAY.md).
 ## AI Knowledge & Training
 
 `/admin/ai` is a private CMS administrator page for curated references and supervised question/answer examples in coding, physics, and time/relativity. Review approval and profile enablement gate every JSONL export. Exports are separate for knowledge retrieval, training, and held-out evaluation; source text stays in the existing non-public CMS SQLite database. This page does not fetch URLs, train weights, execute commands, or send data to Gentoo. After an approved CMS code deployment, run the existing unprivileged `php bin/migrate-schema.php` tool. See `docs/SIRUS_AI_KNOWLEDGE_TRAINING.md` for Gentoo integration.
+
+## Source-only Continuous Research administrator controls (not yet deployed)
+
+The existing `/admin/ai` route includes the separately review-gated Continuous Research and original-source evidence sections. CMS/admin.php retains the mandatory admin session, CSRF, rate limits and audit trail. The fixed allowlisted bridge in `CMS/app/ai_continuous.php` never accepts a raw PDF, shell command, filesystem path, arbitrary inference endpoint or verified-knowledge export.
+
+Authenticated status reads and control POSTs to the private Gentoo research service are HMAC-signed by `CMS/app/ai_api.php` with a **separately provisioned 32-byte raw key** in `cms_private_directory()/research-admin.key` (mode 0600). The local Gentoo input service verifies the same key, 120-second time window and single-use nonce. Missing or unreadable key = fail-closed controls and status, not a public bypass. Do not confuse this new bridge key with the original SSH or output-outbox secrets.
+
+All new claims remain private to Gentoo until a human verifies an exact quote from an already-approved PDF and submits an explicitly confirmed review. They do not automatically enter existing CMS reference documents, knowledge/RAG exports, training sets or deployed model files.
+
+Review the pinned commit and [continuous research deployment plan](../docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md); do not deploy automatically or rerun full site installers.

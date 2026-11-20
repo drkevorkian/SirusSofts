@@ -38,9 +38,9 @@ When every queued/leased section in a cycle is finished or terminal, the cycle c
 
 The existing /admin/ai page gains Continuous Research status, cycle/queue/source coverage, current pass and worker, chat queue, scan error, source priorities and exclusions. Controls include enable, pause, resume, stop, disable, asynchronous inventory scan, 1–100 passes, local model ID, worker target, revisit interval, chat admission ceiling and optional CPU-load limit.
 
-Controls POST through the **existing** CMS admin session, CSRF check, audit logger and rate limiter, then a fixed-schema Gentoo loopback request. The public /ai/api routes do not expose these controls. No arbitrary shell command, path, model endpoint or external fetch is accepted. The existing public Nginx /Gentoo/AI/api/ deny must remain installed.
+Controls POST through the **existing** CMS admin session, CSRF check, audit logger and rate limiter, then a fixed-schema Gentoo loopback request. New research control, evidence status and claim review endpoints additionally require an HMAC-signed, single-use nonce and timestamp from a separately provisioned 32-byte secret. Direct unsigned localhost calls receive HTTP 403, including private status reads. The public /ai/api routes do not expose these controls. No arbitrary shell command, path, model endpoint or external fetch is accepted. The existing public Nginx /Gentoo/AI/api/ deny must remain installed.
 
-**Acceptance:** Test unauthenticated/non-admin and CSRF-invalid mutations, invalid source IDs, unknown action and malformed settings. The admin page must fail closed and display unavailable when Gentoo is offline. The test suite covers payload validation and unauthorized mutation; external penetration and permission checks remain pending.
+**Acceptance:** Test unauthenticated/non-admin and CSRF-invalid mutations, invalid source IDs, unknown action, malformed settings, forged HMAC, duplicate nonce, expired timestamp, bad key permissions, and unsigned private reads. The admin page must fail closed and display unavailable when Gentoo is offline. The test suite covers payload validation and unauthorized mutation; external penetration and permission checks remain pending.
 
 ## Evidence boundary — enforced
 
@@ -85,7 +85,7 @@ No autonomous LoRA or model-weight changes. Future training requires curated **h
 - Python: python3 -m unittest discover -s sirus-ai-dual-tunnel/tests -p 'test_*.py' -v (including test_continuous_research.py and test_research_evidence.py)
 - PHP: php CMS/tests/ai_continuous_test.php, php CMS/tests/ai_evidence_test.php, php CMS/tests/ai_research_test.php and the full existing CMS suite
 - CI: .github/workflows/sirus-ai-dual-tunnel.yml and .github/workflows/php-framework.yml, including Python syntax, PHP lint, serious undefined-name and shell analysis
-- Source tests cover inventory completeness, long-section coverage, additive migration preservation, content changes, duplicate prevention, leases/fencing, retries, cycle eligibility, pauses, source exclusion, chat admission, RAM and UTC quiet-hours gates, deterministic evidence indexing, scope-limited contradiction candidates, stale original rejection and append-only human review/reversal.
+- Source tests cover inventory completeness, long-section coverage, additive migration preservation, content changes, duplicate prevention, leases/fencing, retries, cycle eligibility, pauses, source exclusion, chat admission, RAM and UTC quiet-hours gates, deterministic evidence indexing, scope-limited contradiction candidates, stale original rejection, append-only human review/reversal, HMAC/nonce validation and real unsigned-localhost route rejection.
 
 **Safe installation plan:** docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md. Pin and review a green main SHA; use existing backup-backed in-place upgrade scripts, not the old full installers. No Ubuntu/Gentoo apply, service restart, model change, or destructive storage operation has been done during this implementation.
 

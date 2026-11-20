@@ -163,3 +163,11 @@ If Ubuntu already has `sirus-live-socket.service` bound to `127.0.0.1:18482`, DO
 ## Offline specialist knowledge (optional)
 
 The new `gentoo/knowledge.py` module reads a local, approved CMS JSONL knowledge export and injects source-cited references at each request boundary. It is OFF unless the input server is given `--knowledge-file /absolute/private/path.jsonl` (or `SIRUS_AI_KNOWLEDGE_FILE`). The web composer now allows Auto, Coding, Physics or Time specialization independent of CPU/GPU selection. No source file is transmitted to external sites. See `../docs/SIRUS_AI_KNOWLEDGE_TRAINING.md`. Existing installations require a separately reviewed, backed-up upgrade; the original installer does not overwrite deployed services.
+
+## Continuous autonomous research (source-only, operator opt-in)
+
+The Gentoo input router now contains `continuous_research.py`, `research_evidence.py`, and `research_admin_auth.py`. They extend — do not replace — the existing local-only manual research loop, chat queue and private SQLite database. Default research state is disabled; source inventory, section revisions, leases, review histories and cycle checkpoints survive process restart. Evidence comparisons use exact source-extracted measurements and explicit administrator-defined applicability keys, not repeated model outputs.
+
+New private controller and evidence GET/POST endpoints require a request-specific HMAC, timestamp and replay-protected nonce, separate from the existing SSH tunnel/output key. The Gentoo file is `/etc/sirus-ai-dual/research-admin.key` (exactly 32 binary bytes, regular file, no symlink, 0600, service-account readable). CMS has a matching private file outside the website root; it signs only allowlisted routes. The key is not generated, exported or committed by source updates. Without it, new administrator operations fail closed.
+
+The reviewed **in-place** Gentoo upgrade now bundles all three modules. Review the pinned SHA, consistent private SQLite snapshot, SSD mount and [deployment plan](../docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md) before a separately authorized apply. This code change does not restart local GPU/model services, train adapters, publish source text, or install anything automatically.
