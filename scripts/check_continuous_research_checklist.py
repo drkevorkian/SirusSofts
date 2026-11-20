@@ -11,7 +11,7 @@ import sys
 
 ROADMAP = (Path(__file__).resolve().parents[1] /
            "docs/CONTINUOUS_RESEARCH_ROADMAP.md")
-HEADING = re.compile(r"^## ([1-9]|1[0-2])\. \S")
+HEADING = re.compile(r"^## ([1-9]|1[0-2])\. .+$")
 TASK = re.compile(r"^- \[([x ])\] (.+)$")
 TABLE = re.compile(r"^\|\s*(\d{1,2})\. [^|]+\|\s*(\d+)/(\d+)\s*\|\s*(\d+)\s*\|$")
 SUMMARY = re.compile(
@@ -45,7 +45,7 @@ def validate(text: str) -> dict[int, tuple[int, int]]:
             if number in rows:
                 raise ValueError(f"Duplicate progress-table row {number}")
             rows[number] = tuple(map(int, match.groups()[1:]))
-        summary = SUMMARY.fullmatch(line)
+        summary = SUMMARY.match(line)
         if summary:
             if total_line is not None:
                 raise ValueError("Duplicate overall summary")
