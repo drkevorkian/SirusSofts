@@ -6,7 +6,7 @@ reside in the existing private Gentoo input SQLite database. No source text,
 model endpoint, shell command or training operation is exposed by this module.
 """
 import hashlib
-from contextlib import closing
+from contextlib import closing, contextmanager
 import json
 import os
 from pathlib import Path
@@ -28,13 +28,23 @@ def digest(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+@contextmanager
 def connect(path):
+    """Commit/rollback an explicit transaction and always close the handle.
+
+    sqlite3.Connection.__exit__ alone does NOT close a connection; the
+    autonomous scanner creates many short-lived handles over time.
+    """
     db = sqlite3.connect(str(path), timeout=15, isolation_level=None)
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA busy_timeout=15000")
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("PRAGMA foreign_keys=ON")
-    return db
+    try:
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA busy_timeout=15000")
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA foreign_keys=ON")
+        with db:
+            yield db
+    finally:
+        db.close()
 
 
 def init_schema(path):
