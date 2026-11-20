@@ -70,6 +70,7 @@ jobs:
           php CMS/tests/ai_conversation_titles_test.php
           php CMS/tests/ai_research_test.php
           php CMS/tests/ai_continuous_test.php
+          php CMS/tests/ai_evidence_test.php
           php CMS/tests/ai_chat_files_test.php
           php CMS/tests/session_auth_test.php
           php CMS/tests/smoke.php
