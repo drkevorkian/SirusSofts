@@ -65,7 +65,7 @@ function cms_ai_continuous_post(PDO $db,array $post):never {
 }
 
 function cms_ai_continuous_panel(PDO $db):void {
-    cms_need_admin();
+    // Called only from cms_ai_page(), whose entry guard requires an admin.
     try {
         $info=cms_ai_api_upstream('input','/api/in/research/continuous');
     }catch(Throwable $e) {
