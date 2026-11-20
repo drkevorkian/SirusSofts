@@ -20,6 +20,7 @@ ADMIN_ROUTES=frozenset({
     "/api/in/research/continuous",
     "/api/in/research/evidence",
     "/api/in/research/continuous/control",
+    "/api/in/research/continuous/history",
     "/api/in/research/evidence/control",
 })
 KEY_FILE=Path("/etc/sirus-ai-dual/research-admin.key")

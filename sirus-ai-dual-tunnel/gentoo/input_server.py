@@ -616,9 +616,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         research_create=self.path=='/api/in/research'
         continuous_control=self.path=='/api/in/research/continuous/control'
+        continuous_history=self.path=='/api/in/research/continuous/history'
         evidence_control=self.path=='/api/in/research/evidence/control'
         research_cancel=re.fullmatch(r'/api/in/research/[a-f0-9]{32}/cancel',self.path)
-        if self.path!='/api/in/jobs' and not research_create and not research_cancel and not continuous_control and not evidence_control:
+        if self.path!='/api/in/jobs' and not research_create and not research_cancel and not continuous_control and not continuous_history and not evidence_control:
             return self.respond(404, {'error': 'Not found'})
         origin = self.headers.get('Origin')
         if origin and origin != 'https://sirussofts.com':
@@ -635,7 +636,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.respond(413, {'error': 'Request too large'})
         try:
             raw_request=self.rfile.read(n)
-            if continuous_control or evidence_control:
+            if continuous_control or continuous_history or evidence_control:
                 if not verify_research_admin(self.headers,self.path,raw_request,
                                              self.server.engine.db):
                     self.respond(403,{'error':'Administrative bridge authorization required'})
@@ -643,6 +644,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             data = json.loads(raw_request)
             if not isinstance(data,dict):
                 raise ValueError('Expected JSON object')
+            if continuous_history:
+                if data.get('local_only') is not True:
+                    raise ValueError('Local-only research history required')
+                self.respond(200,self.server.engine.continuous.history(
+                    data.get('source_id'),data.get('offset',0)))
+                return
             if evidence_control:
                 if data.get('local_only') is not True:
                     raise ValueError('Local-only evidence administration required')

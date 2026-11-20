@@ -43,6 +43,7 @@ function cms_ai_admin_signature(string $key,string $timestamp,string $nonce,
        !in_array($path,['/api/in/research/continuous',
                         '/api/in/research/evidence',
                         '/api/in/research/continuous/control',
+                        '/api/in/research/continuous/history',
                         '/api/in/research/evidence/control'],true)||
        !preg_match('/^[0-9]{10,11}$/D',$timestamp)||
        !preg_match('/^[a-f0-9]{32}$/D',$nonce))
@@ -71,9 +72,11 @@ function cms_ai_api_upstream(string $kind,string $path,?array $payload=null):arr
     if(in_array($path,['/api/in/research/continuous',
                        '/api/in/research/evidence',
                        '/api/in/research/continuous/control',
+                       '/api/in/research/continuous/history',
                        '/api/in/research/evidence/control'],true)){
         cms_need_admin();
-        if(str_ends_with($path,'/control')&&$body===null)
+        if((str_ends_with($path,'/control')||str_ends_with($path,'/history'))
+            &&$body===null)
             throw new InvalidArgumentException('Missing administrative request.');
         $key=cms_ai_admin_key(); // Missing key fails closed; no public fallback.
         $timestamp=(string)time();
