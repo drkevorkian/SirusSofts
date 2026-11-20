@@ -42,6 +42,7 @@ LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRe
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from knowledge import KnowledgeManager,PROFILES
+from continuous_research import ContinuousResearch, init_schema as init_continuous_schema
 from research_loop import (validated_spec, read_source, pass_messages,
                            list_local_manuals, pdf_segments)
 from manual_rag import (augment as augment_manuals, sync as sync_manuals,
@@ -126,6 +127,7 @@ def init_db(path):
         con.execute("UPDATE jobs SET state='queued' WHERE state='running'")
         # Resume interrupted multi-pass analysis from the last committed pass.
         con.execute("UPDATE research_jobs SET state='queued' WHERE state='running'")
+    init_continuous_schema(path)
 
 
 def assert_local_worker_url(url):
@@ -251,6 +253,7 @@ class Engine:
         self.gpu_percent = gpu_percent
         self.stop = threading.Event()
         self.knowledge = KnowledgeManager(knowledge_file) if knowledge_file else None
+        self.continuous = ContinuousResearch(self.db)
 
     def enqueue(self, messages, target, profile='auto', model_id=DEFAULT_MODEL, skip_knowledge=False, max_tokens=None):
         if not isinstance(model_id,str) or not MODEL_ID.fullmatch(model_id):
@@ -352,6 +355,10 @@ class Engine:
                 WHERE state='queued' ORDER BY created LIMIT 1""").fetchone()
             if row is None:
                 return False
+            # Explicit research takes precedence over autonomous work. Fenced
+            # background leases prevent two research engines sharing one model.
+            if con.execute("SELECT 1 FROM cr_jobs WHERE state='leased' LIMIT 1").fetchone():
+                return False
             (job_id,raw,target,model_id,src_url,src_sha,src_text,notes,
              completed,section_completed,sections_per_pass,source_stamp)=row
             con.execute("UPDATE research_jobs SET state='running',updated=? WHERE id=?",
@@ -441,6 +448,16 @@ class Engine:
                 con.execute("UPDATE research_jobs SET state='error',error=?,updated=? WHERE id=?",
                             (str(exc)[:350],time.time(),job_id))
         return True
+
+    def continuous_loop(self):
+        # A single, lower-priority private research worker. Disabled by default.
+        while not self.stop.is_set():
+            if not self.continuous.run_once(self._continuous_infer):
+                self.stop.wait(2)
+
+    def _continuous_infer(self, messages, target, model_id, job_id):
+        worker, endpoint = choose_worker(job_id,target,self.gpu_percent,model_id=model_id)
+        return chat(endpoint,messages,model_id=model_id,max_tokens=2048), worker
 
     def research_loop(self):
         while not self.stop.is_set():
@@ -541,6 +558,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.respond(200, {'status':'ok', 'channel':'input', 'workers':healthy,
                 'models':models, 'local_only':True, 'inference_host':'Gentoo localhost llama.cpp',
                 'gpu_task_target_percent':self.server.engine.gpu_percent})
+        elif self.path == '/api/in/research/continuous':
+            self.respond(200,self.server.engine.continuous.status())
         elif self.path.startswith('/api/in/research/manuals'):
             from urllib.parse import parse_qs
             parsed=urlsplit(self.path)
@@ -567,8 +586,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         research_create=self.path=='/api/in/research'
+        continuous_control=self.path=='/api/in/research/continuous/control'
         research_cancel=re.fullmatch(r'/api/in/research/[a-f0-9]{32}/cancel',self.path)
-        if self.path!='/api/in/jobs' and not research_create and not research_cancel:
+        if self.path!='/api/in/jobs' and not research_create and not research_cancel and not continuous_control:
             return self.respond(404, {'error': 'Not found'})
         origin = self.headers.get('Origin')
         if origin and origin != 'https://sirussofts.com':
@@ -587,6 +607,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(n))
             if not isinstance(data,dict):
                 raise ValueError('Expected JSON object')
+            if continuous_control:
+                if data.get('local_only') is not True:
+                    raise ValueError('Local-only administration required')
+                self.respond(200,self.server.engine.continuous.control(
+                    data.get('action'),source_id=data.get('source_id',''),
+                    value=data.get('value')))
+                return
             if research_cancel:
                 self.respond(200,self.server.engine.cancel_research(self.path.split('/')[4]))
                 return
@@ -669,6 +696,7 @@ def main():
         threading.Thread(target=engine.worker_loop, daemon=True).start()
     threading.Thread(target=engine.dispatch_loop, daemon=True).start()
     threading.Thread(target=engine.research_loop, daemon=True).start()
+    threading.Thread(target=engine.continuous_loop, daemon=True).start()
     threading.Thread(target=manual_index_loop,args=(engine.stop,),daemon=True).start()
     server = http.server.ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     server.engine = engine
