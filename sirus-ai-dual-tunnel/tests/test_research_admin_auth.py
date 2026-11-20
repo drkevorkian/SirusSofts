@@ -57,7 +57,7 @@ class ResearchBridgeTests(unittest.TestCase):
         hdr2=self.headers(nonce="b"*32)
         self.assertTrue(verify(hdr2,self.path,self.raw,self.db,
                                key_path=self.key,now=self.now))
-        self.assertEqual(len(ADMIN_ROUTES),4)
+        self.assertEqual(len(ADMIN_ROUTES),5)
 
     def test_tampered_payload_wrong_path_and_missing_auth_rejected(self):
         hdr=self.headers()
@@ -131,7 +131,8 @@ class ResearchBridgeTests(unittest.TestCase):
                     urllib.request.urlopen(base+route,timeout=3)
                 self.assertEqual(exc.exception.code,403)
             for route in ("/api/in/research/evidence/control",
-                          "/api/in/research/continuous/control"):
+                          "/api/in/research/continuous/control",
+                          "/api/in/research/continuous/history"):
                 req=urllib.request.Request(base+route,method="POST",
                     data=b'{"local_only":true,"action":"stop"}',
                     headers={"Content-Type":"application/json"})
@@ -142,6 +143,19 @@ class ResearchBridgeTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=3)
+
+    def test_source_history_signature_binds_original_body_and_route(self):
+        path="/api/in/research/continuous/history"
+        request=b'{"source_id":"pdf:' + b"a"*64 + b'","offset":0,"local_only":true}'
+        hdr=self.headers(path=path,body=request,nonce="9"*32)
+        self.assertFalse(verify({},path,request,self.db,
+                                key_path=self.key,now=self.now))
+        self.assertFalse(verify(hdr,path,request+b" ",self.db,
+                                key_path=self.key,now=self.now))
+        self.assertTrue(verify(hdr,path,request,self.db,
+                               key_path=self.key,now=self.now))
+        self.assertFalse(verify(hdr,path,request,self.db,
+                                key_path=self.key,now=self.now))
 
     def test_unsigned_admin_payload_cannot_bypass_route_authentication(self):
         # The JSON actor string is not authorization. A valid HMAC is mandatory.

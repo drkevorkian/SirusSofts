@@ -145,6 +145,112 @@ class ContinuousResearchTests(unittest.TestCase):
                 FROM cr_sections WHERE current=1 ORDER BY byte_offset""").fetchall()
             self.assertEqual([tuple(x) for x in before],[tuple(x) for x in after])
 
+    def test_pass_metrics_and_cycle_percentage_are_measured_not_guessed(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("configure",value={"passes":2})
+        self.research.control("enable")
+        self.assertEqual(self.research.status()["cycle_progress"]["planned_passes"],0)
+        for number in (1,2):
+            def infer(messages,target,model_id,job_id):
+                time.sleep(0.005)
+                return f"Unreviewed source draft {number}", "cpu"
+            self.assertTrue(self.research.run_once(infer))
+            status=self.research.status()
+            progress=status["cycle_progress"]
+            self.assertEqual(progress["planned_passes"],2)
+            self.assertEqual(progress["finished_passes"],number)
+            self.assertEqual(progress["pass_percent"],number*50.0)
+            self.assertEqual(status["throughput"]["measured_passes"],number)
+            self.assertGreater(status["throughput"]["average_inference_ms"],0)
+            self.assertGreater(status["throughput"]["estimated_passes_per_hour"],0)
+            self.assertGreaterEqual(status["throughput"]["passes_last_60_minutes"],number)
+        self.assertEqual(status["cycle"]["state"],"completed")
+        with connect(self.db) as db:
+            for row in db.execute("SELECT duration_ms,output_chars FROM cr_results"):
+                self.assertGreater(row["duration_ms"],0)
+                self.assertGreater(row["output_chars"],0)
+
+    def test_source_history_is_complete_paginated_and_preserves_old_revisions(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("configure",value={"passes":12})
+        self.research.control("enable")
+        for i in range(12):
+            self.assertTrue(self.research.run_once(
+                lambda messages,target,model_id,job_id: (
+                    "Private draft answer %02d" % i, "cpu")))
+        sid="pdf:"+SHA
+        first=self.research.history(sid)
+        self.assertEqual(first["jobs_total"],1)
+        self.assertEqual(first["pass_results_total"],12)
+        self.assertEqual(len(first["passes"]),8)
+        self.assertTrue(first["has_more"])
+        self.assertEqual(first["passes"][0]["pass_number"],12)
+        self.assertEqual(first["passes"][0]["page"],2)
+        self.assertEqual(first["passes"][0]["part"],1)
+        self.assertEqual(first["passes"][0]["review_state"],"unreviewed")
+        self.assertTrue(first["passes"][0]["notes"].startswith("Private draft answer"))
+        last=self.research.history(sid,8)
+        self.assertEqual(len(last["passes"]),4)
+        self.assertFalse(last["has_more"])
+        self.assertEqual(last["passes"][-1]["pass_number"],1)
+        self.assertEqual(first["jobs"][0]["pass_completed"],12)
+        self.assertTrue(first["draft_only"])
+        self.assertFalse(first["weight_training"])
+        with sqlite3.connect(self.pdf) as db:
+            db.execute("UPDATE excerpts SET text='Changed source revision.'")
+            db.execute("UPDATE documents SET updated_at=2")
+        self.research.inventory()
+        historical=self.research.history(sid)
+        self.assertEqual(historical["pass_results_total"],12)
+        self.assertFalse(historical["passes"][0]["current"])
+        self.assertNotEqual(historical["passes"][0]["source_revision"],
+                            historical["source"]["revision"])
+        with sqlite3.connect(self.pdf) as db:
+            db.execute("DELETE FROM documents")
+            db.execute("DELETE FROM excerpts")
+        self.research.inventory()
+        self.assertEqual(self.research.history(sid)["source"]["present"],0)
+        self.assertEqual(self.research.history(sid)["pass_results_total"],12)
+
+    def test_source_history_fails_closed_for_unknown_and_invalid_identifiers(self):
+        for invalid in ("", "file:///etc/passwd", "pdf:"+"a"*63,
+                        "research:"+"z"*32, "../../secret", None):
+            with self.assertRaises(ValueError):
+                self.research.history(invalid)
+        self.add_doc()
+        self.research.inventory()
+        with self.assertRaises(ValueError):
+            self.research.history("pdf:"+FAILED)
+        for invalid in (-1,1000001,"0",1.5,True):
+            with self.assertRaises(ValueError):
+                self.research.history("pdf:"+SHA,invalid)
+        for invalid in (0,9,True):
+            with self.assertRaises(ValueError):
+                self.research.history("pdf:"+SHA,0,invalid)
+        self.assertEqual(self.research.history("pdf:"+SHA)["pass_results_total"],0)
+
+    def test_backward_compatible_research_result_timing_migration(self):
+        legacy=self.base/"legacy-results.sqlite3"
+        ai.init_db(legacy)
+        with sqlite3.connect(legacy) as db:
+            db.execute("DROP TABLE cr_results")
+            db.execute("""CREATE TABLE cr_results(
+                job_id TEXT NOT NULL,pass_number INTEGER NOT NULL,
+                notes TEXT NOT NULL,sha256 TEXT NOT NULL,
+                review_state TEXT NOT NULL DEFAULT 'unreviewed',
+                created REAL NOT NULL,PRIMARY KEY(job_id,pass_number))""")
+            db.execute("""INSERT INTO cr_results(job_id,pass_number,notes,
+                sha256,created) VALUES('old',1,'historical draft','sha',123)""")
+        init_schema(legacy)
+        init_schema(legacy)
+        with sqlite3.connect(legacy) as db:
+            row=db.execute("""SELECT notes,review_state,duration_ms,
+                output_chars FROM cr_results WHERE job_id='old'""").fetchone()
+            self.assertEqual(row,("historical draft","unreviewed",0,0))
+            self.assertEqual(db.execute("SELECT count(*) FROM cr_results").fetchone()[0],1)
+
     def test_atomic_claim_and_no_duplicate_results(self):
         self.add_doc()
         self.research.inventory()

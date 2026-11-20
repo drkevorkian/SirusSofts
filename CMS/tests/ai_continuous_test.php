@@ -16,6 +16,24 @@ continuous_check($parsed['value']['passes']===100,'100 bounded analysis passes')
 continuous_check($parsed['value']['max_cpu_load']===3.5,'Load limit parsed');
 continuous_check($parsed['value']['max_chat_jobs']===0,'Chat admission enforced');
 $source='pdf:'.str_repeat('a',64);
+$history=cms_ai_continuous_history_payload($source,'8');
+continuous_check($history['source_id']===$source&&$history['offset']===8,
+    'Authenticated history source and offset normalized');
+continuous_check($history['local_only']===true,'Private history stays local');
+foreach([
+    [$source,'-1'],
+    [$source,'1000001'],
+    ['../etc/passwd','0'],
+    ['pdf:'.str_repeat('z',64),'0'],
+    ['research:'.str_repeat('f',31),'0'],
+    [$source,8],
+] as [$badSource,$badOffset]){
+    try{
+        cms_ai_continuous_history_payload($badSource,$badOffset);
+        throw new LogicException('Unsafe history input accepted');
+    }catch(InvalidArgumentException $e){}
+}
+
 continuous_check(cms_ai_continuous_payload([
   'operation'=>'priority','source_id'=>$source,'priority'=>'-10'
 ])['value']===-10,'Negative source priority');

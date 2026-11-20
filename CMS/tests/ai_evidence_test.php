@@ -89,6 +89,9 @@ $expected=hash_hmac('sha256',"sirus-research-admin-v1\n".$timestamp."\n".
     $nonce."\n".$path."\n".$raw,$key);
 evidence_check(cms_ai_admin_signature($key,$timestamp,$nonce,$path,$raw)===$expected,
     'Signed internal control requests match Python HMAC format');
+evidence_check(strlen(cms_ai_admin_signature($key,$timestamp,$nonce,
+    '/api/in/research/continuous/history',$raw))===64,
+    'History route is allowlisted for signed private reads');
 try{cms_ai_admin_signature($key,$timestamp,$nonce,'/api/in/jobs',$raw);
     throw new LogicException('Arbitrary path signed');}
 catch(InvalidArgumentException $e){}
