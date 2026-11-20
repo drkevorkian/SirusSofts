@@ -25,6 +25,10 @@ installers on this Hestia target. cPoint is NOT installed by the CMS setup.
 
 The SirusSofts repository owns the public website and CMS. The cPoint Monitor application remains a separate project in `drkevorkian/cPoint-monitor`.
 
+## Continuous Research master checklist
+
+The [Continuous Autonomous Research & Learning Roadmap](docs/CONTINUOUS_RESEARCH_ROADMAP.md) is the canonical **138-item tracked checklist**. Checkmarks mean implemented/tested in source (or explicitly superseded); unresolved work and live acceptance remain unchecked. Keep the checklist, its progress table, and its implementation notes updated whenever work is completed. The checklist integrity check runs in GitHub CI. Nothing in the checklist automatically deploys software to Gentoo or Ubuntu.
+
 ## Repository ownership
 
 - **`CMS/`** — main SirusSofts website: `CMS/index.php` is the homepage/front controller; `CMS/app/admin.php` is the existing admin implementation; `CMS/assets/` contains site assets.
