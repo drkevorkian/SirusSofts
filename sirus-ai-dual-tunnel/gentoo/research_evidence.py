@@ -415,6 +415,11 @@ class EvidenceLedger:
                 e.page,e.part,e.quote,e.quote_sha,e.revision
                 FROM cr_claims c JOIN cr_evidence e ON e.id=c.evidence_id
                 ORDER BY c.updated DESC LIMIT ?""",(limit,)).fetchall()
+            scope_rows=db.execute("""SELECT d.id,d.title,
+                COALESCE(s.applicability,'') applicability
+                FROM cr_sources d LEFT JOIN cr_evidence_scopes s
+                ON s.source_id=d.id WHERE d.kind='pdf' AND d.present=1
+                ORDER BY d.priority DESC,d.title LIMIT 40""").fetchall()
             totals=dict(db.execute("""SELECT
                 (SELECT count(*) FROM cr_evidence) evidence_total,
                 (SELECT count(*) FROM cr_conflicts WHERE state='unreviewed') open_conflicts,
@@ -424,5 +429,6 @@ class EvidenceLedger:
                     "evidence":[dict(r) for r in evidence],
                     "conflicts":[dict(r) for r in conflicts],
                     "claims":[dict(r) for r in reviewed],
+                    "scopes":[dict(r) for r in scope_rows],
                     "draft_only":False,"automatic_promotion":False,
                     "source_grounded":True,"weight_training":False}
