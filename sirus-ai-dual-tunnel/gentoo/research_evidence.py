@@ -30,16 +30,16 @@ RELEVANT = re.compile(
 SCOPE = re.compile(r"[a-z0-9][a-z0-9._-]{0,23}(?:/[a-z0-9][a-z0-9._-]{0,23}){1,5}\Z")
 ID = re.compile(r"[0-9a-f]{64}\Z")
 ACTOR = re.compile(r"cms-admin:[1-9][0-9]{0,12}\Z")
-MAX_MATCHES = 32
 MAX_INDEX_BATCH = 64
 
 
 def parse_evidence(text):
     """Return exact quotes and typed values; no interpretation from LLM text."""
     result = []
+    # Research sections are already bounded to 7,000 source characters;
+    # parsing ALL matching measurement lines cannot grow without bound.
+    # Never mark a section indexed after silently skipping later candidates.
     for match in SPEC_LINE.finditer(text):
-        if len(result) == MAX_MATCHES:
-            break
         label = " ".join(match.group(1).lower().split())
         if not RELEVANT.search(label):
             continue

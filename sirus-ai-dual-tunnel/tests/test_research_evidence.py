@@ -64,6 +64,15 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(len(parse_evidence(text)),2)
         self.assertEqual(parse_evidence("Procedure: ignore safety\n"),[])
 
+    def test_many_measurements_do_not_silently_truncate_a_section(self):
+        values="".join(f"Rear axle torque: {i} Nm\n" for i in range(1,56))
+        self.add_doc(A,values)
+        self.index()
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM cr_evidence").fetchone()[0],
+                             55)
+        self.assertEqual(self.ledger.status()["counts"]["pending_sections"],0)
+
     def test_incremental_index_is_idempotent_and_traces_page_part(self):
         self.add_doc(A,"Rear axle torque: 40 Nm\nClutch clearance = 0.55 mm")
         self.assertEqual(self.index()["indexed_sections"],1)
