@@ -94,7 +94,9 @@ def init_schema(path):
         CREATE TABLE IF NOT EXISTS cr_cycles (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           started REAL NOT NULL, completed REAL,
-          state TEXT NOT NULL CHECK(state IN ('open','completed'))
+          state TEXT NOT NULL CHECK(state IN ('open','completed')),
+          scope TEXT NOT NULL DEFAULT 'full'
+            CHECK(scope IN ('full','new_only'))
         );
         CREATE TABLE IF NOT EXISTS cr_jobs (
           id TEXT PRIMARY KEY, cycle INTEGER NOT NULL, slot TEXT NOT NULL,
@@ -137,6 +139,10 @@ def init_schema(path):
         for column in ("duration_ms","output_chars"):
             if column not in columns:
                 db.execute(f"ALTER TABLE cr_results ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
+        cycles={row[1] for row in db.execute("PRAGMA table_info(cr_cycles)")}
+        if "scope" not in cycles:
+            db.execute("""ALTER TABLE cr_cycles ADD COLUMN scope TEXT
+                NOT NULL DEFAULT 'full' CHECK(scope IN ('full','new_only'))""")
         db.execute("""CREATE INDEX IF NOT EXISTS cr_job_slot_history
             ON cr_jobs(slot,revision,created)""")
         db.execute("""CREATE INDEX IF NOT EXISTS cr_result_recent
@@ -448,28 +454,32 @@ class ContinuousResearch:
         conf = db.execute("SELECT * FROM cr_config WHERE id=1").fetchone()
         if conf["mode"]!="running":
             return
-        active = db.execute("SELECT id FROM cr_cycles WHERE state='open' ORDER BY id DESC LIMIT 1").fetchone()
+        active = db.execute("""SELECT id,scope FROM cr_cycles
+            WHERE state='open' ORDER BY id DESC LIMIT 1""").fetchone()
+        # The scope is durable. Subsequent claims and finish() must not widen
+        # a targeted cycle to include already-completed unchanged sections.
+        uncovered="""AND NOT EXISTS (SELECT 1 FROM cr_jobs previous
+            WHERE previous.slot=s.slot AND previous.revision=s.revision
+            AND previous.state IN ('completed','failed'))"""
         targeted=False
         if not active:
             targeted=now-conf["last_completed"]<conf["revisit_seconds"]
             # New/revised/uncovered sections must not wait for the normal
             # revisit interval. Terminal failed jobs count as covered until
             # their next full cycle, avoiding an unbounded retry loop.
-            uncovered="""AND NOT EXISTS (SELECT 1 FROM cr_jobs previous
-                WHERE previous.slot=s.slot AND previous.revision=s.revision
-                AND previous.state IN ('completed','failed'))"""
             predicate=uncovered if targeted else ""
             if not db.execute("""SELECT 1 FROM cr_sections s JOIN cr_sources d
                 ON d.id=s.source_id WHERE s.current=1 AND d.present=1
                 AND d.eligible=1 AND d.excluded=0 """+predicate+
                 " LIMIT 1").fetchone():
                 return
-            cycle = db.execute("INSERT INTO cr_cycles(started,state) VALUES(?,'open')",
-                               (now,)).lastrowid
+            cycle = db.execute("""INSERT INTO cr_cycles(started,state,scope)
+                VALUES(?,'open',?)""",(now,'new_only' if targeted else 'full')).lastrowid
             self._event(db,"cycle-start",str(cycle),
                         "new-or-revised-only" if targeted else "full-coverage")
         else:
             cycle = active["id"]
+            targeted=active["scope"]=="new_only"
         self._supersede(db)
         # Apply the targeted filter only when creating an off-cycle scan.
         # Once open, newly discovered revisions can still join this cycle.
