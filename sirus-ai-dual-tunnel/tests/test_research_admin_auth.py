@@ -2,6 +2,10 @@
 import os
 from pathlib import Path
 import sqlite3
+from threading import Thread
+from http.server import ThreadingHTTPServer
+import urllib.error
+import urllib.request
 import sys
 import tempfile
 import unittest
@@ -112,6 +116,32 @@ class ResearchBridgeTests(unittest.TestCase):
                                key_path=self.key,now=self.now))
         self.assertFalse(verify(hdr,path,b"",self.db,
                                 key_path=self.key,now=self.now))
+
+    def test_loopback_handler_denies_unsigned_private_reads_and_mutations(self):
+        # The real HTTP handler must reject requests before any worker action.
+        server=ThreadingHTTPServer(("127.0.0.1",0),ai.Handler)
+        server.engine=type("PrivateEngine",(),{"db":self.db})()
+        thread=Thread(target=server.serve_forever,daemon=True)
+        thread.start()
+        base=f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            for route in ("/api/in/research/evidence",
+                          "/api/in/research/continuous"):
+                with self.assertRaises(urllib.error.HTTPError) as exc:
+                    urllib.request.urlopen(base+route,timeout=3)
+                self.assertEqual(exc.exception.code,403)
+            for route in ("/api/in/research/evidence/control",
+                          "/api/in/research/continuous/control"):
+                req=urllib.request.Request(base+route,method="POST",
+                    data=b'{"local_only":true,"action":"stop"}',
+                    headers={"Content-Type":"application/json"})
+                with self.assertRaises(urllib.error.HTTPError) as exc:
+                    urllib.request.urlopen(req,timeout=3)
+                self.assertEqual(exc.exception.code,403)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
 
     def test_unsigned_admin_payload_cannot_bypass_route_authentication(self):
         # The JSON actor string is not authorization. A valid HMAC is mandatory.
