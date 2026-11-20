@@ -10,6 +10,7 @@ from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 from threading import Event, Thread
@@ -114,7 +115,9 @@ def init_schema(path):
           notes TEXT NOT NULL, sha256 TEXT NOT NULL,
           review_state TEXT NOT NULL DEFAULT 'unreviewed'
             CHECK(review_state='unreviewed'),
-          created REAL NOT NULL, PRIMARY KEY(job_id,pass_number)
+          created REAL NOT NULL, duration_ms INTEGER NOT NULL DEFAULT 0,
+          output_chars INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY(job_id,pass_number)
         );
         CREATE TABLE IF NOT EXISTS cr_events (
           id INTEGER PRIMARY KEY AUTOINCREMENT, happened REAL NOT NULL,
@@ -129,6 +132,15 @@ def init_schema(path):
             ("quiet_end_utc","INTEGER NOT NULL DEFAULT -1")):
             if column not in cols:
                 db.execute(f"ALTER TABLE cr_config ADD COLUMN {column} {definition}")
+        # Existing Phase-A draft rows remain valid; unknown old timings are 0.
+        columns={row[1] for row in db.execute("PRAGMA table_info(cr_results)")}
+        for column in ("duration_ms","output_chars"):
+            if column not in columns:
+                db.execute(f"ALTER TABLE cr_results ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
+        db.execute("""CREATE INDEX IF NOT EXISTS cr_job_slot_history
+            ON cr_jobs(slot,revision,created)""")
+        db.execute("""CREATE INDEX IF NOT EXISTS cr_result_recent
+            ON cr_results(created)""")
 
 
 def free_memory_mib():
@@ -546,9 +558,11 @@ class ContinuousResearch:
             return f"[PDF page {lease['page']} part {lease['part']}]\n"+part
         return "[Previously stored research snapshot]\n"+part
 
-    def finish(self, lease, answer, worker=""):
+    def finish(self, lease, answer, worker="", *, duration_ms=0):
         if not isinstance(answer,str) or not answer.strip() or len(answer)>24000:
             raise ValueError("Invalid or oversized research draft")
+        if type(duration_ms) is not int or not 0<=duration_ms<=86400000:
+            raise ValueError("Invalid inference duration")
         now=time.time()
         with connect(self.db_path) as db:
             db.execute("BEGIN IMMEDIATE")
@@ -562,9 +576,11 @@ class ContinuousResearch:
             if not row or not current:
                 return False  # fenced or superseded worker cannot publish output
             pass_no=row["pass_completed"]+1
-            db.execute("""INSERT INTO cr_results(job_id,pass_number,notes,sha256,created)
-                VALUES(?,?,?,?,?)""",(lease["id"],pass_no,answer.strip(),
-                                       digest(answer.strip()),now))
+            db.execute("""INSERT INTO cr_results(job_id,pass_number,notes,sha256,
+                created,duration_ms,output_chars)
+                VALUES(?,?,?,?,?,?,?)""",(lease["id"],pass_no,answer.strip(),
+                                       digest(answer.strip()),now,duration_ms,
+                                       len(answer.strip())))
             state="completed" if pass_no>=row["passes"] else "queued"
             db.execute("""UPDATE cr_jobs SET pass_completed=?,state=?,token='',
                 lease_until=0,retry_at=0,attempts=0,worker=?,error='',updated=?
@@ -622,14 +638,72 @@ class ContinuousResearch:
                 f"\nCurrent source section: {lease['slot']}. "
                 "This is one section, not the entire document. "
                 "Cite only its actual page or part. Unreviewed draft.")
+            started=time.monotonic()
             answer,worker=infer(messages,lease["target"],lease["model_id"],lease["id"])
-            self.finish(lease,answer,worker)
+            elapsed_ms=max(1,round((time.monotonic()-started)*1000))
+            self.finish(lease,answer,worker,
+                        duration_ms=min(elapsed_ms,86400000))
         except Exception as exc:
             self.fail(lease,exc)
         finally:
             keepalive.set()
             watcher.join(timeout=1)
         return True
+
+    @staticmethod
+    def validate_source_id(source_id):
+        if (not isinstance(source_id,str) or not re.fullmatch(
+            r"(?:pdf:[0-9a-f]{64}|research:[0-9a-f]{32})",source_id)):
+            raise ValueError("Invalid source identifier")
+        return source_id
+
+    def history(self, source_id, offset=0, limit=8):
+        """Page original private draft history with stable source provenance.
+
+        Read-only. Includes superseded and failed jobs, and all past cycles.
+        Only the existing HMAC-authenticated admin facade may call this API.
+        """
+        source_id=self.validate_source_id(source_id)
+        if type(offset) is not int or not 0<=offset<=1000000:
+            raise ValueError("Invalid history offset")
+        if type(limit) is not int or not 1<=limit<=8:
+            raise ValueError("Invalid history page size")
+        with connect(self.db_path) as db:
+            source=db.execute("""SELECT id,kind,title,revision,content_sha,
+                extraction_status,reviewed,pages,extracted_parts,missing_pages,
+                eligible,excluded,priority,present FROM cr_sources
+                WHERE id=?""",(source_id,)).fetchone()
+            if source is None:
+                raise ValueError("Source not present in the inventory")
+            scope="""FROM cr_jobs j JOIN cr_sections s
+                ON s.slot=j.slot AND s.revision=j.revision
+                WHERE s.source_id=?"""
+            count=db.execute("""SELECT count(*) """+scope,
+                             (source_id,)).fetchone()[0]
+            pass_total=db.execute("""SELECT count(*) FROM cr_results r JOIN cr_jobs j
+                ON j.id=r.job_id JOIN cr_sections s
+                ON s.slot=j.slot AND s.revision=j.revision
+                WHERE s.source_id=?""",(source_id,)).fetchone()[0]
+            jobs=db.execute("""SELECT j.id,j.cycle,j.state,j.pass_completed,
+                j.passes,j.attempts,j.worker,j.error,j.created,j.updated,
+                s.page,s.part,s.revision,s.source_revision
+                """+scope+""" ORDER BY j.created DESC,j.id DESC LIMIT 12""",
+                (source_id,)).fetchall()
+            rows=db.execute("""SELECT r.job_id,r.pass_number,r.notes,r.sha256,
+                r.review_state,r.created,r.duration_ms,r.output_chars,
+                j.cycle,j.state,j.worker,j.passes,s.page,s.part,
+                s.revision,s.source_revision,s.current
+                FROM cr_results r JOIN cr_jobs j ON j.id=r.job_id
+                JOIN cr_sections s ON s.slot=j.slot AND s.revision=j.revision
+                WHERE s.source_id=? ORDER BY r.created DESC,r.job_id DESC,
+                r.pass_number DESC LIMIT ? OFFSET ?""",
+                (source_id,limit,offset)).fetchall()
+        return {"source":dict(source),"jobs_total":count,
+                "pass_results_total":pass_total,"offset":offset,
+                "limit":limit,"has_more":offset+len(rows)<pass_total,
+                "jobs":[dict(j) for j in jobs],
+                "passes":[dict(r) for r in rows],
+                "draft_only":True,"weight_training":False}
 
     def status(self):
         with connect(self.db_path) as db:
@@ -656,6 +730,37 @@ class ContinuousResearch:
                 AND s.revision=j.revision WHERE j.state='leased' LIMIT 1""").fetchone()
             chat=db.execute("""SELECT count(*) FROM jobs WHERE state IN
                 ('queued','running')""").fetchone()[0]
+            if cycle:
+                progress=dict(db.execute("""SELECT count(*) jobs,
+                    COALESCE(sum(CASE WHEN state!='superseded' THEN passes
+                        ELSE 0 END),0) planned_passes,
+                    COALESCE(sum(CASE WHEN state!='superseded' THEN pass_completed
+                        ELSE 0 END),0) finished_passes,
+                    COALESCE(sum(CASE WHEN state='completed' THEN 1 ELSE 0 END),0)
+                        completed_jobs,
+                    COALESCE(sum(CASE WHEN state='failed' THEN 1 ELSE 0 END),0)
+                        failed_jobs
+                    FROM cr_jobs WHERE cycle=?""",(cycle["id"],)).fetchone())
+            else:
+                progress={"jobs":0,"planned_passes":0,"finished_passes":0,
+                          "completed_jobs":0,"failed_jobs":0}
+            measured=db.execute("""SELECT count(*) count,
+                COALESCE(sum(duration_ms),0) total_ms,
+                COALESCE(sum(output_chars),0) total_chars
+                FROM cr_results WHERE duration_ms>0""").fetchone()
+            completed_hour=db.execute("""SELECT count(*) FROM cr_results
+                WHERE created>=?""",(time.time()-3600,)).fetchone()[0]
+        planned=progress["planned_passes"]
+        progress["pass_percent"]=round(100*progress["finished_passes"]/planned,1) if planned else 0.0
+        sample=measured["count"]
+        average_ms=round(measured["total_ms"]/sample,1) if sample else None
+        throughput={"measured_passes":sample,
+                    "average_inference_ms":average_ms,
+                    "passes_last_60_minutes":completed_hour,
+                    "estimated_passes_per_hour":round(3600000*sample/
+                        measured["total_ms"],1) if measured["total_ms"] else None,
+                    "measured_output_characters":measured["total_chars"],
+                    "estimation":"inference-time-only; excludes queue delays, source IO, GPU contention and retries"}
         free_mib=free_memory_mib()
         load=os.getloadavg()[0]
         blocked=admission_reasons(config,free_mib=free_mib,load=load)
@@ -664,6 +769,7 @@ class ContinuousResearch:
         return {"config":config,"jobs":{r["state"]:r["n"] for r in rows},
                 "inventory":dict(source),"sections":dict(sections),
                 "cycle":dict(cycle) if cycle else None,
+                "cycle_progress":progress,"throughput":throughput,
                 "active":dict(in_flight) if in_flight else None,
                 "interactive_jobs":chat,"cpu_load_1m":load,
                 "free_ram_mib":free_mib,"admission_blocks":blocked,
