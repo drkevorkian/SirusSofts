@@ -137,6 +137,20 @@ class ContinuousResearchTests(unittest.TestCase):
         self.assertTrue(next_claim)
         self.assertTrue(self.research.finish(next_claim,"new draft"))
 
+    def test_expired_lease_must_not_be_revived_by_old_heartbeat(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("enable")
+        lease=self.research.claim()
+        with connect(self.db) as con:
+            con.execute("UPDATE cr_jobs SET lease_until=0 WHERE id=?",(lease["id"],))
+        self.assertFalse(self.research.heartbeat(lease["id"],lease["token"]))
+        self.assertFalse(self.research.finish(lease,"too late"))
+        self.assertIsNone(self.research.claim())
+        replacement=self.research.claim(now=time.time()+60)
+        self.assertIsNotNone(replacement)
+        self.assertNotEqual(replacement["token"],lease["token"])
+
     def test_cycle_reeligibility_preserves_all_passes(self):
         self.add_doc()
         self.research.inventory()

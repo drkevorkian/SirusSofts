@@ -19,7 +19,7 @@ from manual_rag import SOURCE, INDEX
 from research_loop import _manual_connection, pass_messages
 
 CHUNK = 7000
-LEASE_SECONDS = 3600
+LEASE_SECONDS = 240
 MAX_ATTEMPTS = 5
 DEFAULT_MODEL = "sirussofts-coder"
 
@@ -444,10 +444,11 @@ class ContinuousResearch:
                                 "model_id":conf["model_id"]}
 
     def heartbeat(self, job_id, token):
+        now=time.time()
         with connect(self.db_path) as db:
             cur=db.execute("""UPDATE cr_jobs SET lease_until=?,updated=?
-                WHERE id=? AND token=? AND state='leased'""",
-                (time.time()+LEASE_SECONDS,time.time(),job_id,token))
+                WHERE id=? AND token=? AND state='leased' AND lease_until>?""",
+                (now+LEASE_SECONDS,now,job_id,token,now))
             return cur.rowcount==1
 
     def _section_text(self, lease):
