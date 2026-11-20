@@ -53,7 +53,7 @@ class ResearchBridgeTests(unittest.TestCase):
         hdr2=self.headers(nonce="b"*32)
         self.assertTrue(verify(hdr2,self.path,self.raw,self.db,
                                key_path=self.key,now=self.now))
-        self.assertEqual(len(ADMIN_ROUTES),2)
+        self.assertEqual(len(ADMIN_ROUTES),4)
 
     def test_tampered_payload_wrong_path_and_missing_auth_rejected(self):
         hdr=self.headers()
@@ -102,6 +102,16 @@ class ResearchBridgeTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT count(*) FROM cr_admin_nonces").fetchone()[0],1)
             self.assertTrue(db.execute("""SELECT 1 FROM sqlite_master
                 WHERE name='research_jobs'""").fetchone())
+
+    def test_private_status_get_requires_signed_empty_body(self):
+        path="/api/in/research/evidence"
+        hdr=self.headers(path=path,body=b"",nonce="f"*32)
+        self.assertFalse(verify({},path,b"",self.db,
+                                key_path=self.key,now=self.now))
+        self.assertTrue(verify(hdr,path,b"",self.db,
+                               key_path=self.key,now=self.now))
+        self.assertFalse(verify(hdr,path,b"",self.db,
+                                key_path=self.key,now=self.now))
 
     def test_unsigned_admin_payload_cannot_bypass_route_authentication(self):
         # The JSON actor string is not authorization. A valid HMAC is mandatory.

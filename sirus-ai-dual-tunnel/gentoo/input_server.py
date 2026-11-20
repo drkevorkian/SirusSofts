@@ -582,8 +582,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 'models':models, 'local_only':True, 'inference_host':'Gentoo localhost llama.cpp',
                 'gpu_task_target_percent':self.server.engine.gpu_percent})
         elif self.path == '/api/in/research/continuous':
+            if not verify_research_admin(self.headers,self.path,b"",self.server.engine.db):
+                return self.respond(403,{'error':'Administrative bridge authorization required'})
             self.respond(200,self.server.engine.continuous.status())
         elif self.path == '/api/in/research/evidence':
+            if not verify_research_admin(self.headers,self.path,b"",self.server.engine.db):
+                return self.respond(403,{'error':'Administrative bridge authorization required'})
             self.respond(200,self.server.engine.evidence.status())
         elif self.path.startswith('/api/in/research/manuals'):
             from urllib.parse import parse_qs

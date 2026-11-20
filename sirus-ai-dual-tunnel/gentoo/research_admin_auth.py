@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Replay-resistant HMAC proof for privileged CMS -> Gentoo research operations.
 
-This is only for internal control POST routes. Browser identity, session,
+This is only for internal admin GET/POST routes. Browser identity, session,
 rate limits and CSRF are verified separately by the existing CMS. The shared
 random key must be provisioned independently and never committed or logged.
 """
@@ -17,6 +17,8 @@ import time
 from continuous_research import connect
 
 ADMIN_ROUTES=frozenset({
+    "/api/in/research/continuous",
+    "/api/in/research/evidence",
     "/api/in/research/continuous/control",
     "/api/in/research/evidence/control",
 })

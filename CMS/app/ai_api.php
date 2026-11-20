@@ -40,7 +40,9 @@ function cms_ai_api_actor(array $identity):string {
 function cms_ai_admin_signature(string $key,string $timestamp,string $nonce,
                                 string $path,string $body):string {
     if(strlen($key)!==32||
-       !in_array($path,['/api/in/research/continuous/control',
+       !in_array($path,['/api/in/research/continuous',
+                        '/api/in/research/evidence',
+                        '/api/in/research/continuous/control',
                         '/api/in/research/evidence/control'],true)||
        !preg_match('/^[0-9]{10,11}$/D',$timestamp)||
        !preg_match('/^[a-f0-9]{32}$/D',$nonce))
@@ -66,17 +68,20 @@ function cms_ai_api_upstream(string $kind,string $path,?array $payload=null):arr
     $url=$bases[$kind].$path;
     $headers=['Accept: application/json','Content-Type: application/json'];
     $body=$payload!==null?json_encode($payload,JSON_THROW_ON_ERROR):null;
-    if(in_array($path,['/api/in/research/continuous/control',
+    if(in_array($path,['/api/in/research/continuous',
+                       '/api/in/research/evidence',
+                       '/api/in/research/continuous/control',
                        '/api/in/research/evidence/control'],true)){
         cms_need_admin();
-        if($body===null)throw new InvalidArgumentException('Missing administrative request.');
+        if(str_ends_with($path,'/control')&&$body===null)
+            throw new InvalidArgumentException('Missing administrative request.');
         $key=cms_ai_admin_key(); // Missing key fails closed; no public fallback.
         $timestamp=(string)time();
         $nonce=bin2hex(random_bytes(16));
         $headers[]='X-Sirus-Admin-Time: '.$timestamp;
         $headers[]='X-Sirus-Admin-Nonce: '.$nonce;
         $headers[]='X-Sirus-Admin-Signature: '.cms_ai_admin_signature(
-            $key,$timestamp,$nonce,$path,$body);
+            $key,$timestamp,$nonce,$path,$body??'');
     }
     $curl=curl_init($url);
     curl_setopt_array($curl,[
