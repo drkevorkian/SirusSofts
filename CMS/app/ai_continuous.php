@@ -39,7 +39,8 @@ function cms_ai_continuous_payload(array $post):array {
            !is_string($load)||!is_numeric($load)||
            (float)$load<0||(float)$load>1024||
            !in_array($target,['auto','cpu','nvidia','amd'],true)||
-           !is_string($model)||!preg_match(
+           !is_string($model)||str_contains($model,'://')||
+           str_starts_with($model,'//')||!preg_match(
                '#^[a-zA-Z0-9][a-zA-Z0-9_.:+/-]{0,127}$#D',$model))
             throw new InvalidArgumentException('Invalid continuous research settings.');
         $data['value']=['passes'=>$passes,'revisit_seconds'=>$interval,

@@ -269,6 +269,8 @@ class ContinuousResearchTests(unittest.TestCase):
             self.research.control("exclude",source_id="../secret")
         with self.assertRaises(ValueError):
             self.research.control("configure",value={"arbitrary_sql":"DROP TABLE"})
+        with self.assertRaises(ValueError):
+            self.research.control("configure",value={"model_id":"http://private-endpoint"})
 
 
 if __name__=="__main__":

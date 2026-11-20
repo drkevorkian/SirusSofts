@@ -6,6 +6,7 @@ reside in the existing private Gentoo input SQLite database. No source text,
 model endpoint, shell command or training operation is exposed by this module.
 """
 import hashlib
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -127,7 +128,7 @@ class ContinuousResearch:
         """
         stamp = time.time_ns()
         counts = {"sources": 0, "sections": 0, "unextracted_pages": 0}
-        with _manual_connection(self.source, self.index) as pdf:
+        with closing(_manual_connection(self.source, self.index)) as pdf:
             pdf.execute("BEGIN")
             docs = pdf.execute("""SELECT sha256,filename,status,reviewed,pages,
                                    excerpts,updated_at FROM documents ORDER BY sha256""")
@@ -292,6 +293,7 @@ class ContinuousResearch:
                     if key=="passes" and (type(item) is not int or not 1<=item<=100):
                         raise ValueError("Pass count must be 1..100")
                     if key=="model_id" and (not isinstance(item,str) or
+                        "://" in item or item.startswith("//") or
                         not __import__("re").fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.:+/-]{0,127}",item)):
                         raise ValueError("Invalid local model ID")
                     if key=="target" and item not in ("auto","cpu","amd","nvidia"):
@@ -437,7 +439,7 @@ class ContinuousResearch:
 
     def _section_text(self, lease):
         if lease["source_id"].startswith("pdf:"):
-            with _manual_connection(self.source,self.index) as db:
+            with closing(_manual_connection(self.source,self.index)) as db:
                 row=db.execute("""SELECT d.status,e.text FROM documents d
                     JOIN excerpts e ON e.sha256=d.sha256
                     WHERE d.sha256=? AND e.page=? AND e.part=?""",
