@@ -43,6 +43,7 @@ LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRe
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from knowledge import KnowledgeManager,PROFILES
 from continuous_research import ContinuousResearch, init_schema as init_continuous_schema
+from research_evidence import EvidenceLedger, init_schema as init_evidence_schema
 from research_loop import (validated_spec, read_source, pass_messages,
                            list_local_manuals, pdf_segments)
 from manual_rag import (augment as augment_manuals, sync as sync_manuals,
@@ -128,6 +129,7 @@ def init_db(path):
         # Resume interrupted multi-pass analysis from the last committed pass.
         con.execute("UPDATE research_jobs SET state='queued' WHERE state='running'")
     init_continuous_schema(path)
+    init_evidence_schema(path)
 
 
 def assert_local_worker_url(url):
@@ -254,6 +256,7 @@ class Engine:
         self.stop = threading.Event()
         self.knowledge = KnowledgeManager(knowledge_file) if knowledge_file else None
         self.continuous = ContinuousResearch(self.db)
+        self.evidence = EvidenceLedger(self.continuous)
 
     def enqueue(self, messages, target, profile='auto', model_id=DEFAULT_MODEL, skip_knowledge=False, max_tokens=None):
         if not isinstance(model_id,str) or not MODEL_ID.fullmatch(model_id):
@@ -452,7 +455,16 @@ class Engine:
     def continuous_inventory_loop(self):
         while not self.stop.is_set():
             try:
-                self.continuous.scan_if_due()
+                refreshed=self.continuous.scan_if_due()
+                if refreshed:
+                    self.evidence.reconcile()
+                with db_connect(self.db) as con:
+                    enabled=con.execute("SELECT mode FROM cr_config WHERE id=1").fetchone()[0]=="running"
+                    interactive=con.execute("""SELECT 1 FROM jobs WHERE state IN
+                        ('queued','running') LIMIT 1""").fetchone() is not None
+                if enabled and not interactive:
+                    self.evidence.index_batch(32)
+                    self.evidence.compare_batch(64)
             except (OSError,sqlite3.Error,RuntimeError,ValueError) as exc:
                 # Never leak private PDF text or paths to shared service logs.
                 print("Continuous inventory unavailable:",type(exc).__name__,file=sys.stderr)
@@ -569,6 +581,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 'gpu_task_target_percent':self.server.engine.gpu_percent})
         elif self.path == '/api/in/research/continuous':
             self.respond(200,self.server.engine.continuous.status())
+        elif self.path == '/api/in/research/evidence':
+            self.respond(200,self.server.engine.evidence.status())
         elif self.path.startswith('/api/in/research/manuals'):
             from urllib.parse import parse_qs
             parsed=urlsplit(self.path)
@@ -596,8 +610,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         research_create=self.path=='/api/in/research'
         continuous_control=self.path=='/api/in/research/continuous/control'
+        evidence_control=self.path=='/api/in/research/evidence/control'
         research_cancel=re.fullmatch(r'/api/in/research/[a-f0-9]{32}/cancel',self.path)
-        if self.path!='/api/in/jobs' and not research_create and not research_cancel and not continuous_control:
+        if self.path!='/api/in/jobs' and not research_create and not research_cancel and not continuous_control and not evidence_control:
             return self.respond(404, {'error': 'Not found'})
         origin = self.headers.get('Origin')
         if origin and origin != 'https://sirussofts.com':
@@ -616,6 +631,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(n))
             if not isinstance(data,dict):
                 raise ValueError('Expected JSON object')
+            if evidence_control:
+                if data.get('local_only') is not True:
+                    raise ValueError('Local-only evidence administration required')
+                action=data.get('action')
+                ledger=self.server.engine.evidence
+                if action=='index':
+                    response=ledger.index_batch(32)
+                elif action=='scope':
+                    response=ledger.set_scope(data.get('source_id'),
+                                              data.get('applicability'))
+                elif action=='review':
+                    response=ledger.review(data.get('id'),data.get('quote_sha'),
+                                           data.get('revision'),data.get('reviewer'),
+                                           data.get('review_action'),data.get('reason',''))
+                elif action=='dismiss':
+                    response=ledger.dismiss_conflict(data.get('id'),
+                                                     data.get('reviewer'))
+                else:
+                    raise ValueError('Unsupported evidence operation')
+                self.respond(200,response)
+                return
             if continuous_control:
                 if data.get('local_only') is not True:
                     raise ValueError('Local-only administration required')
