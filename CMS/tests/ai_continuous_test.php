@@ -2,7 +2,7 @@
 declare(strict_types=1);
 define('SIRUS_CMS_BOOTSTRAPPED',true);
 require dirname(__DIR__).'/app/core.php';
-require dirname(__DIR__).'/app/ai_continuous.php';
+require_once dirname(__DIR__).'/app/ai_continuous.php';
 
 function continuous_check(bool $condition,string $reason):void {
     if(!$condition)throw new RuntimeException('FAIL: '.$reason);
