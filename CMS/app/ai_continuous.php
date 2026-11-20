@@ -1,7 +1,6 @@
 <?php
 declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
-require_once __DIR__.'/ai_api.php';
 
 /**
  * CMS administrator facade for the loopback-only Gentoo continuous scheduler.
@@ -51,6 +50,7 @@ function cms_ai_continuous_payload(array $post):array {
 }
 
 function cms_ai_continuous_post(PDO $db,array $post):never {
+    require_once __DIR__.'/ai_api.php';
     cms_need_admin(); // CMS router has already enforced POST CSRF.
     cms_ai_api_rate($db,'continuous:'.hash('sha256',session_id()),'admin');
     $payload=cms_ai_continuous_payload($post);
@@ -65,6 +65,7 @@ function cms_ai_continuous_post(PDO $db,array $post):never {
 }
 
 function cms_ai_continuous_panel(PDO $db):void {
+    require_once __DIR__.'/ai_api.php';
     // Called only from cms_ai_page(), whose entry guard requires an admin.
     try {
         $info=cms_ai_api_upstream('input','/api/in/research/continuous');
