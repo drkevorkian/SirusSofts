@@ -587,6 +587,9 @@ class ContinuousResearch:
                 WHERE id=?""",(pass_no,state,worker[:24],now,lease["id"]))
             if state=="completed":
                 self._event(db,"job-complete",lease["id"])
+                # Close a fully completed coverage cycle in this same
+                # transaction; do not wait for the next background poll.
+                self._schedule(db,now)
             return True
 
     def fail(self, lease, error):
