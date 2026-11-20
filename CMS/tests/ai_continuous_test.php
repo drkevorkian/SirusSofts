@@ -61,6 +61,43 @@ foreach([
         continuous_check(true,'Invalid input blocked');
     }
 }
+$sourceRequest=cms_ai_continuous_history_payload($source,'0');
+$reportReply=[
+    'source'=>['id'=>$source,'title'=>'Approved manual metadata',
+               'revision'=>str_repeat('b',64),'extraction_status'=>'approved'],
+    'pass_results_total'=>1,
+    'offset'=>0,
+    'passes'=>[[
+        'job_id'=>str_repeat('c',32),'cycle'=>1,'page'=>5,'part'=>1,
+        'pass_number'=>2,'revision'=>str_repeat('d',64),
+        'source_revision'=>str_repeat('e',64),
+        'sha256'=>str_repeat('f',64),
+        'notes'=>'Private source draft <not verified>',
+        'duration_ms'=>15,
+        'review_state'=>'unreviewed'
+    ]]
+];
+$report=cms_ai_continuous_report_data($sourceRequest,$reportReply);
+continuous_check($report['training_export']===false&&
+    $report['verified_knowledge']===false&&
+    $report['contains_private_unreviewed_drafts']===true,
+    'Report may not masquerade as verified knowledge or training');
+continuous_check($report['passes'][0]['page']===5&&
+    $report['passes'][0]['draft_notes']==='Private source draft <not verified>',
+    'Private report preserves source/page/pass and original draft');
+foreach([
+    array_replace($reportReply,['source'=>['id'=>'pdf:'.str_repeat('1',64)]]),
+    array_replace($reportReply,['offset'=>10]),
+    array_replace($reportReply,['passes'=>[
+        array_replace($reportReply['passes'][0],['review_state'=>'supported'])]]),
+    array_replace($reportReply,['passes'=>[
+        array_replace($reportReply['passes'][0],['sha256'=>'invalid'])]]),
+] as $invalid){
+    try{
+        cms_ai_continuous_report_data($sourceRequest,$invalid);
+        throw new LogicException('Invalid research report accepted');
+    }catch(RuntimeException $e){}
+}
 $db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 $_SESSION=[];
 try {
@@ -69,5 +106,12 @@ try {
 } catch(RuntimeException $e) {
     continuous_check(str_contains($e->getMessage(),'Sign in required'),
                      'Unauthenticated research mutation rejected');
+}
+try{
+    cms_ai_continuous_export($db,['source_id'=>$source,'offset'=>'0']);
+    throw new LogicException('Unauthenticated report download accepted');
+}catch(RuntimeException $e){
+    continuous_check(str_contains($e->getMessage(),'Sign in required'),
+                     'Report export requires CMS administrator');
 }
 echo "PASS: continuous research admin-only operations, validation, local-only policy.\n";
