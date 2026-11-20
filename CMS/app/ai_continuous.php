@@ -31,11 +31,19 @@ function cms_ai_continuous_payload(array $post):array {
         $interval=filter_var($post['revisit_seconds']??null,FILTER_VALIDATE_INT);
         $chat=filter_var($post['max_chat_jobs']??null,FILTER_VALIDATE_INT);
         $load=$post['max_cpu_load']??null;
+        $ram=filter_var($post['min_available_ram_mib']??'0',FILTER_VALIDATE_INT);
+        $quietStart=filter_var($post['quiet_start_utc']??'-1',FILTER_VALIDATE_INT);
+        $quietEnd=filter_var($post['quiet_end_utc']??'-1',FILTER_VALIDATE_INT);
         $target=$post['target']??null;
         $model=$post['model_id']??null;
         if($passes===false||$passes<1||$passes>100||
            $interval===false||$interval<60||$interval>604800||
            $chat===false||$chat<0||$chat>4||
+           $ram===false||$ram<0||$ram>1048576||
+           $quietStart===false||$quietEnd===false||
+           !(($quietStart===-1&&$quietEnd===-1)||
+              ($quietStart>=0&&$quietStart<=23&&
+               $quietEnd>=0&&$quietEnd<=23&&$quietStart!==$quietEnd))||
            !is_string($load)||!is_numeric($load)||
            (float)$load<0||(float)$load>1024||
            !in_array($target,['auto','cpu','nvidia','amd'],true)||
@@ -45,6 +53,8 @@ function cms_ai_continuous_payload(array $post):array {
             throw new InvalidArgumentException('Invalid continuous research settings.');
         $data['value']=['passes'=>$passes,'revisit_seconds'=>$interval,
             'max_chat_jobs'=>$chat,'max_cpu_load'=>(float)$load,
+            'min_available_ram_mib'=>$ram,'quiet_start_utc'=>$quietStart,
+            'quiet_end_utc'=>$quietEnd,
             'target'=>$target,'model_id'=>$model];
     }
     return $data;
@@ -102,7 +112,10 @@ function cms_ai_continuous_panel(PDO $db):void {
         <?=cms_esc((string)($jobs['failed']??0))?> failed,
         <?=cms_esc((string)($jobs['superseded']??0))?> superseded.
         Chat queue: <?=cms_esc((string)($info['interactive_jobs']??0))?>.
-        CPU load (1m): <?=cms_esc((string)($info['cpu_load_1m']??'?'))?>.</p>
+        CPU load (1m): <?=cms_esc((string)($info['cpu_load_1m']??'?'))?>.
+        Free RAM (MiB): <?=cms_esc((string)($info['free_ram_mib']??'?'))?>.</p>
+      <p>Admission status: <?=cms_esc(implode(', ',is_array($info['admission_blocks']??null)?
+           $info['admission_blocks']:[])?:'Eligible for new background work')?></p>
       <?php if($active): ?>
       <p>Active: <?=cms_esc((string)($active['source_id']??''))?>,
         page <?=cms_esc((string)($active['page']??0))?>,
@@ -144,6 +157,18 @@ function cms_ai_continuous_panel(PDO $db):void {
         <label>Max 1-minute CPU load (0 disables load check)
           <input type="number" name="max_cpu_load" min="0" max="1024" step="0.1"
             value="<?=cms_esc((string)($cfg['max_cpu_load']??0))?>">
+        </label>
+        <label>Minimum available host RAM (MiB; 0 disables limit)
+          <input type="number" name="min_available_ram_mib" min="0" max="1048576"
+            value="<?=cms_esc((string)($cfg['min_available_ram_mib']??0))?>">
+        </label>
+        <label>Quiet hours start UTC (-1 disables)
+          <input type="number" name="quiet_start_utc" min="-1" max="23"
+            value="<?=cms_esc((string)($cfg['quiet_start_utc']??-1))?>">
+        </label>
+        <label>Quiet hours end UTC (-1 disables)
+          <input type="number" name="quiet_end_utc" min="-1" max="23"
+            value="<?=cms_esc((string)($cfg['quiet_end_utc']??-1))?>">
         </label>
         <label>Local model identifier
           <input type="text" name="model_id" maxlength="128"

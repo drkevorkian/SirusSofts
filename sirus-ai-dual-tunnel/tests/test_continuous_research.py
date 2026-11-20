@@ -10,7 +10,8 @@ import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"gentoo"))
 import input_server as ai
-from continuous_research import ContinuousResearch, connect, digest, init_schema
+from continuous_research import (ContinuousResearch, connect, digest,
+                                 init_schema, admission_reasons)
 
 
 SHA="a"*64
@@ -300,6 +301,42 @@ class ContinuousResearchTests(unittest.TestCase):
         self.assertEqual(self.research.status()["jobs"]["completed"],1)
         self.assertTrue(self.research.status()["draft_only"])
         self.assertFalse(self.research.status()["weight_training"])
+
+    def test_resource_policy_wraparound_and_conservative_memory_gate(self):
+        self.add_doc()
+        self.research.inventory()
+        cfg=self.research.status()["config"]
+        self.assertEqual(admission_reasons(cfg,free_mib=0,load=100,hour=0),[])
+        self.research.control("configure",value={
+            "min_available_ram_mib":4096,"quiet_start_utc":22,
+            "quiet_end_utc":6,"max_cpu_load":2.0})
+        cfg=self.research.status()["config"]
+        self.assertIn("low-free-ram",admission_reasons(cfg,free_mib=1024,load=0,hour=12))
+        from unittest.mock import patch
+        with patch("continuous_research.free_memory_mib",return_value=None):
+            self.assertIn("ram-unavailable",admission_reasons(
+                cfg,free_mib=None,load=0,hour=12))
+        self.assertIn("quiet-hours-utc",admission_reasons(cfg,free_mib=8192,
+                                                       load=0,hour=23))
+        self.assertIn("quiet-hours-utc",admission_reasons(cfg,free_mib=8192,
+                                                       load=0,hour=2))
+        self.assertNotIn("quiet-hours-utc",admission_reasons(cfg,free_mib=8192,
+                                                          load=0,hour=12))
+        self.assertIn("cpu-load",admission_reasons(cfg,free_mib=8192,load=3,hour=12))
+        self.research.control("enable")
+        # A deliberately unachievable limit must deny new leases.
+        self.research.control("configure",value={"min_available_ram_mib":1048576})
+        self.assertIsNone(self.research.claim())
+        self.assertEqual(self.research.status()["config"]["min_available_ram_mib"],
+                         1048576)
+        self.research.control("configure",value={"quiet_start_utc":-1,
+                                                 "quiet_end_utc":-1,
+                                                 "min_available_ram_mib":0})
+        for invalid in ({"quiet_start_utc":5},
+                        {"quiet_start_utc":6,"quiet_end_utc":6},
+                        {"min_available_ram_mib":-1}):
+            with self.assertRaises(ValueError):
+                self.research.control("configure",value=invalid)
 
     def test_bad_configuration_rejected(self):
         self.add_doc()
