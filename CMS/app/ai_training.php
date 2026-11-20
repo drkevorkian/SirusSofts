@@ -124,6 +124,7 @@ function cms_ai_post(PDO $db,string $action):never {
     if(in_array($action,['ai_set_public_profiles','ai_save_viewer_profiles'],true))
         cms_ai_profile_grants_post($db,$action);
     if($action==='ai_continuous')cms_ai_continuous_post($db,$_POST);
+    if($action==='ai_evidence')cms_ai_evidence_post($db,$_POST);
     if(str_starts_with($action,'export_'))cms_ai_export($db,substr($action,7));
     if(in_array($action,['ai_upload_pdfs','ai_download_pdf','ai_research_settings','ai_export_research_config','ai_import_manual_draft','ai_approve_manual_batch'],true))
         cms_ai_import_post($db,$action);
@@ -252,6 +253,7 @@ function cms_ai_page(PDO $db,?string $error=null):void {
       </div>
     </div>
     <?php cms_ai_continuous_panel($db); ?>
+    <?php cms_ai_evidence_panel($db); ?>
     <?php cms_gentoo_pdf_panel($db); ?>
     <?php cms_ai_import_panel($db); ?>
     <div class="admin-panel"><h2>Profiles</h2>
