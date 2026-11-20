@@ -44,6 +44,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 from knowledge import KnowledgeManager,PROFILES
 from continuous_research import ContinuousResearch, init_schema as init_continuous_schema
 from research_evidence import EvidenceLedger, init_schema as init_evidence_schema
+from research_admin_auth import verify as verify_research_admin, init_schema as init_admin_auth_schema
 from research_loop import (validated_spec, read_source, pass_messages,
                            list_local_manuals, pdf_segments)
 from manual_rag import (augment as augment_manuals, sync as sync_manuals,
@@ -130,6 +131,7 @@ def init_db(path):
         con.execute("UPDATE research_jobs SET state='queued' WHERE state='running'")
     init_continuous_schema(path)
     init_evidence_schema(path)
+    init_admin_auth_schema(path)
 
 
 def assert_local_worker_url(url):
@@ -628,7 +630,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not 0 < n <= MAX_BYTES:
             return self.respond(413, {'error': 'Request too large'})
         try:
-            data = json.loads(self.rfile.read(n))
+            raw_request=self.rfile.read(n)
+            if continuous_control or evidence_control:
+                if not verify_research_admin(self.headers,self.path,raw_request,
+                                             self.server.engine.db):
+                    self.respond(403,{'error':'Administrative bridge authorization required'})
+                    return
+            data = json.loads(raw_request)
             if not isinstance(data,dict):
                 raise ValueError('Expected JSON object')
             if evidence_control:
