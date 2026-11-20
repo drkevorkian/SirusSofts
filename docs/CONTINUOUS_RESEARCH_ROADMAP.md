@@ -1,217 +1,84 @@
 # SirusSofts — Continuous Autonomous Research & Learning Roadmap
 
-**Status:** Approved development roadmap — implementation pending  
-**Priority:** High  
-**Target:** Future development, beginning with the next available deployment window  
-**Platform:** Gentoo local AI workers + Ubuntu public CMS gateway  
-**Objective:** Enable the local LLM to continuously revisit, analyze, cross-reference, and improve its understanding of the entire available knowledge library without requiring a user to initiate each research session.
+**Source implementation status (November 19, 2026):** Phase A foundation coded on main. Not deployed, not accepted against the production corpus. The root README now defines **main as the only working branch**; the former dedicated-development-branch instruction is retired.
 
-## 1. Core Operating Requirements
+**Hard boundary:** Gentoo holds private source data, checkpoint state, and local inference. Ubuntu CMS acts as an authenticated administrator facade. No code push installs either server, promotes LLM outputs, or trains model weights.
 
-- [ ] Run a continuous autonomous inference service on the Gentoo compute node.
-- [ ] Operate without a browser session or active conversation.
-- [ ] Automatically schedule another research cycle when work finishes.
-- [ ] Resume automatically after unexpected crashes, system restarts, or temporary model unavailability.
-- [ ] Process **all eligible indexed knowledge**, not merely recent documents.
-- [ ] Revisit previously analyzed material indefinitely.
-- [ ] Maintain persistent state across cycles and software updates.
-- [ ] Allow administrators to start, pause, resume, cancel, and reprioritize research.
-- [ ] Allow the system to run continuously while maintaining interactive chatbot availability.
-- [ ] Never silently modify model weights or promote generated claims into verified facts.
+## Phases and dependencies
 
-## 2. Complete Knowledge Inventory
+| Phase | Status | Remaining gate |
+|---|---|---|
+| A — Inventory, section revisions, scheduling, recovery | **Implemented in source; live validation pending** | Reconcile the actual mounted SSD catalog, restart test with 100 passes, exercise backup and restore, measure queue scaling |
+| B — Cross-document comparisons and contradictions | **Pending** | Independent-source evidence indexing, entity matching and per-application constraints |
+| C — Verified, versioned knowledge | **Pending** | Dedicated claim/citation/reversal ledger and explicit human approval; retain existing approved CMS knowledge |
+| D — Autonomous service and resource protection | **Partial** | Real GPU/VRAM/RAM admission, multi-node scheduling, quiet hours, energy limits, retention and load-tested chat latency |
+| E — Optional LoRA/fine-tuning | **Disabled** | Separate operator approval, curated reviewed datasets, held-out evaluation and offline rollback |
 
-- [ ] Inventory existing PDF files and extracted PDF sections on Gentoo.
-- [ ] Inventory available website snapshots, text documents, and supported research records.
-- [ ] Inventory existing extracted knowledge, source citations, and research history.
-- [ ] Identify duplicate files through content hashes.
-- [ ] Maintain source IDs, page numbers, document versions, timestamps, and extraction status.
-- [ ] Detect additions, deletions, and changed source content.
-- [ ] Track inaccessible or incompletely extracted files.
-- [ ] Queue previously unprocessed material.
-- [ ] Record the last successful analysis of every eligible section.
-- [ ] Provide administrator controls for excluding sources or selecting research priorities.
+## Phase A1: Complete eligible-source visibility — coded
 
-**Completion criterion:** Every eligible source can be accounted for, including sources that failed processing.
+The additive private scheduler lives in sirus-ai-dual-tunnel/gentoo/continuous_research.py. It inventories **all** PDF ingestion document records, including ready, approved, failed, queued, processing and zero-text sources. It reports source SHA-256, extraction status, page count, part/chunk count, missing-text pages, revisions, inclusion/exclusion and removed records. Missing-text pages are a coverage gap, **not proof of extraction failure**.
 
-## 3. Continuous Research Scheduler
+Pages/parts are chunked at at most 7,000 characters, with stable source/page/part/offset slot identities and per-content SHA-256 revisions. Old versions remain for audit; altered sections are not silently current. It also inventories existing one-off website/text research snapshots from private research_jobs, excluded from new autonomous work until an administrator includes them. It never re-fetches web pages.
 
-- [ ] Build a durable, database-backed autonomous work queue.
-- [ ] Divide large documents into independently checkpointed sections.
-- [ ] Assign work according to priority, age, source changes, and coverage.
-- [ ] Process each section through a configurable number of inference passes.
-- [ ] Support repeated analysis across multiple research cycles.
-- [ ] Ensure completed work is checkpointed before proceeding.
-- [ ] Recover interrupted jobs without losing valid completed results.
-- [ ] Prevent duplicate execution of the same job.
-- [ ] Detect stalled workers and recover abandoned jobs safely.
-- [ ] Implement exponential backoff for repeated failures.
-- [ ] Automatically begin another coverage cycle when eligible work has been completed.
-- [ ] Preserve a complete audit trail of completed and failed jobs.
+**Acceptance:** Every PDF ingestion document must be represented, even if failed. Total per-page excerpt characters must equal the combined chunk lengths; revisions must distinguish old/new and removed sources. Compare counts on a small manual, scanned PDF and the full live corpus. Reconcile source removals and backed-up historical research records. Not yet completed on live data.
 
-**Important:** A complete cycle does not mean a source is permanently finished. It becomes eligible for analysis again.
+**Remaining formats:** Unstored web pages, ordinary text files outside research snapshots, and separately held CMS-reviewed knowledge need an approved private import/manifest before inclusion. Never crawl or copy those automatically. No new OCR pipeline is introduced.
 
-## 4. Multi-Pass Reasoning Engine
+## Phase A2: Durable scheduler and repeat coverage — coded
 
-For each selected document or document section:
+The existing private input SQLite database gains only additive cr_config, cr_sources, cr_sections, cr_cycles, cr_jobs, cr_results, and cr_events tables. Existing chat, outbox, one-off research passes/sections, source ingestion, knowledge profiles and administrator accounts remain unchanged.
 
-- [ ] Extract factual claims and technical relationships.
-- [ ] Identify assumptions, ambiguities, and missing explanations.
-- [ ] Compare the section against related sources.
-- [ ] Detect contradictions between documents.
-- [ ] Evaluate calculations, measurements, and units where possible.
-- [ ] Identify procedures that may have become outdated.
-- [ ] Generate questions requiring additional evidence.
-- [ ] Re-examine earlier conclusions using fresh source context.
-- [ ] Store each pass separately for later inspection.
-- [ ] Distinguish verified evidence from model-generated hypotheses.
-- [ ] Avoid treating repeated agreement between the model's own outputs as independent confirmation.
-- [ ] Support configurable inference passes, preserving the existing 1–100-pass research functionality.
+Jobs are unique per cycle, section slot and content revision. A SQLite BEGIN IMMEDIATE transaction atomically claims one job and issues a random fencing token. Leases are renewed while inference runs; expired claims are retried with 15–3,600-second exponential backoff. Five failed claims for the same pass leave a **visible failed job**. Late/stale workers cannot commit results after their token is revoked or the content revision is superseded. Each pass commits an unreviewed result and checkpoint together. The next pass resumes without discarding earlier pass results.
 
-## 5. Knowledge Verification and Memory
+When every queued/leased section in a cycle is finished or terminal, the cycle closes. After a configurable revisit interval (60–604,800 seconds), eligible sections are scheduled again; earlier cycle results remain. Processing is opt-in and **disabled by default**. A separate inventory thread refreshes source status periodically when enabled, or after an administrator requests a scan. No browser session is necessary.
 
-- [ ] Create a versioned knowledge-claim database linked to original sources.
-- [ ] Store exact supporting citations for every promoted factual claim.
-- [ ] Track contradictory evidence rather than automatically discarding it.
-- [ ] Separate proposed findings from verified findings.
-- [ ] Assign verification states: unreviewed, supported, disputed, rejected, and superseded.
-- [ ] Require source-backed evidence before promoting new factual knowledge.
-- [ ] Maintain historical versions and reversal capability.
-- [ ] Preserve human review controls for safety-critical technical procedures.
-- [ ] Make verified knowledge available through the existing retrieval system.
-- [ ] Avoid overwriting original documents or extracted source material.
-- [ ] Detect circular references and unsupported generated claims.
-- [ ] Recheck conclusions when source documents change.
+**Acceptance:** Simulate two simultaneous claimers, a stalled lease, restarted engine, changed excerpt, paused worker and a 100-pass job interruption. Verify one fenced commit per pass and an auditable second cycle. Automated synthetic tests are present; live restart and endurance tests remain pending. A lease prevents duplicate **commits**, but physical inference can still briefly overlap following an abrupt timeout; validate model timeout and backend concurrency before production operation.
 
-**Completion criterion:** The system becomes better at finding and applying verified information without contaminating its evidence base.
+## Phase A3: Protected administrator controls — coded
 
-## 6. Cross-Document Intelligence
+The existing /admin/ai page gains Continuous Research status, cycle/queue/source coverage, current pass and worker, chat queue, scan error, source priorities and exclusions. Controls include enable, pause, resume, stop, disable, asynchronous inventory scan, 1–100 passes, local model ID, worker target, revisit interval, chat admission ceiling and optional CPU-load limit.
 
-- [ ] Connect related facts across different manuals and knowledge sources.
-- [ ] Identify repeated components, specifications, part numbers, and procedures.
-- [ ] Compare manuals for conflicting torque specifications, electrical values, tolerances, and service procedures.
-- [ ] Preserve model, year, engine, revision, and application boundaries.
-- [ ] Detect when apparently contradictory specifications actually apply to different equipment.
-- [ ] Generate source-linked technical summaries.
-- [ ] Identify missing reference documents.
-- [ ] Maintain a searchable relationship index for parts, systems, and procedures.
-- [ ] Automatically revisit unresolved contradictions as new source material becomes available.
+Controls POST through the **existing** CMS admin session, CSRF check, audit logger and rate limiter, then a fixed-schema Gentoo loopback request. The public /ai/api routes do not expose these controls. No arbitrary shell command, path, model endpoint or external fetch is accepted. The existing public Nginx /Gentoo/AI/api/ deny must remain installed.
 
-## 7. Resource and Performance Management
+**Acceptance:** Test unauthenticated/non-admin and CSRF-invalid mutations, invalid source IDs, unknown action and malformed settings. The admin page must fail closed and display unavailable when Gentoo is offline. The test suite covers payload validation and unauthorized mutation; external penetration and permission checks remain pending.
 
-- [ ] Detect available CPU, RAM, GPU, and VRAM resources.
-- [ ] Respect the existing Gentoo inference worker configuration.
-- [ ] Reserve resources for interactive chat and existing system services.
-- [ ] Allow configurable background inference concurrency.
-- [ ] Throttle research when resource utilization exceeds configured limits.
-- [ ] Monitor memory consumption, inference latency, and queue growth.
-- [ ] Track tokens processed per second and per research job.
-- [ ] Prevent uncontrolled database growth through configurable retention and archival.
-- [ ] Avoid continuously reprocessing unchanged material at unnecessarily high priority.
-- [ ] Support quiet hours, power-management policies, and operator overrides.
-- [ ] Track resource consumption and estimated energy costs.
+## Evidence boundary — enforced
 
-## 8. Administrator Dashboard
+Continuous research results reside only in private cr_results with review_state constrained to **unreviewed** by SQLite. Results are draft model outputs, not independent evidence; a second pass is not a second corroborating source. The existing source-grounded, untrusted-input prompt builder is reused. The CMS reviewed-knowledge and training export path is not linked to autonomous drafts. There are no automatic writes to model files, adapters or approved knowledge.
 
-Add a **Continuous Research** section to the existing SirusSofts AI administration interface.
+**Acceptance:** Database rejects any attempt to mark a draft supported/verified. A result must maintain source/page/part/section hashes and never become a verified citation through repeated inference. Synthetic checks pass; actual approval and retrieval integration belong to Phase C.
 
-- [ ] Master enable/disable control.
-- [ ] Start, pause, resume, and stop controls.
-- [ ] Active research job and currently selected source.
-- [ ] Current document, page, section, and inference pass.
-- [ ] Coverage cycle number and progress.
-- [ ] Total indexed documents and sections.
-- [ ] Processed, pending, failed, and excluded counts.
-- [ ] Estimated processing throughput.
-- [ ] Resource utilization and active worker status.
-- [ ] Recently verified findings.
-- [ ] Outstanding contradictions and review requests.
-- [ ] Source-specific research histories.
-- [ ] Research priorities and scheduling configuration.
-- [ ] Downloadable research reports.
-- [ ] Visible explanations when jobs are blocked or repeatedly failing.
+## Phase B: Multi-document intelligence — pending
 
-## 9. Safety, Access, and Reliability
+Build a revisioned entity/part-number/specification index. Preserve model, year, engine, assembly, operating condition, units and procedure revision. Only flag contradictions supported by **two independently authored source records**; do not use multiple passes over one document as corroboration. Persist contradictions and re-evaluate when referenced originals change.
 
-- [ ] Keep model inference and internal research databases on private infrastructure.
-- [ ] Continue using the existing secured Gentoo-to-Ubuntu communication architecture.
-- [ ] Preserve administrator-only job management.
-- [ ] Enforce authentication, authorization, and CSRF protections.
-- [ ] Treat documents and websites as untrusted input, not instructions to the research controller.
-- [ ] Prevent unauthorized network requests and local file access.
-- [ ] Set bounded job limits, source sizes, and timeouts.
-- [ ] Protect credentials and private source data from generated reports.
-- [ ] Maintain database backup and restore procedures.
-- [ ] Provide safe shutdown and restart behavior.
-- [ ] Test job interruption, database corruption recovery, and queue resumption.
-- [ ] Maintain detailed operational logging without exposing secrets.
+**Measurable gate:** For a curated conflicting-spec corpus, every candidate must cite two correct original page/part revisions and preserve application boundaries. No candidate may be published as a verified fact automatically.
 
-## 10. Optional Future Model Training
+## Phase C: Versioned verified knowledge — pending
 
-This phase is separate from continuous inference.
+Create a separate claim ledger with unreviewed/supported/disputed/rejected/superseded states, exact original source citations, history, reversal and source-change invalidation. Promotion must be a rate-limited, CSRF-protected authorized **human action**. Existing CMS approvals remain authoritative until verified replacement integration.
 
-- [ ] Build curated training examples from verified, source-backed findings.
-- [ ] Remove duplicated, contradictory, or unsupported training material.
-- [ ] Establish evaluation datasets and regression benchmarks.
-- [ ] Determine which locally supported models and hardware can handle adapter fine-tuning.
-- [ ] Evaluate LoRA/QLoRA or other practical fine-tuning methods.
-- [ ] Train offline on controlled, versioned snapshots—not continuously on raw generated output.
-- [ ] Test candidate adapters against the existing production model.
-- [ ] Preserve the ability to reject or roll back degraded models.
-- [ ] Keep fine-tuning disabled until separately approved.
+**Measurable gate:** Human approval/reversal tests; original-document changes flag previously promoted claims; self-generated or circular references cannot pass citation requirements.
 
-**Guiding principle:** Continuous inference and knowledge-base refinement come first. Model-weight training is a later, independently validated capability.
+## Phase D: Unattended resource management — partial
 
-## 11. Testing and Acceptance Criteria
+A persistent, opt-in Gentoo background thread executes one research pass at a time and yields before new work if active/queued chat or manually requested research is present. Optional one-minute CPU load cap and bounded draft output apply. Queue, cycle, lease, errors and worker are observable.
 
-- [ ] Verify complete coverage of a selected multipage PDF.
-- [ ] Verify a 100-pass job resumes after interruption.
-- [ ] Verify continuous cycles restart without manual interaction.
-- [ ] Verify no sections are permanently skipped.
-- [ ] Verify duplicate jobs do not execute concurrently.
-- [ ] Verify citations always map to the correct source and page.
-- [ ] Verify unsupported conclusions cannot enter the verified knowledge store.
-- [ ] Verify changed documents trigger targeted re-analysis.
-- [ ] Verify interactive AI chat remains available during background work.
-- [ ] Verify pause, cancellation, and restoration behavior.
-- [ ] Verify that an administrator can inspect and reverse promoted findings.
-- [ ] Test database migration, backup, restore, and rollback.
+**Remaining:** Explicit GPU/VRAM/RAM telemetry and admission, quiet hours, power limits, source retention/archival, multi-node coordination, chat preemption and real benchmark-backed latency SLAs. The current gate protects **admission of new work**, not necessarily a chat request that arrives during an already-running inference.
 
-## 12. Safe Implementation and Deployment
+**Measurable gate:** Two long cycles and peak interactive load without OOM, data loss, unacceptable latency, or unbounded storage growth.
 
-- [ ] Create a dedicated GitHub development branch.
-- [ ] Review existing research-loop services and reuse working components.
-- [ ] Implement changes in small, independently testable increments.
-- [ ] Add or update automated unit and integration tests.
-- [ ] Run GitHub CI and confirm relevant tests pass.
-- [ ] Review security and source-isolation boundaries.
-- [ ] Prepare a pinned-commit deployment plan.
-- [ ] Run read-only deployment checks before changing installed services.
-- [ ] Use reviewed in-place upgrades rather than full server installers.
-- [ ] Preserve the existing CMS, PDF library, AI databases, and model files.
-- [ ] Retain automatic rollback and database backups.
-- [ ] Validate worker and gateway health after each deployment.
-- [ ] Begin with a controlled small-library trial.
-- [ ] Expand gradually to full-library continuous operation after successful validation.
+## Phase E: Training — intentionally separate
 
----
+No autonomous LoRA or model-weight changes. Future training requires curated **human-reviewed** references, duplicate filtering, independent evaluation, explicit model checkpoint control, an offline run and rollback. Disabled until separately approved.
 
-## Implementation Priority
+## Validation and safe deployment
 
-**Phase A — Foundation:** Inventory, coverage tracking, scheduling, and recovery.
+- Python: python3 -m unittest discover -s sirus-ai-dual-tunnel/tests -p 'test_*.py' -v
+- PHP: php CMS/tests/ai_continuous_test.php, php CMS/tests/ai_research_test.php and the full existing CMS suite
+- CI: .github/workflows/sirus-ai-dual-tunnel.yml and .github/workflows/php-framework.yml, including Python syntax, PHP lint, serious undefined-name and shell analysis
+- Source tests cover inventory completeness, long-section coverage, migration preservation, content changes, duplicate prevention, leases/fencing, retries, cycle eligibility, pauses, source exclusion, chat admission, and draft-only evidence.
 
-**Phase B — Intelligence:** Repeated analysis, cross-document comparisons, and contradiction detection.
+**Safe installation plan:** docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md. Pin and review a green main SHA; use existing backup-backed in-place upgrade scripts, not the old full installers. No Ubuntu/Gentoo apply, service restart, model change, or destructive storage operation has been done during this implementation.
 
-**Phase C — Verified Knowledge:** Provenance, approval rules, versioned knowledge, and retrieval integration.
-
-**Phase D — Autonomous Operation:** Resource-aware indefinite research, monitoring, and administrator controls.
-
-**Phase E — Advanced Learning:** Optional curated model training, benchmarking, and controlled model upgrades.
-
-## Definition of Done
-
-The system can operate without an active user session, repeatedly work through the entire eligible knowledge library, preserve its progress, investigate conflicting evidence, maintain a verified and versioned knowledge base, and continue functioning after service interruptions.
-
-The research service must not interfere with normal website operations, expose private data, or silently modify the underlying model.
-
-**Target outcome:** An autonomous, continuously researching SirusSofts knowledge system that improves its source-grounded understanding while retaining administrator oversight and operational control.
+**Full-roadmap definition of done (NOT met):** End-to-end multi-format inventory, validated repeat cycles after outages, independent cross-document reasoning, versioned human-approved claims and rollback, measured interactive responsiveness, monitoring and archival, plus explicit operator acceptance on both servers.
