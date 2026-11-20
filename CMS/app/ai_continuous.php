@@ -86,6 +86,77 @@ function cms_ai_continuous_history_payload(mixed $source,mixed $offset):array {
     return ['source_id'=>$source,'offset'=>(int)$offset,'local_only'=>true];
 }
 
+/** Build a bounded private report, never a knowledge/training export. */
+function cms_ai_continuous_report_data(array $request,array $reply):array {
+    if(!is_array($reply['source']??null)||
+       ($reply['source']['id']??null)!==$request['source_id']||
+       !is_array($reply['passes']??null)||count($reply['passes'])>8||
+       !isset($reply['pass_results_total'],$reply['offset'])||
+       $reply['offset']!==$request['offset'])
+        throw new RuntimeException('Private source report response mismatch.');
+    $records=[];
+    foreach($reply['passes'] as $pass){
+        if(!is_array($pass)||!is_string($pass['notes']??null)||
+           !is_string($pass['sha256']??null)||
+           !preg_match('/^[a-f0-9]{64}$/D',$pass['sha256'])||
+           ($pass['review_state']??null)!=='unreviewed')
+            throw new RuntimeException('Invalid unreviewed research pass.');
+        $records[]=[
+            'cycle'=>(int)($pass['cycle']??0),
+            'job_id'=>(string)($pass['job_id']??''),
+            'page'=>(int)($pass['page']??0),
+            'part'=>(int)($pass['part']??0),
+            'pass_number'=>(int)($pass['pass_number']??0),
+            'source_revision'=>(string)($pass['source_revision']??''),
+            'section_revision'=>(string)($pass['revision']??''),
+            'result_sha256'=>$pass['sha256'],
+            'draft_notes'=>$pass['notes'],
+            'inference_duration_ms'=>(int)($pass['duration_ms']??0),
+            'unreviewed'=>true,
+        ];
+    }
+    return [
+        'kind'=>'sirus-continuous-research-report-v1',
+        'source_id'=>$request['source_id'],
+        'source_title'=>(string)($reply['source']['title']??''),
+        'current_source_revision'=>(string)($reply['source']['revision']??''),
+        'source_extraction_status'=>(string)($reply['source']['extraction_status']??''),
+        'page_offset'=>$request['offset'],
+        'page_size'=>8,
+        'total_pass_results'=>(int)$reply['pass_results_total'],
+        'contains_private_unreviewed_drafts'=>true,
+        'verified_knowledge'=>false,
+        'training_export'=>false,
+        'no_public_distribution'=>true,
+        'passes'=>$records
+    ];
+}
+
+/** Explicit admin-only report download; no disk writes or public routes. */
+function cms_ai_continuous_export(PDO $db,array $post):never {
+    require_once __DIR__.'/ai_api.php';
+    cms_need_admin(); // The existing admin router verifies POST CSRF.
+    $request=cms_ai_continuous_history_payload(
+        $post['source_id']??null,$post['offset']??null);
+    cms_ai_api_rate($db,'continuous-report:'.hash('sha256',session_id()),'admin');
+    $reply=cms_ai_api_upstream('input',
+        '/api/in/research/continuous/history',$request);
+    $report=cms_ai_continuous_report_data($request,$reply);
+    cms_audit($db,'ai-continuous-report',
+        substr($request['source_id'],0,80).':'.$request['offset']);
+    // The filename contains only a validated source hash and a decimal offset.
+    $name='sirus-research-'.substr($request['source_id'],4,12).
+        '-page-'.$request['offset'].'.json';
+    header('Content-Type: application/json; charset=utf-8');
+    header('Content-Disposition: attachment; filename="'.$name.'"');
+    header('Cache-Control: private, no-store');
+    header('X-Content-Type-Options: nosniff');
+    header("Content-Security-Policy: default-src 'none'");
+    echo json_encode($report,JSON_UNESCAPED_UNICODE|
+        JSON_INVALID_UTF8_SUBSTITUTE|JSON_THROW_ON_ERROR);
+    exit;
+}
+
 function cms_ai_continuous_panel(PDO $db):void {
     require_once __DIR__.'/ai_api.php';
     // Called only from cms_ai_page(), whose entry guard requires an admin.
@@ -306,6 +377,17 @@ function cms_ai_continuous_panel(PDO $db):void {
             <?=cms_esc((string)($job['error']??''))?></td></tr>
       <?php endforeach; ?></tbody></table></div>
       <h4>Recorded passes (8 per page)</h4>
+      <p>This optional download includes **private, unreviewed model notes**.
+      Save it only to a trusted private location; it is neither validated repair
+      guidance nor a model training dataset.</p>
+      <form method="post" action="/admin/ai">
+        <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+        <input type="hidden" name="action" value="ai_continuous_export">
+        <input type="hidden" name="source_id"
+          value="<?=cms_esc($request['source_id'])?>">
+        <input type="hidden" name="offset" value="<?=cms_esc((string)$histOffset)?>">
+        <button type="submit" class="btn small">Download this page's private research report (JSON)</button>
+      </form>
       <?php foreach($histPasses as $result):if(!is_array($result))continue;?>
       <details>
         <summary>Cycle <?=cms_esc((string)($result['cycle']??''))?>,
