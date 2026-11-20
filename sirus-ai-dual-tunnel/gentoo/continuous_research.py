@@ -182,7 +182,8 @@ class ContinuousResearch:
                         VALUES(?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(slot,revision) DO UPDATE SET current=1,
                         source_revision=excluded.source_revision,seen=excluded.seen""",
-                        [tuple(r[:8]) + (revision, stamp) for r in section_rows])
+                        [(r[0],digest(revision + ':' + r[1])) + tuple(r[2:8]) +
+                         (revision,stamp) for r in section_rows])
                     if prior is None:
                         self._event(db, "added", source_id)
                     elif prior["revision"] != revision or not prior["present"]:
@@ -228,7 +229,8 @@ class ContinuousResearch:
                                 source_revision,seen) VALUES(?,?,?,?,?,?,?,?,?,?)
                                 ON CONFLICT(slot,revision) DO UPDATE SET current=1,
                                 seen=excluded.seen""",
-                                (slot,digest(piece),source_id,0,0,off,len(piece),
+                                (slot,digest(rev + ':' + digest(piece)),
+                                 source_id,0,0,off,len(piece),
                                  1,rev,stamp))
                     counts["sources"] += 1
                     counts["sections"] += (len(body)+CHUNK-1)//CHUNK if ready else 0
@@ -280,6 +282,17 @@ class ContinuousResearch:
                                (int(action=="exclude"),source_id))
                     if action == "exclude":
                         self._supersede(db)
+                    else:
+                        # Re-included unchanged work resumes in the open cycle.
+                        db.execute("""UPDATE cr_jobs SET state='queued',token='',
+                            retry_at=0,lease_until=0,updated=?
+                            WHERE state='superseded'
+                            AND cycle IN (SELECT id FROM cr_cycles WHERE state='open')
+                            AND EXISTS (SELECT 1 FROM cr_sections s JOIN cr_sources d
+                              ON d.id=s.source_id WHERE s.slot=cr_jobs.slot
+                              AND s.revision=cr_jobs.revision AND s.current=1
+                              AND d.id=? AND d.present=1 AND d.eligible=1
+                              AND d.excluded=0)""",(now,source_id))
                 self._event(db,action,source_id)
             elif action == "scan":
                 db.execute("UPDATE cr_config SET scan_requested=1,updated=? WHERE id=1",(now,))
@@ -415,7 +428,7 @@ class ContinuousResearch:
                 return None
             row=db.execute("""SELECT j.id,j.slot,j.revision,j.pass_completed,
                 j.passes,s.source_id,s.page,s.part,s.byte_offset,
-                d.title,d.content_sha,d.priority
+                s.source_revision,d.title,d.content_sha,d.priority
                 FROM cr_jobs j JOIN cr_sections s ON s.slot=j.slot
                 AND s.revision=j.revision JOIN cr_sources d ON d.id=s.source_id
                 WHERE j.state='queued' AND j.retry_at<=? AND s.current=1
@@ -456,7 +469,7 @@ class ContinuousResearch:
                 body=row["source_text"]
         off=lease["byte_offset"]
         part=body[off:off+CHUNK]
-        if digest(part)!=lease["revision"]:
+        if digest(lease["source_revision"] + ":" + digest(part))!=lease["revision"]:
             raise RuntimeError("Extraction revision changed; inventory refresh needed")
         if lease["page"]:
             return f"[PDF page {lease['page']} part {lease['part']}]\n"+part

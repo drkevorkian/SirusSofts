@@ -198,6 +198,36 @@ class ContinuousResearchTests(unittest.TestCase):
             self.assertGreater(con.execute("""SELECT count(*) FROM cr_events
                 WHERE kind='removed'""").fetchone()[0],0)
 
+    def test_reincluded_section_in_open_cycle_requeues_same_revision(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("enable")
+        lease=self.research.claim()
+        self.research.control("exclude",source_id="pdf:"+SHA)
+        self.assertFalse(self.research.finish(lease,"excluded"))
+        self.research.control("include",source_id="pdf:"+SHA)
+        again=self.research.claim()
+        self.assertIsNotNone(again)
+        self.assertEqual(again["id"],lease["id"])
+        self.assertNotEqual(again["token"],lease["token"])
+        self.assertTrue(self.research.finish(again,"only current source"))
+
+    def test_nontext_source_revision_requeues_even_if_chunk_unchanged(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("enable")
+        initial=self.research.claim()
+        with sqlite3.connect(self.pdf) as con:
+            con.execute("UPDATE documents SET updated_at=2 WHERE sha256=?",(SHA,))
+        self.research.inventory()
+        self.assertFalse(self.research.finish(initial,"outdated original revision"))
+        replacement=self.research.claim()
+        self.assertIsNotNone(replacement)
+        self.assertNotEqual(replacement["revision"],initial["revision"])
+        self.assertTrue(self.research.finish(replacement,"current revision"))
+        with connect(self.db) as con:
+            self.assertEqual(con.execute("SELECT count(*) FROM cr_results").fetchone()[0],1)
+
     def test_pause_resume_stop_exclusion_and_priority(self):
         self.add_doc()
         self.research.inventory()
