@@ -36,21 +36,57 @@ function cms_ai_api_csrf():void {
 function cms_ai_api_actor(array $identity):string {
     return $identity['account'] ?? 'guest:'.hash('sha256',session_id());
 }
+/** Signed only for privileged loopback-only research control operations. */
+function cms_ai_admin_signature(string $key,string $timestamp,string $nonce,
+                                string $path,string $body):string {
+    if(strlen($key)!==32||
+       !in_array($path,['/api/in/research/continuous/control',
+                        '/api/in/research/evidence/control'],true)||
+       !preg_match('/^[0-9]{10,11}$/D',$timestamp)||
+       !preg_match('/^[a-f0-9]{32}$/D',$nonce))
+        throw new InvalidArgumentException('Invalid private research bridge signature input.');
+    return hash_hmac('sha256',
+        "sirus-research-admin-v1\n".$timestamp."\n".$nonce."\n".$path."\n".$body,$key);
+}
+function cms_ai_admin_key():string {
+    $path=cms_private_directory().'/research-admin.key';
+    if(is_link($path)||!is_file($path)||filesize($path)!==32||
+       ((fileperms($path)&0077)!==0))
+        throw new RuntimeException('Private research administrator bridge is not configured.');
+    $key=file_get_contents($path);
+    if(!is_string($key)||strlen($key)!==32)
+        throw new RuntimeException('Private research administrator bridge is not configured.');
+    return $key;
+}
 function cms_ai_api_upstream(string $kind,string $path,?array $payload=null):array {
     $bases=['input'=>'http://127.0.0.1:18485','output'=>'http://127.0.0.1:18483'];
     if(!isset($bases[$kind]) || !preg_match('#^/api/(?:in|out)/[a-zA-Z0-9/_?=&-]+$#D',$path))
         throw new InvalidArgumentException('Unsupported internal route.');
     if(!extension_loaded('curl')) throw new RuntimeException('Local AI gateway requires PHP cURL.');
     $url=$bases[$kind].$path;
+    $headers=['Accept: application/json','Content-Type: application/json'];
+    $body=$payload!==null?json_encode($payload,JSON_THROW_ON_ERROR):null;
+    if(in_array($path,['/api/in/research/continuous/control',
+                       '/api/in/research/evidence/control'],true)){
+        cms_need_admin();
+        if($body===null)throw new InvalidArgumentException('Missing administrative request.');
+        $key=cms_ai_admin_key(); // Missing key fails closed; no public fallback.
+        $timestamp=(string)time();
+        $nonce=bin2hex(random_bytes(16));
+        $headers[]='X-Sirus-Admin-Time: '.$timestamp;
+        $headers[]='X-Sirus-Admin-Nonce: '.$nonce;
+        $headers[]='X-Sirus-Admin-Signature: '.cms_ai_admin_signature(
+            $key,$timestamp,$nonce,$path,$body);
+    }
     $curl=curl_init($url);
     curl_setopt_array($curl,[
         CURLOPT_RETURNTRANSFER=>true,CURLOPT_CONNECTTIMEOUT=>2,CURLOPT_TIMEOUT=>8,
         CURLOPT_FOLLOWLOCATION=>false,CURLOPT_PROXY=>'',CURLOPT_MAXREDIRS=>0,
-        CURLOPT_HTTPHEADER=>['Accept: application/json','Content-Type: application/json'],
+        CURLOPT_HTTPHEADER=>$headers,
     ]);
-    if($payload!==null){
+    if($body!==null){
         curl_setopt($curl,CURLOPT_POST,true);
-        curl_setopt($curl,CURLOPT_POSTFIELDS,json_encode($payload,JSON_THROW_ON_ERROR));
+        curl_setopt($curl,CURLOPT_POSTFIELDS,$body);
     }
     $raw=curl_exec($curl);
     $status=(int)curl_getinfo($curl,CURLINFO_HTTP_CODE);
