@@ -449,25 +449,37 @@ class ContinuousResearch:
         if conf["mode"]!="running":
             return
         active = db.execute("SELECT id FROM cr_cycles WHERE state='open' ORDER BY id DESC LIMIT 1").fetchone()
+        targeted=False
         if not active:
-            if now - conf["last_completed"] < conf["revisit_seconds"]:
-                return
+            targeted=now-conf["last_completed"]<conf["revisit_seconds"]
+            # New/revised/uncovered sections must not wait for the normal
+            # revisit interval. Terminal failed jobs count as covered until
+            # their next full cycle, avoiding an unbounded retry loop.
+            uncovered="""AND NOT EXISTS (SELECT 1 FROM cr_jobs previous
+                WHERE previous.slot=s.slot AND previous.revision=s.revision
+                AND previous.state IN ('completed','failed'))"""
+            predicate=uncovered if targeted else ""
             if not db.execute("""SELECT 1 FROM cr_sections s JOIN cr_sources d
                 ON d.id=s.source_id WHERE s.current=1 AND d.present=1
-                AND d.eligible=1 AND d.excluded=0 LIMIT 1""").fetchone():
+                AND d.eligible=1 AND d.excluded=0 """+predicate+
+                " LIMIT 1").fetchone():
                 return
             cycle = db.execute("INSERT INTO cr_cycles(started,state) VALUES(?,'open')",
                                (now,)).lastrowid
-            self._event(db,"cycle-start",str(cycle))
+            self._event(db,"cycle-start",str(cycle),
+                        "new-or-revised-only" if targeted else "full-coverage")
         else:
             cycle = active["id"]
         self._supersede(db)
+        # Apply the targeted filter only when creating an off-cycle scan.
+        # Once open, newly discovered revisions can still join this cycle.
+        predicate=uncovered if targeted else ""
         db.execute("""INSERT OR IGNORE INTO cr_jobs(id,cycle,slot,revision,passes,
             state,created,updated)
             SELECT lower(hex(randomblob(16))),?,s.slot,s.revision,?,'queued',?,?
             FROM cr_sections s JOIN cr_sources d ON d.id=s.source_id
-            WHERE s.current=1 AND d.present=1 AND d.eligible=1 AND d.excluded=0""",
-                   (cycle,conf["passes"],now,now))
+            WHERE s.current=1 AND d.present=1 AND d.eligible=1 AND d.excluded=0 """
+            +predicate,(cycle,conf["passes"],now,now))
         active_count = db.execute("""SELECT count(*) FROM cr_jobs
             WHERE cycle=? AND state IN ('queued','leased')""",(cycle,)).fetchone()[0]
         if not active_count:
