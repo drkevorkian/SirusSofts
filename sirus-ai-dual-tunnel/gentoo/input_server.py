@@ -449,6 +449,15 @@ class Engine:
                             (str(exc)[:350],time.time(),job_id))
         return True
 
+    def continuous_inventory_loop(self):
+        while not self.stop.is_set():
+            try:
+                self.continuous.scan_if_due()
+            except (OSError,sqlite3.Error,RuntimeError,ValueError) as exc:
+                # Never leak private PDF text or paths to shared service logs.
+                print("Continuous inventory unavailable:",type(exc).__name__,file=sys.stderr)
+            self.stop.wait(30)
+
     def continuous_loop(self):
         # A single, lower-priority private research worker. Disabled by default.
         while not self.stop.is_set():
@@ -697,6 +706,7 @@ def main():
     threading.Thread(target=engine.dispatch_loop, daemon=True).start()
     threading.Thread(target=engine.research_loop, daemon=True).start()
     threading.Thread(target=engine.continuous_loop, daemon=True).start()
+    threading.Thread(target=engine.continuous_inventory_loop, daemon=True).start()
     threading.Thread(target=manual_index_loop,args=(engine.stop,),daemon=True).start()
     server = http.server.ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     server.engine = engine

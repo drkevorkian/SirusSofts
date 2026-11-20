@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+from threading import Event, Thread
 import time
 import uuid
 
@@ -50,7 +51,10 @@ def init_schema(path):
           max_cpu_load REAL NOT NULL DEFAULT 0,
           max_chat_jobs INTEGER NOT NULL DEFAULT 0,
           last_completed REAL NOT NULL DEFAULT 0,
-          updated REAL NOT NULL DEFAULT 0
+          updated REAL NOT NULL DEFAULT 0,
+          last_inventory REAL NOT NULL DEFAULT 0,
+          scan_requested INTEGER NOT NULL DEFAULT 0,
+          scan_error TEXT NOT NULL DEFAULT ''
         );
         INSERT OR IGNORE INTO cr_config(id) VALUES(1);
         CREATE TABLE IF NOT EXISTS cr_sources (
@@ -203,14 +207,14 @@ class ContinuousResearch:
                     db.execute("""INSERT INTO cr_sources(id,kind,title,content_sha,
                         revision,extraction_status,eligible,excluded,extracted_parts,
                         seen,updated)
-                        VALUES(?,'snapshot',?,?,?,?,0,1,?,?,?)
+                        VALUES(?,'snapshot',?,?,?,?,?,1,?,?,?)
                         ON CONFLICT(id) DO UPDATE SET title=excluded.title,
                         content_sha=excluded.content_sha,revision=excluded.revision,
                         extraction_status=excluded.extraction_status,
                         eligible=excluded.eligible,seen=excluded.seen,
                         updated=excluded.updated,present=1""",
                         (source_id, str(spec.get("title", ""))[:160], rev, rev,
-                         "ready" if ready else job["state"],
+                         "ready" if ready else job["state"],int(ready),
                          (len(body) + CHUNK - 1)//CHUNK if ready else 0,
                          stamp, time.time()))
                     db.execute("UPDATE cr_sections SET current=0 WHERE source_id=?", (source_id,))
@@ -250,7 +254,7 @@ class ContinuousResearch:
 
     def control(self, action, *, source_id="", value=None):
         if action not in ("enable", "pause", "resume", "stop", "disable",
-                          "include", "exclude", "priority", "configure"):
+                          "include", "exclude", "priority", "configure", "scan"):
             raise ValueError("Invalid control action")
         with connect(self.db_path) as db:
             db.execute("BEGIN IMMEDIATE")
@@ -276,6 +280,9 @@ class ContinuousResearch:
                     if action == "exclude":
                         self._supersede(db)
                 self._event(db,action,source_id)
+            elif action == "scan":
+                db.execute("UPDATE cr_config SET scan_requested=1,updated=? WHERE id=1",(now,))
+                self._event(db,"scan-requested","research")
             elif action == "configure":
                 if not isinstance(value,dict) or not value or not set(value) <= {
                     "passes","model_id","target","revisit_seconds",
@@ -305,8 +312,8 @@ class ContinuousResearch:
             else:
                 next_mode={"enable":"running","resume":"running","pause":"paused",
                            "stop":"stopped","disable":"disabled"}[action]
-                db.execute("UPDATE cr_config SET mode=?,updated=? WHERE id=1",
-                           (next_mode,now))
+                db.execute("UPDATE cr_config SET mode=?,updated=?,scan_requested=CASE WHEN ?='running' THEN 1 ELSE scan_requested END WHERE id=1",
+                           (next_mode,now,next_mode))
                 if action=="stop":
                     db.execute("""UPDATE cr_jobs SET state='stopped',token='',
                         lease_until=0,updated=? WHERE state IN ('queued','leased')""",
@@ -316,6 +323,29 @@ class ContinuousResearch:
                         WHERE state='stopped'""")
                 self._event(db,action,"research")
         return self.status()
+
+    def scan_if_due(self):
+        """Refresh automatically while enabled, or after a one-shot admin scan."""
+        now=time.time()
+        with connect(self.db_path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            cfg=db.execute("SELECT * FROM cr_config WHERE id=1").fetchone()
+            due=bool(cfg["scan_requested"]) or (
+                cfg["mode"]=="running" and now-cfg["last_inventory"]>=3600)
+            if not due:
+                return False
+            # Record an attempt even on failure to avoid an unhealthy tight loop.
+            db.execute("UPDATE cr_config SET scan_requested=0,last_inventory=? WHERE id=1",(now,))
+        try:
+            self.inventory()
+        except (OSError,sqlite3.Error,RuntimeError,ValueError) as exc:
+            with connect(self.db_path) as db:
+                db.execute("UPDATE cr_config SET scan_error=? WHERE id=1",
+                           (type(exc).__name__,))
+        else:
+            with connect(self.db_path) as db:
+                db.execute("UPDATE cr_config SET scan_error='' WHERE id=1")
+        return True
 
     def _schedule(self, db, now):
         conf = db.execute("SELECT * FROM cr_config WHERE id=1").fetchone()
@@ -484,6 +514,13 @@ class ContinuousResearch:
         lease=self.claim()
         if lease is None:
             return False
+        keepalive=Event()
+        def renew():
+            while not keepalive.wait(30):
+                if not self.heartbeat(lease["id"],lease["token"]):
+                    return
+        watcher=Thread(target=renew,daemon=True)
+        watcher.start()
         try:
             section=self._section_text(lease)
             with connect(self.db_path) as db:
@@ -503,6 +540,9 @@ class ContinuousResearch:
             self.finish(lease,answer,worker)
         except Exception as exc:
             self.fail(lease,exc)
+        finally:
+            keepalive.set()
+            watcher.join(timeout=1)
         return True
 
     def status(self):
