@@ -75,6 +75,17 @@ function cms_ai_continuous_post(PDO $db,array $post):never {
     cms_go('/admin/ai');
 }
 
+/** Strictly bounded, side-effect-free input for an HMAC-authenticated history read. */
+function cms_ai_continuous_history_payload(mixed $source,mixed $offset):array {
+    if(!is_string($source) || !preg_match(
+        '/^(?:pdf:[a-f0-9]{64}|research:[a-f0-9]{32})$/D',$source))
+        throw new InvalidArgumentException('Select a valid inventoried source ID.');
+    if(!is_string($offset)||!preg_match('/^(?:0|[1-9][0-9]{0,6})$/D',$offset)
+        || (int)$offset>1000000)
+        throw new InvalidArgumentException('Invalid source history page.');
+    return ['source_id'=>$source,'offset'=>(int)$offset,'local_only'=>true];
+}
+
 function cms_ai_continuous_panel(PDO $db):void {
     require_once __DIR__.'/ai_api.php';
     // Called only from cms_ai_page(), whose entry guard requires an admin.
@@ -90,6 +101,8 @@ function cms_ai_continuous_panel(PDO $db):void {
     $jobs=is_array($info['jobs']??null)?$info['jobs']:[];
     $sections=is_array($info['sections']??null)?$info['sections']:[];
     $cycle=is_array($info['cycle']??null)?$info['cycle']:[];
+    $progress=is_array($info['cycle_progress']??null)?$info['cycle_progress']:[];
+    $throughput=is_array($info['throughput']??null)?$info['throughput']:[];
     $active=is_array($info['active']??null)?$info['active']:[];
     $sourceRows=is_array($info['sources']??null)?$info['sources']:[];
     $mode=(string)($cfg['mode']??'unknown');
@@ -99,6 +112,10 @@ function cms_ai_continuous_panel(PDO $db):void {
       <p>Research is <strong><?=cms_esc($mode)?></strong>. Drafts are unreviewed; none are exported as verified knowledge or used to update model weights. An inventory scan reads existing private extractions without fetching websites.</p>
       <p>Coverage cycle: <?=cms_esc((string)($cycle['id']??'not started'))?>
         (<?=cms_esc((string)($cycle['state']??'idle'))?>).
+        Pass completion: <?=cms_esc((string)($progress['finished_passes']??0))?> /
+        <?=cms_esc((string)($progress['planned_passes']??0))?>
+        (<?=cms_esc((string)($progress['pass_percent']??0))?>%).
+        Failed jobs this cycle: <?=cms_esc((string)($progress['failed_jobs']??0))?>.
         Sources: <?=cms_esc((string)($inv['sources']??0))?> total,
         <?=cms_esc((string)($inv['eligible_sources']??0))?> eligible,
         <?=cms_esc((string)($inv['excluded_sources']??0))?> excluded,
@@ -114,6 +131,15 @@ function cms_ai_continuous_panel(PDO $db):void {
         Chat queue: <?=cms_esc((string)($info['interactive_jobs']??0))?>.
         CPU load (1m): <?=cms_esc((string)($info['cpu_load_1m']??'?'))?>.
         Free RAM (MiB): <?=cms_esc((string)($info['free_ram_mib']??'?'))?>.</p>
+      <p>Throughput (measured): <?=cms_esc((string)($throughput['passes_last_60_minutes']??0))?>
+        completed passes in the last 60 minutes.
+        Average inference latency:
+        <?=cms_esc(isset($throughput['average_inference_ms'])?
+            (string)$throughput['average_inference_ms'].' ms':'not yet measured')?>.
+        Estimated uninterrupted throughput:
+        <?=cms_esc(isset($throughput['estimated_passes_per_hour'])?
+            (string)$throughput['estimated_passes_per_hour'].' passes/hour':'not yet measured')?>.
+        This estimate excludes queue delays, source reads, retries and GPU contention.</p>
       <p>Admission status: <?=cms_esc(implode(', ',is_array($info['admission_blocks']??null)?
            $info['admission_blocks']:[])?:'Eligible for new background work')?></p>
       <?php if($active): ?>
@@ -195,7 +221,8 @@ function cms_ai_continuous_panel(PDO $db):void {
       ?>
       <tr>
         <td><?=cms_esc((string)($source['title']??''))?>
-          <small><?=cms_esc($sid)?></small></td>
+          <small><?=cms_esc($sid)?></small>
+          <p><a href="/admin/ai?cr_source=<?=rawurlencode($sid)?>">View pass history</a></p></td>
         <td><?=cms_esc((string)($source['extraction_status']??''))?>,
           parts <?=cms_esc((string)($source['extracted_parts']??0))?>,
           empty pages <?=cms_esc((string)($source['missing_pages']??0))?></td>
@@ -224,6 +251,86 @@ function cms_ai_continuous_panel(PDO $db):void {
       </tr>
       <?php endforeach; ?>
       </tbody></table>
+    </section>
+    <section class="admin-panel">
+      <h2>Research history for one source</h2>
+      <p>Browse checkpointed draft results across all cycles, including superseded revisions.
+      Results are unreviewed model outputs, not independently verified facts.
+      The history is accessible only through the signed private administrator bridge.</p>
+      <form method="get" action="/admin/ai">
+        <label>Original source ID
+          <input type="text" name="cr_source" maxlength="75"
+            value="<?=cms_esc((string)($_GET['cr_source']??''))?>"
+            placeholder="pdf:… or research:…">
+        </label>
+        <button type="submit" class="btn small">View source history</button>
+      </form>
+      <?php if(isset($_GET['cr_source'])):
+          try{
+              $request=cms_ai_continuous_history_payload(
+                  $_GET['cr_source'],$_GET['cr_offset']??'0');
+              $history=cms_ai_api_upstream('input',
+                  '/api/in/research/continuous/history',$request);
+              if(!isset($history['source'])||!is_array($history['source'])||
+                 ($history['source']['id']??null)!==$request['source_id']||
+                 !is_array($history['passes']??null)||count($history['passes'])>8)
+                  throw new RuntimeException('Invalid private history response.');
+              $histSource=$history['source'];
+              $histPasses=$history['passes'];
+              $histJobs=is_array($history['jobs']??null)?$history['jobs']:[];
+              $histOffset=$request['offset'];
+              $histTotal=(int)($history['pass_results_total']??0);
+          }catch(Throwable $error){
+              $history=null;
+              echo '<p>Source history unavailable or invalid. No changes were made.</p>';
+          }
+          if(is_array($history??null)):
+      ?>
+      <h3><?=cms_esc((string)($histSource['title']??'Untitled source'))?></h3>
+      <p><?=cms_esc((string)($histSource['id']??''))?>.
+        Saved jobs: <?=cms_esc((string)($history['jobs_total']??0))?>.
+        Saved pass results: <?=cms_esc((string)$histTotal)?>.
+        Current extraction: <?=cms_esc((string)($histSource['extraction_status']??'?'))?>.</p>
+      <h4>Recent jobs (latest 12)</h4>
+      <div class="table-scroll"><table><thead><tr>
+        <th>Cycle</th><th>Source page / part</th><th>State</th><th>Passes</th><th>Retries / error</th>
+      </tr></thead><tbody>
+      <?php foreach(array_slice($histJobs,0,12) as $job):if(!is_array($job))continue;?>
+      <tr><td><?=cms_esc((string)($job['cycle']??''))?></td>
+        <td><?=cms_esc((string)($job['page']??''))?> /
+            <?=cms_esc((string)($job['part']??''))?></td>
+        <td><?=cms_esc((string)($job['state']??''))?></td>
+        <td><?=cms_esc((string)($job['pass_completed']??0))?> /
+            <?=cms_esc((string)($job['passes']??0))?></td>
+        <td><?=cms_esc((string)($job['attempts']??0))?>
+            <?=cms_esc((string)($job['error']??''))?></td></tr>
+      <?php endforeach; ?></tbody></table></div>
+      <h4>Recorded passes (8 per page)</h4>
+      <?php foreach($histPasses as $result):if(!is_array($result))continue;?>
+      <details>
+        <summary>Cycle <?=cms_esc((string)($result['cycle']??''))?>,
+          page <?=cms_esc((string)($result['page']??0))?>,
+          part <?=cms_esc((string)($result['part']??0))?>,
+          pass <?=cms_esc((string)($result['pass_number']??0))?> —
+          <?=cms_esc((string)($result['review_state']??'unreviewed'))?>
+          (<?=cms_esc((string)($result['state']??''))?>)</summary>
+        <p>Source section revision: <code><?=cms_esc((string)($result['revision']??''))?></code>.
+           Draft hash: <code><?=cms_esc((string)($result['sha256']??''))?></code>.
+           Inference duration: <?=cms_esc((string)($result['duration_ms']??0))?> ms
+           (0 means not measured).</p>
+        <pre style="white-space:pre-wrap;overflow-wrap:anywhere"><?=cms_esc((string)($result['notes']??''))?></pre>
+        <p><strong>Unreviewed AI-generated draft; verify against the original PDF.</strong></p>
+      </details>
+      <?php endforeach; ?>
+      <p>
+      <?php if($histOffset>0): ?>
+        <a href="/admin/ai?cr_source=<?=rawurlencode($request['source_id'])?>&amp;cr_offset=<?=max(0,$histOffset-8)?>">Previous 8 passes</a>
+      <?php endif; ?>
+      <?php if(!empty($history['has_more'])): ?>
+        <a href="/admin/ai?cr_source=<?=rawurlencode($request['source_id'])?>&amp;cr_offset=<?=($histOffset+8)?>">Next 8 passes</a>
+      <?php endif; ?>
+      </p>
+      <?php endif; endif; ?>
     </section>
     <?php
 }
