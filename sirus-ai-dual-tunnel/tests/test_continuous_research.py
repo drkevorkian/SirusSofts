@@ -66,6 +66,53 @@ class ContinuousResearchTests(unittest.TestCase):
             self.assertEqual(con.execute("SELECT count(*) FROM cr_config").fetchone()[0],1)
         self.assertEqual(self.research.status()["config"]["mode"],"disabled")
 
+    def test_upgrade_prior_config_preserves_state_and_adds_resource_columns(self):
+        # Reproduce the previous phase-A table without new admission fields.
+        legacy=self.base/"legacy.sqlite3"
+        with sqlite3.connect(legacy) as db:
+            db.execute("""CREATE TABLE cr_config(
+                id INTEGER PRIMARY KEY,mode TEXT,passes INTEGER,model_id TEXT,
+                target TEXT,revisit_seconds INTEGER,max_cpu_load REAL,
+                max_chat_jobs INTEGER,last_completed REAL,updated REAL,
+                last_inventory REAL,scan_requested INTEGER,scan_error TEXT)""")
+            db.execute("""INSERT INTO cr_config VALUES
+                (1,'paused',42,'old-model','cpu',3600,3.0,0,8,9,10,0,'')""")
+        init_schema(legacy)
+        init_schema(legacy)
+        with sqlite3.connect(legacy) as db:
+            db.row_factory=sqlite3.Row
+            row=db.execute("SELECT * FROM cr_config WHERE id=1").fetchone()
+            self.assertEqual(row["mode"],"paused")
+            self.assertEqual(row["passes"],42)
+            self.assertEqual(row["model_id"],"old-model")
+            self.assertEqual(row["min_available_ram_mib"],0)
+            self.assertEqual(row["quiet_start_utc"],-1)
+            self.assertEqual(row["quiet_end_utc"],-1)
+            self.assertEqual(db.execute("SELECT count(*) FROM cr_config").fetchone()[0],1)
+
+    def test_checkpointed_100_passes_resume_across_engine_recreation(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("configure",value={"passes":100})
+        self.research.control("enable")
+        def infer(messages,target,model_id,job_id):
+            return "bounded unreviewed research result", "cpu"
+        for _ in range(37):
+            self.assertTrue(self.research.run_once(infer))
+        # A new process opens the same durable database; no completed pass is lost.
+        next_process=ContinuousResearch(self.db,self.pdf,self.base/"index.sqlite3")
+        for _ in range(63):
+            self.assertTrue(next_process.run_once(infer))
+        with connect(self.db) as db:
+            row=db.execute("SELECT id,state,pass_completed FROM cr_jobs").fetchone()
+            self.assertEqual(row["state"],"completed")
+            self.assertEqual(row["pass_completed"],100)
+            self.assertEqual(db.execute("""SELECT count(DISTINCT pass_number)
+                FROM cr_results WHERE job_id=?""",(row["id"],)).fetchone()[0],100)
+            self.assertEqual(db.execute("""SELECT count(*) FROM cr_results
+                WHERE job_id=?""",(row["id"],)).fetchone()[0],100)
+        self.assertIsNone(next_process.claim())
+
     def test_inventory_includes_failed_missing_pages_and_no_text(self):
         self.add_doc()
         self.add_doc(sha=FAILED,status="failed",text="",pages=4)
