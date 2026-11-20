@@ -7,6 +7,7 @@ model endpoint, shell command or training operation is exposed by this module.
 """
 import hashlib
 from contextlib import closing, contextmanager
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -61,6 +62,9 @@ def init_schema(path):
           revisit_seconds INTEGER NOT NULL DEFAULT 86400,
           max_cpu_load REAL NOT NULL DEFAULT 0,
           max_chat_jobs INTEGER NOT NULL DEFAULT 0,
+          min_available_ram_mib INTEGER NOT NULL DEFAULT 0,
+          quiet_start_utc INTEGER NOT NULL DEFAULT -1,
+          quiet_end_utc INTEGER NOT NULL DEFAULT -1,
           last_completed REAL NOT NULL DEFAULT 0,
           updated REAL NOT NULL DEFAULT 0,
           last_inventory REAL NOT NULL DEFAULT 0,
@@ -117,6 +121,50 @@ def init_schema(path):
           kind TEXT NOT NULL, subject TEXT NOT NULL, detail TEXT NOT NULL DEFAULT ''
         );
         """)
+        # Compatible with v1 private databases; never rebuild existing tables.
+        cols={row[1] for row in db.execute("PRAGMA table_info(cr_config)")}
+        for column,definition in (
+            ("min_available_ram_mib","INTEGER NOT NULL DEFAULT 0"),
+            ("quiet_start_utc","INTEGER NOT NULL DEFAULT -1"),
+            ("quiet_end_utc","INTEGER NOT NULL DEFAULT -1")):
+            if column not in cols:
+                db.execute(f"ALTER TABLE cr_config ADD COLUMN {column} {definition}")
+
+
+def free_memory_mib():
+    """Host-level Linux RAM headroom; unreadable metrics fail closed if used."""
+    try:
+        with open("/proc/meminfo",encoding="ascii") as stream:
+            for line in stream:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1])//1024
+    except (OSError,ValueError,IndexError):
+        pass
+    return None
+
+
+def admission_reasons(cfg, *, free_mib=None, load=None, hour=None):
+    """Pure, testable background gating. Never affects interactive requests."""
+    if free_mib is None:
+        free_mib=free_memory_mib()
+    if load is None:
+        load=os.getloadavg()[0]
+    if hour is None:
+        hour=datetime.now(timezone.utc).hour
+    blocked=[]
+    if cfg["min_available_ram_mib"]:
+        if free_mib is None:
+            blocked.append("ram-unavailable")
+        elif free_mib<cfg["min_available_ram_mib"]:
+            blocked.append("low-free-ram")
+    if cfg["max_cpu_load"] and load>cfg["max_cpu_load"]:
+        blocked.append("cpu-load")
+    start,end=cfg["quiet_start_utc"],cfg["quiet_end_utc"]
+    if 0<=start<=23 and 0<=end<=23:
+        if (start<end and start<=hour<end) or (
+            start>end and (hour>=start or hour<end)):
+            blocked.append("quiet-hours-utc")
+    return blocked
 
 
 class ContinuousResearch:
@@ -310,8 +358,17 @@ class ContinuousResearch:
             elif action == "configure":
                 if not isinstance(value,dict) or not value or not set(value) <= {
                     "passes","model_id","target","revisit_seconds",
-                    "max_cpu_load","max_chat_jobs"}:
+                    "max_cpu_load","max_chat_jobs","min_available_ram_mib",
+                    "quiet_start_utc","quiet_end_utc"}:
                     raise ValueError("Invalid research settings")
+                if "quiet_start_utc" in value or "quiet_end_utc" in value:
+                    if not {"quiet_start_utc","quiet_end_utc"} <= set(value):
+                        raise ValueError("Quiet hours require both UTC boundaries")
+                    start,end=value["quiet_start_utc"],value["quiet_end_utc"]
+                    if (type(start) is not int or type(end) is not int or
+                        not ((start==-1 and end==-1) or
+                             (0<=start<=23 and 0<=end<=23 and start!=end))):
+                        raise ValueError("Use -1/-1 or distinct UTC hours 0..23")
                 for key,item in value.items():
                     if key=="passes" and (type(item) is not int or not 1<=item<=100):
                         raise ValueError("Pass count must be 1..100")
@@ -330,6 +387,9 @@ class ContinuousResearch:
                     if key=="max_chat_jobs" and (type(item) is not int or
                                                  not 0<=item<=4):
                         raise ValueError("Invalid interactive queue budget")
+                    if key=="min_available_ram_mib" and (type(item) is not int
+                                                or not 0<=item<=1048576):
+                        raise ValueError("Invalid minimum free RAM")
                     # Column names are literal allowlisted, never external SQL.
                     db.execute(f"UPDATE cr_config SET {key}=?,updated=? WHERE id=1",
                                (item,now))
@@ -434,7 +494,7 @@ class ContinuousResearch:
             if db.execute("""SELECT 1 FROM research_jobs
                 WHERE state IN ('queued','running') LIMIT 1""").fetchone():
                 return None
-            if conf["max_cpu_load"] and os.getloadavg()[0]>conf["max_cpu_load"]:
+            if admission_reasons(conf):
                 return None
             row=db.execute("""SELECT j.id,j.slot,j.revision,j.pass_completed,
                 j.passes,s.source_id,s.page,s.part,s.byte_offset,
@@ -596,10 +656,16 @@ class ContinuousResearch:
                 AND s.revision=j.revision WHERE j.state='leased' LIMIT 1""").fetchone()
             chat=db.execute("""SELECT count(*) FROM jobs WHERE state IN
                 ('queued','running')""").fetchone()[0]
+        free_mib=free_memory_mib()
+        load=os.getloadavg()[0]
+        blocked=admission_reasons(config,free_mib=free_mib,load=load)
+        if chat>config["max_chat_jobs"]:
+            blocked.append("interactive-queue")
         return {"config":config,"jobs":{r["state"]:r["n"] for r in rows},
                 "inventory":dict(source),"sections":dict(sections),
                 "cycle":dict(cycle) if cycle else None,
                 "active":dict(in_flight) if in_flight else None,
-                "interactive_jobs":chat,"cpu_load_1m":os.getloadavg()[0],
+                "interactive_jobs":chat,"cpu_load_1m":load,
+                "free_ram_mib":free_mib,"admission_blocks":blocked,
                 "sources":[dict(r) for r in recent],
                 "draft_only":True,"weight_training":False}
