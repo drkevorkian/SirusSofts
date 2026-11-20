@@ -206,6 +206,64 @@ class ContinuousResearchTests(unittest.TestCase):
         after=self.research.claim(now=time.time()+3601)
         self.assertIsNotNone(after)
 
+    def test_targeted_cycle_scope_survives_restart(self):
+        # Three PDFs: after full coverage, revise two and leave one untouched.
+        self.add_doc(SHA,text="Original source A.")
+        self.add_doc(FAILED,text="Original source B.")
+        third="c"*64
+        self.add_doc(third,text="Unchanged source C.")
+        self.research.inventory()
+        self.research.control("configure",value={"passes":1,"revisit_seconds":3600})
+        self.research.control("enable")
+        for _ in range(3):
+            lease=self.research.claim()
+            self.assertTrue(self.research.finish(lease,"Private draft"))
+        with sqlite3.connect(self.pdf) as db:
+            db.execute("""UPDATE excerpts SET text='Revised source A.'
+                WHERE sha256=?""",(SHA,))
+            db.execute("""UPDATE excerpts SET text='Revised source B.'
+                WHERE sha256=?""",(FAILED,))
+            db.execute("""UPDATE documents SET updated_at=2
+                WHERE sha256 IN (?,?)""",(SHA,FAILED))
+        self.research.inventory()
+        first=self.research.claim()
+        self.assertIsNotNone(first)
+        self.assertTrue(self.research.finish(first,"Revised draft"))
+        status=self.research.status()
+        self.assertEqual(status["cycle"]["scope"],"new_only")
+        self.assertEqual(status["cycle"]["state"],"open")
+        restored=ContinuousResearch(self.db,self.pdf,self.base/"index.sqlite3")
+        other=restored.claim()
+        self.assertIsNotNone(other)
+        self.assertNotEqual(other["source_id"],first["source_id"])
+        self.assertIn(other["source_id"],("pdf:"+SHA,"pdf:"+FAILED))
+        self.assertTrue(restored.finish(other,"Other revised draft"))
+        self.assertEqual(restored.status()["cycle"]["state"],"completed")
+        with connect(self.db) as db:
+            old=db.execute("""SELECT count(*) FROM cr_jobs j JOIN cr_sections s
+                ON s.slot=j.slot AND s.revision=j.revision
+                WHERE s.source_id=?""",("pdf:"+third,)).fetchone()[0]
+            self.assertEqual(old,1)
+
+    def test_legacy_cycle_schema_retains_completed_rows(self):
+        legacy=self.base/"legacy-cycles.sqlite3"
+        ai.init_db(legacy)
+        with sqlite3.connect(legacy) as db:
+            db.execute("DROP TABLE cr_cycles")
+            db.execute("""CREATE TABLE cr_cycles(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started REAL NOT NULL,completed REAL,
+                state TEXT NOT NULL CHECK(state IN ('open','completed')))""")
+            db.execute("""INSERT INTO cr_cycles(started,completed,state)
+                VALUES(100,110,'completed')""")
+        init_schema(legacy)
+        init_schema(legacy)
+        with sqlite3.connect(legacy) as db:
+            self.assertEqual(db.execute("""SELECT scope FROM cr_cycles
+                WHERE id=1""").fetchone()[0],"full")
+            self.assertEqual(db.execute("""SELECT state FROM cr_cycles
+                WHERE id=1""").fetchone()[0],"completed")
+
     def test_source_history_is_complete_paginated_and_preserves_old_revisions(self):
         self.add_doc()
         self.research.inventory()
