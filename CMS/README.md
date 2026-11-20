@@ -394,3 +394,8 @@ Authenticated status reads and control POSTs to the private Gentoo research serv
 All new claims remain private to Gentoo until a human verifies an exact quote from an already-approved PDF and submits an explicitly confirmed review. They do not automatically enter existing CMS reference documents, knowledge/RAG exports, training sets or deployed model files.
 
 Review the pinned commit and [continuous research deployment plan](../docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md); do not deploy automatically or rerun full site installers.
+
+
+### Source history and reports
+
+The administrator-only Continuous Research panel includes signed, source-scoped paged history browsing, durable cycle progress (completed/planned passes), measured inference latency and estimated inference-only pass throughput. The operator may explicitly download the currently selected eight-result page as a private JSON research report. The report includes original-source provenance and unreviewed model notes; it is **not** a reviewed reference, training dataset, sanitized public document or automatic model update. Source IDs and page offsets are strictly validated and all report retrieval uses the signed private bridge and existing administrator/CSRF/rate-limiting controls. Do not publish the downloaded JSON or assume model text is secret-free.

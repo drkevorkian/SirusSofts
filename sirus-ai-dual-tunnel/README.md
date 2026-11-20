@@ -171,3 +171,12 @@ The Gentoo input router now contains `continuous_research.py`, `research_evidenc
 New private controller and evidence GET/POST endpoints require a request-specific HMAC, timestamp and replay-protected nonce, separate from the existing SSH tunnel/output key. The Gentoo file is `/etc/sirus-ai-dual/research-admin.key` (exactly 32 binary bytes, regular file, no symlink, 0600, service-account readable). CMS has a matching private file outside the website root; it signs only allowlisted routes. The key is not generated, exported or committed by source updates. Without it, new administrator operations fail closed.
 
 The reviewed **in-place** Gentoo upgrade now bundles all three modules. Review the pinned SHA, consistent private SQLite snapshot, SSD mount and [deployment plan](../docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md) before a separately authorized apply. This code change does not restart local GPU/model services, train adapters, publish source text, or install anything automatically.
+
+
+### Research progress, targeted cycles, and private history (source-only)
+
+The private \`cr_results\` ledger now stores measured per-inference durations and output character counts. Source-cycle completion is committed immediately after its last successful pass. Recently revised or newly eligible sections join a durable \`new_only\` targeted cycle without reprocessing unchanged work ahead of the configured full revisit interval. Existing cycles and drafts survive additive SQLite migrations. The reported throughput estimate excludes source reads, queueing, retries, GPU contention, and worker allocation; it is not a measured tokens/second rate.
+
+The Gentoo input worker accepts an additional **HMAC-authenticated** local-only history route, \`POST /api/in/research/continuous/history\`. It takes a validated original source ID and bounded pass offset; returns paginated private unreviewed draft history and job state metadata. The CMS \`/admin/ai\` displays the page history and offers an explicitly requested JSON report download of the selected eight passes. No report is written to a public directory or automatically approved, published, or used to train model weights. Because reports include raw draft notes, operators must handle them as private and possibly sensitive.
+
+Before deployment, follow [the reviewed in-place deployment and acceptance procedure](../docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md). The new signed route depends on the previously specified private 32-byte key on both hosts. No server changes were performed by these commits.

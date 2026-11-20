@@ -2,7 +2,7 @@
 
 **Status:** Approved roadmap — source implementation underway; production deployment and acceptance pending  
 **Priority:** High  
-**Tracking baseline:** 7774d7fddc69 (last verified source baseline, 2026-11-19)  
+**Tracking baseline:** 0d7f2ed3e3b1 (source changes checked with CI; production acceptance pending, 2026-11-19)  
 **Platform:** Gentoo local AI workers + Ubuntu public CMS gateway  
 **Objective:** Enable the local LLM to continuously revisit, analyze, cross-reference, and improve its understanding of the entire available knowledge library without requiring a user to initiate each research session.
 
@@ -14,7 +14,7 @@
 - **No source or checklist update deploys servers.** In particular, the 32-byte private signed administrative bridge key still needs secure provisioning in an approved maintenance window. Model-weight training remains disabled.
 - **Git workflow:** The repository root README specifies `main` only; the original dedicated-development-branch requirement is superseded rather than performed. Keep history and rollbacks through normal reviewed commits.
 
-**Overall source checklist: 61 / 138 checked (44.2%).** This is development progress, **not production readiness**.
+**Overall source checklist: 65 / 138 checked (47.1%).** This is development progress, **not production readiness**.
 
 | Section | Source-complete | Still open |
 |---|---:|---:|
@@ -25,7 +25,7 @@
 | 5. Verification and memory | 9/12 | 3 |
 | 6. Cross-document intelligence | 1/9 | 8 |
 | 7. Resource management | 2/11 | 9 |
-| 8. Administrator dashboard | 9/15 | 6 |
+| 8. Administrator dashboard | 13/15 | 2 |
 | 9. Safety and reliability | 7/12 | 5 |
 | 10. Optional model training | 1/9 | 8 |
 | 11. Acceptance tests | 0/12 | 12 |
@@ -131,7 +131,7 @@ For each selected document or document section:
 - [ ] Reserve resources for interactive chat and existing system services. **Partial (source):** New background work defers to chat; it cannot reserve resources or preempt a running model call.
 - [ ] Allow configurable background inference concurrency.
 - [x] Throttle research when resource utilization exceeds configured limits.
-- [ ] Monitor memory consumption, inference latency, and queue growth. **Partial (source):** CPU, RAM headroom and queue are displayed; per-inference latency is not tracked.
+- [ ] Monitor memory consumption, inference latency, and queue growth. **Partial (source):** Host available RAM, CPU/queue counts and per-pass inference latency are available; process-specific memory utilization and historical queue-growth trends are not.
 - [ ] Track tokens processed per second and per research job.
 - [ ] Prevent uncontrolled database growth through configurable retention and archival.
 - [ ] Avoid continuously reprocessing unchanged material at unnecessarily high priority.
@@ -146,16 +146,16 @@ Add a **Continuous Research** section to the existing SirusSofts AI administrati
 - [x] Start, pause, resume, and stop controls.
 - [x] Active research job and currently selected source.
 - [x] Current document, page, section, and inference pass.
-- [ ] Coverage cycle number and progress. **Partial (source):** Cycle ID/state are displayed, but there is no end-to-end percentage/progress estimate.
+- [x] Coverage cycle number and progress. **Source implementation:** Cycle ID, scoped plan, completed/total passes, failure count and pass percentage are displayed; live acceptance remains in section 11.
 - [x] Total indexed documents and sections.
 - [x] Processed, pending, failed, and excluded counts.
-- [ ] Estimated processing throughput.
+- [x] Estimated processing throughput. **Source implementation:** Measured inference durations and completed passes feed a labeled inference-only estimate; queue delays/GPU contention are excluded.
 - [ ] Resource utilization and active worker status. **Partial (source):** CPU load, RAM headroom and active worker appear; GPU/VRAM utilization is absent.
 - [ ] Recently verified findings. **Partial (source):** Latest human claim revisions are listed; a dedicated filtered verified-findings feed is missing.
 - [x] Outstanding contradictions and review requests.
-- [ ] Source-specific research histories. **Partial (source):** Limited recent evidence/claim lists exist; complete per-source research drilldown is missing.
+- [x] Source-specific research histories. **Source implementation:** Admin-only signed source history lists recent jobs and pages through all stored pass results, including superseded revisions and failures.
 - [x] Research priorities and scheduling configuration.
-- [ ] Downloadable research reports.
+- [x] Downloadable research reports. **Source implementation:** Explicit admin-only JSON download of the selected eight-pass history page, with citations and unreviewed draft labels. Full-source bulk export is not included.
 - [x] Visible explanations when jobs are blocked or repeatedly failing.
 
 ## 9. Safety, Access, and Reliability
@@ -167,7 +167,7 @@ Add a **Continuous Research** section to the existing SirusSofts AI administrati
 - [x] Treat documents and websites as untrusted input, not instructions to the research controller.
 - [x] Prevent unauthorized network requests and local file access.
 - [ ] Set bounded job limits, source sizes, and timeouts. **Partial (source):** Section sizes, pass counts, retries and API request limits are bounded; hard limits on all model calls require validation.
-- [ ] Protect credentials and private source data from generated reports. **Partial (source):** No public report export is created; safe redacted report generation remains.
+- [ ] Protect credentials and private source data from generated reports. **Partial (source):** Reports are explicitly downloaded only by authorized administrators, are not stored in a public directory, and carry unreviewed/possibly private notes. Automatic secret scanning/redaction and report-classification policy remain.
 - [ ] Maintain database backup and restore procedures. **Partial (source):** Backup-backed upgrade procedures are documented; restore has not been exercised on live data.
 - [x] Provide safe shutdown and restart behavior.
 - [ ] Test job interruption, database corruption recovery, and queue resumption. **Partial (source):** Synthetic restart tests pass, but database-corruption recovery has not been tested.
@@ -198,7 +198,7 @@ This phase is separate from continuous inference.
 - [ ] Verify duplicate jobs do not execute concurrently. **Partial (source):** Atomic-claim/fencing tests pass; physical inference overlap after lease expiry needs testing.
 - [ ] Verify citations always map to the correct source and page. **Partial (source):** Tests check page/part source metadata; representative real manuals still need audit.
 - [ ] Verify unsupported conclusions cannot enter the verified knowledge store. **Partial (source):** Database rejects promoting drafts and checks human-backed originals; live acceptance remains.
-- [ ] Verify changed documents trigger targeted re-analysis.
+- [ ] Verify changed documents trigger targeted re-analysis. **Partial (source):** Synthetic tests confirm prompt targeted cycles for revised sections, exclusion of unchanged revisions, durable cycle scope and later full revisit; real corpus acceptance remains.
 - [ ] Verify interactive AI chat remains available during background work. **Partial (source):** Chat priority admission is implemented; measured peak-load latency is missing.
 - [ ] Verify pause, cancellation, and restoration behavior. **Partial (source):** Unit tests cover pause/stop/resume; interruption and service restoration tests remain.
 - [ ] Verify that an administrator can inspect and reverse promoted findings. **Partial (source):** Unit tests cover admin review/reversal; real CMS/Gentoo acceptance remains.
@@ -244,6 +244,16 @@ The research service must not interfere with normal website operations, expose p
 **Target outcome:** An autonomous, continuously researching SirusSofts knowledge system that improves its source-grounded understanding while retaining administrator oversight and operational control.
 
 ---
+
+### Continued implementation: private visibility, reports and targeted cycles (source only)
+
+The scheduler now records inference duration and output character counts for each newly completed pass, retaining old results with unknown duration 0 through an additive SQLite migration. The CMS shows measured completed passes in the last hour, average inference duration, and a clearly labeled **estimated uninterrupted inference-only** pass rate. No token/sec performance claim is inferred from output character counts.
+
+A completed cycle closes in the final checkpoint transaction. After a cycle closes, newly discovered/changed/uncovered source revisions enter an immediately eligible **targeted cycle**; unchanged source revisions wait for the normal revisit interval. The cycle mode (\`full\` or \`new_only\`) persists in SQLite across restarts. Historic pass results and source revisions are never erased. Regression tests verify two changed sources and one unchanged source through a new engine instance and check upgrades from the older cycle and results tables.
+
+The existing administrator-only \`/admin/ai\` now has source-specific histories: selected original-source identifier, recent job states/retry error types, and **all recorded pass results through pagination (eight at a time)**, including old/superseded revisions. The new internal history route requires the same signed, timestamped, replay-resistant CMS bridge as the controls. PDF text is not copied to Ubuntu. The operator may explicitly download a private JSON research report for the current eight-pass page, retaining source hashes, page/part labels, notes, measured duration, and unequivocal *unreviewed* status. This download is **not** an approved knowledge export, does not enter training, and can contain private or sensitive model-generated notes; it requires careful local handling. No secret-redaction guarantee is claimed.
+
+**Still open:** Full-source one-file report bundles; role-specific source-approval policies; export redaction/scanning; reliable token/sec metrics; process/GPU/VRAM telemetry; actual service-restart and full-library load testing. These remain unchecked above.
 
 ## Implementation evidence and unresolved engineering gates
 
