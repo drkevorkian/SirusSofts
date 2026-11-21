@@ -32,6 +32,7 @@ function cms_ai_continuous_payload(array $post):array {
         $chat=filter_var($post['max_chat_jobs']??null,FILTER_VALIDATE_INT);
         $load=$post['max_cpu_load']??null;
         $ram=filter_var($post['min_available_ram_mib']??'0',FILTER_VALIDATE_INT);
+        $vram=filter_var($post['min_gpu_free_mib']??'0',FILTER_VALIDATE_INT);
         $quietStart=filter_var($post['quiet_start_utc']??'-1',FILTER_VALIDATE_INT);
         $quietEnd=filter_var($post['quiet_end_utc']??'-1',FILTER_VALIDATE_INT);
         $target=$post['target']??null;
@@ -40,6 +41,7 @@ function cms_ai_continuous_payload(array $post):array {
            $interval===false||$interval<60||$interval>604800||
            $chat===false||$chat<0||$chat>4||
            $ram===false||$ram<0||$ram>1048576||
+           $vram===false||$vram<0||$vram>1048576||
            $quietStart===false||$quietEnd===false||
            !(($quietStart===-1&&$quietEnd===-1)||
               ($quietStart>=0&&$quietStart<=23&&
@@ -53,7 +55,8 @@ function cms_ai_continuous_payload(array $post):array {
             throw new InvalidArgumentException('Invalid continuous research settings.');
         $data['value']=['passes'=>$passes,'revisit_seconds'=>$interval,
             'max_chat_jobs'=>$chat,'max_cpu_load'=>(float)$load,
-            'min_available_ram_mib'=>$ram,'quiet_start_utc'=>$quietStart,
+            'min_available_ram_mib'=>$ram,'min_gpu_free_mib'=>$vram,
+            'quiet_start_utc'=>$quietStart,
             'quiet_end_utc'=>$quietEnd,
             'target'=>$target,'model_id'=>$model];
     }
@@ -201,7 +204,28 @@ function cms_ai_continuous_panel(PDO $db):void {
         <?=cms_esc((string)($jobs['superseded']??0))?> superseded.
         Chat queue: <?=cms_esc((string)($info['interactive_jobs']??0))?>.
         CPU load (1m): <?=cms_esc((string)($info['cpu_load_1m']??'?'))?>.
-        Free RAM (MiB): <?=cms_esc((string)($info['free_ram_mib']??'?'))?>.</p>
+        Available logical CPU threads: <?=cms_esc((string)($info['cpu_logical']??'?'))?>.
+        Free host RAM (MiB): <?=cms_esc((string)($info['free_ram_mib']??'?'))?>.</p>
+      <h3>Local GPU / VRAM telemetry</h3>
+      <p>This is a read-only point-in-time snapshot from Gentoo. Unavailable
+      GPU telemetry is <strong>not</strong> interpreted as free VRAM.
+      Selecting a minimum VRAM limit requires an explicit NVIDIA or AMD worker;
+      the automatic and CPU targets remain ineligible while that limit is on.</p>
+      <?php $gpus=is_array($info['gpu_devices']??null)?array_slice($info['gpu_devices'],0,32):[]; ?>
+      <?php if(!$gpus): ?>
+        <p>No supported GPU memory telemetry returned; no GPU free-memory assumption.</p>
+      <?php else: ?>
+        <div class="table-scroll"><table><thead><tr><th>Backend</th><th>Device</th>
+          <th>Total VRAM (MiB)</th><th>Free VRAM (MiB)</th><th>Telemetry</th>
+        </tr></thead><tbody>
+        <?php foreach($gpus as $gpu):if(!is_array($gpu))continue;?>
+          <tr><td><?=cms_esc((string)($gpu['backend']??'?'))?></td>
+          <td><?=cms_esc((string)($gpu['device']??'?'))?></td>
+          <td><?=cms_esc(isset($gpu['total_mib'])?(string)$gpu['total_mib']:'unknown')?></td>
+          <td><?=cms_esc(isset($gpu['free_mib'])?(string)$gpu['free_mib']:'unknown')?></td>
+          <td><?=cms_esc((string)($gpu['telemetry']??'unavailable'))?></td></tr>
+        <?php endforeach;?></tbody></table></div>
+      <?php endif; ?>
       <p>Throughput (measured): <?=cms_esc((string)($throughput['passes_last_60_minutes']??0))?>
         completed passes in the last 60 minutes.
         Average inference latency:
@@ -259,6 +283,10 @@ function cms_ai_continuous_panel(PDO $db):void {
           <input type="number" name="min_available_ram_mib" min="0" max="1048576"
             value="<?=cms_esc((string)($cfg['min_available_ram_mib']??0))?>">
         </label>
+        <label>Minimum free GPU VRAM (MiB; 0 disables GPU admission gate)
+          <input type="number" name="min_gpu_free_mib" min="0" max="1048576"
+            value="<?=cms_esc((string)($cfg['min_gpu_free_mib']??0))?>">
+        </label>
         <label>Quiet hours start UTC (-1 disables)
           <input type="number" name="quiet_start_utc" min="-1" max="23"
             value="<?=cms_esc((string)($cfg['quiet_start_utc']??-1))?>">
@@ -279,6 +307,10 @@ function cms_ai_continuous_panel(PDO $db):void {
           </select>
         </label>
         <button class="btn" type="submit">Save scheduling limits</button>
+        <p>Enabling a VRAM gate on an explicit GPU target blocks new research
+        when that backend's memory counters cannot be read or are below the
+        configured threshold. It is not a reservation and does not preempt
+        already-running model calls.</p>
       </form>
     </section>
     <section class="admin-panel table-scroll">
