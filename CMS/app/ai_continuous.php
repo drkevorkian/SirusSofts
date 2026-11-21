@@ -441,6 +441,7 @@ function cms_ai_evidence_payload(array $post,string $reviewer):array {
             throw new InvalidArgumentException('Invalid original document or applicability.');
         $data['source_id']=$source;
         $data['applicability']=$scope;
+        $data['reviewer']=$reviewer; // Audited source scope changes
     }
     if($action==='review'||$action==='dismiss'){
         $id=$post['evidence_id']??null;
@@ -454,6 +455,11 @@ function cms_ai_evidence_payload(array $post,string $reviewer):array {
         $revision=$post['revision']??null;
         $reviewAction=$post['review_action']??null;
         $reason=$post['reason']??'';
+        $scope=$post['expected_scope']??null;
+        if(!is_string($scope) || ($scope!==''&&!preg_match(
+            '#^[a-z0-9][a-z0-9._-]{0,23}(?:/[a-z0-9][a-z0-9._-]{0,23}){1,5}$#D',
+            $scope)))
+            throw new InvalidArgumentException('Scope changed; reopen the evidence review.');
         if(!is_string($quoteSha)||!preg_match('/^[0-9a-f]{64}$/D',$quoteSha)||
            !is_string($revision)||!preg_match('/^[0-9a-f]{64}$/D',$revision)||
            !in_array($reviewAction,['support','dispute','reject','supersede'],true)||
@@ -466,6 +472,7 @@ function cms_ai_evidence_payload(array $post,string $reviewer):array {
                 'Supporting a claim requires typing I VERIFIED ORIGINAL.');
         $data['quote_sha']=$quoteSha;
         $data['revision']=$revision;
+        $data['expected_scope']=$scope;
         $data['review_action']=$reviewAction;
         $data['reason']=$reason;
     }
@@ -519,6 +526,10 @@ function cms_ai_evidence_panel(PDO $db):void {
         <button class="btn small" type="submit">Index next 32 eligible PDF sections</button>
       </form>
       <h3>Set exact comparison applicability</h3>
+      <p><strong>Changing a scope immediately supersedes previously reviewed
+      statements for that source.</strong> The change is appended to a private
+      scope history with the administrator identity. An administrator must
+      recheck each original citation to support claims in the new scope.</p>
       <p>Format: <code>make/model/year/engine/assembly</code> (lowercase; omit optional trailing segments). Leave blank to disable comparisons for a document. Never equate different years or engines without confirming applicability.</p>
       <div class="table-scroll"><table><thead><tr>
         <th>Original source</th><th>Application scope</th>
@@ -566,6 +577,8 @@ function cms_ai_evidence_panel(PDO $db):void {
         <input type="hidden" name="evidence_id" value="<?=cms_esc($id)?>">
         <input type="hidden" name="quote_sha" value="<?=cms_esc($quoteSha)?>">
         <input type="hidden" name="revision" value="<?=cms_esc($revision)?>">
+        <input type="hidden" name="expected_scope"
+          value="<?=cms_esc((string)($item['applicability']??''))?>">
         <label>Action <select name="review_action">
           <option value="dispute">Dispute</option>
           <option value="reject">Reject</option>

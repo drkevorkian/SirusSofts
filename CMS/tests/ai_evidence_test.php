@@ -15,6 +15,7 @@ $base=[
     'evidence_id'=>$id,
     'quote_sha'=>str_repeat('b',64),
     'revision'=>str_repeat('c',64),
+    'expected_scope'=>'',
     'review_action'=>'support',
     'confirmation'=>'I VERIFIED ORIGINAL',
     'reason'=>'Compared with original approved PDF page.'
@@ -30,6 +31,11 @@ evidence_check(cms_ai_evidence_payload([
     'applicability'=>'brp/defender/2026/hd11/clutch'
 ],$reviewer)['applicability']==='brp/defender/2026/hd11/clutch',
     'Explicit exact applicability accepted');
+evidence_check(cms_ai_evidence_payload([
+    'operation'=>'scope','source_id'=>$source,
+    'applicability'=>'brp/defender/2026/hd11/clutch'
+],$reviewer)['reviewer']===$reviewer,
+    'Source scope changes are attributed to human administrators');
 evidence_check(cms_ai_evidence_payload([
     'operation'=>'scope','source_id'=>$source,'applicability'=>''
 ],$reviewer)['applicability']==='','Comparison scopes can be cleared');
@@ -53,6 +59,8 @@ foreach([
     array_replace($base,['review_action'=>'auto_promote']),
     array_replace($base,['revision'=>str_repeat('e',63)]),
     array_replace($base,['reason'=>str_repeat('x',201)]),
+    array_replace($base,['expected_scope'=>'brp//invalid']),
+    array_replace($base,['expected_scope'=>null]),
 ] as $bad){
     try{
         cms_ai_evidence_payload($bad,$reviewer);

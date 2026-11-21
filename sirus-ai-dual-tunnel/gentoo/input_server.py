@@ -659,11 +659,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     response=ledger.index_batch(32)
                 elif action=='scope':
                     response=ledger.set_scope(data.get('source_id'),
-                                              data.get('applicability'))
+                                              data.get('applicability'),
+                                              data.get('reviewer'))
                 elif action=='review':
                     response=ledger.review(data.get('id'),data.get('quote_sha'),
                                            data.get('revision'),data.get('reviewer'),
-                                           data.get('review_action'),data.get('reason',''))
+                                           data.get('review_action'),data.get('reason',''),
+                                           expected_scope=data.get('expected_scope'))
                 elif action=='dismiss':
                     response=ledger.dismiss_conflict(data.get('id'),
                                                      data.get('reviewer'))

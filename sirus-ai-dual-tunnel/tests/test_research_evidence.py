@@ -93,9 +93,9 @@ class EvidenceTests(unittest.TestCase):
         self.add_doc(C,"Rear axle torque: 50 ft-lb")
         self.index()
         self.assertEqual(self.ledger.compare_batch()["new_conflicts"],0)
-        self.ledger.set_scope("pdf:"+A,SCOPE)
-        self.ledger.set_scope("pdf:"+B,SCOPE)
-        self.ledger.set_scope("pdf:"+C,SCOPE)
+        self.ledger.set_scope("pdf:"+A,SCOPE,ACTOR)
+        self.ledger.set_scope("pdf:"+B,SCOPE,ACTOR)
+        self.ledger.set_scope("pdf:"+C,SCOPE,ACTOR)
         pairs=self.ledger.compare_batch()
         self.assertEqual(pairs["new_conflicts"],1)
         self.assertEqual(self.ledger.compare_batch()["new_conflicts"],0)
@@ -114,12 +114,12 @@ class EvidenceTests(unittest.TestCase):
         self.add_doc(A,"Rear axle torque: 40 Nm")
         self.add_doc(B,"Rear axle torque: 45 Nm")
         self.index()
-        self.ledger.set_scope("pdf:"+A,SCOPE)
-        self.ledger.set_scope("pdf:"+B,"brp/defender/2025/hd10/clutch")
+        self.ledger.set_scope("pdf:"+A,SCOPE,ACTOR)
+        self.ledger.set_scope("pdf:"+B,"brp/defender/2025/hd10/clutch",ACTOR)
         self.assertEqual(self.ledger.compare_batch()["new_conflicts"],0)
-        self.ledger.set_scope("pdf:"+B,SCOPE)
+        self.ledger.set_scope("pdf:"+B,SCOPE,ACTOR)
         self.assertEqual(self.ledger.compare_batch()["new_conflicts"],1)
-        self.ledger.set_scope("pdf:"+B,"brp/defender/2025/hd10/clutch")
+        self.ledger.set_scope("pdf:"+B,"brp/defender/2025/hd10/clutch",ACTOR)
         self.ledger.reconcile()
         with connect(self.db) as db:
             self.assertEqual(db.execute("SELECT state FROM cr_conflicts").fetchone()[0],
@@ -131,9 +131,9 @@ class EvidenceTests(unittest.TestCase):
         item=self.item()
         with self.assertRaises(ValueError):
             self.ledger.review(item["id"],item["quote_sha"],item["revision"],
-                               ACTOR,"support")
+                               ACTOR,"support",expected_scope="")
         self.assertEqual(self.ledger.review(item["id"],item["quote_sha"],
-                                           item["revision"],ACTOR,"dispute")["state"],
+                                           item["revision"],ACTOR,"dispute",expected_scope="")["state"],
                          "disputed")
         with connect(self.db) as db:
             self.assertEqual(db.execute("SELECT count(*) FROM cr_claim_versions").fetchone()[0],
@@ -148,16 +148,16 @@ class EvidenceTests(unittest.TestCase):
                 self.ledger.review(item["id"],item["quote_sha"],item["revision"],
                                    bad,"support")
         with self.assertRaises(ValueError):
-            self.ledger.review(item["id"],"0"*64,item["revision"],ACTOR,"support")
+            self.ledger.review(item["id"],"0"*64,item["revision"],ACTOR,"support",expected_scope="")
         self.assertEqual(self.ledger.review(item["id"],item["quote_sha"],
-                                           item["revision"],ACTOR,"support")["state"],
+                                           item["revision"],ACTOR,"support",expected_scope="")["state"],
                          "supported")
         with self.assertRaises(ValueError):
             self.ledger.review(item["id"],item["quote_sha"],item["revision"],
-                               ACTOR,"support")
+                               ACTOR,"support",expected_scope="")
         self.assertEqual(self.ledger.review(item["id"],item["quote_sha"],
                                            item["revision"],ACTOR,"reject",
-                                           "Manual reviewed after recheck")["state"],
+                                           "Manual reviewed after recheck",expected_scope="")["state"],
                          "rejected")
         with connect(self.db) as db:
             rec=db.execute("SELECT state,version FROM cr_claims").fetchone()
@@ -177,14 +177,14 @@ class EvidenceTests(unittest.TestCase):
         self.index()
         item=self.item()
         self.ledger.review(item["id"],item["quote_sha"],item["revision"],
-                           ACTOR,"support")
+                           ACTOR,"support",expected_scope="")
         with sqlite3.connect(self.pdf) as con:
             con.execute("UPDATE excerpts SET text='Rear axle torque: 45 Nm'")
             con.execute("UPDATE documents SET updated_at=2")
         # Even before the next inventory, review of old metadata fails.
         with self.assertRaises(ValueError):
             self.ledger.review(item["id"],item["quote_sha"],item["revision"],
-                               ACTOR,"dispute")
+                               ACTOR,"dispute",expected_scope="")
         self.research.inventory()
         self.ledger.reconcile()
         self.ledger.index_batch()
@@ -208,21 +208,114 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(self.ledger.index_batch()["parsed_candidates"],0)
         self.assertEqual(self.ledger.status()["counts"]["supported_claims"],0)
 
+    def test_scope_change_revokes_approved_claim_and_audits_applicability(self):
+        self.add_doc(A,"Rear axle torque: 40 Nm")
+        self.index()
+        item=self.item()
+        self.assertTrue(self.ledger.set_scope("pdf:"+A,SCOPE,ACTOR)["changed"])
+        self.assertEqual(self.ledger.review(item["id"],item["quote_sha"],
+                         item["revision"],ACTOR,"support",
+                         expected_scope=SCOPE)["state"],"supported")
+        with self.assertRaises(ValueError):
+            self.ledger.review(item["id"],item["quote_sha"],item["revision"],
+                               ACTOR,"dispute",expected_scope="")
+        new_scope="brp/defender/2025/hd10/clutch"
+        changed=self.ledger.set_scope("pdf:"+A,new_scope,ACTOR)
+        self.assertEqual(changed["invalidated_claims"],1)
+        self.assertTrue(changed["changed"])
+        with connect(self.db) as db:
+            versions=db.execute("""SELECT state,applicability,reviewed_by
+                FROM cr_claim_versions ORDER BY version""").fetchall()
+            self.assertEqual([v["state"] for v in versions],
+                             ["unreviewed","supported","superseded"])
+            self.assertEqual(versions[1]["applicability"],SCOPE)
+            self.assertEqual(versions[2]["applicability"],SCOPE)
+            self.assertEqual(versions[2]["reviewed_by"],"system:scope-change")
+            changes=db.execute("""SELECT version,previous_scope,new_scope,
+                reviewed_by FROM cr_scope_versions WHERE source_id=?
+                ORDER BY version""",("pdf:"+A,)).fetchall()
+            self.assertEqual([(r["previous_scope"],r["new_scope"]) for r in changes],
+                             [("",SCOPE),(SCOPE,new_scope)])
+            self.assertTrue(all(r["reviewed_by"]==ACTOR for r in changes))
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("DELETE FROM cr_scope_versions")
+        with self.assertRaises(ValueError):
+            self.ledger.review(item["id"],item["quote_sha"],item["revision"],
+                               ACTOR,"support",expected_scope=SCOPE)
+        self.assertEqual(self.ledger.set_scope("pdf:"+A,new_scope,ACTOR)
+                         ["invalidated_claims"],0)
+        with connect(self.db) as db:
+            self.assertEqual(db.execute(
+                "SELECT count(*) FROM cr_scope_versions").fetchone()[0],2)
+        self.assertEqual(self.ledger.review(item["id"],item["quote_sha"],
+                         item["revision"],ACTOR,"support",
+                         expected_scope=new_scope)["state"],"supported")
+        self.assertEqual(self.ledger.set_scope("pdf:"+A,"",ACTOR)
+                         ["invalidated_claims"],1)
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("SELECT state FROM cr_claims").
+                             fetchone()[0],"superseded")
+
+    def test_scope_mutations_require_valid_reviewers_and_honor_source_changes(self):
+        self.add_doc(A,"Rear axle torque: 40 Nm")
+        self.index()
+        for reviewer in (None, "model:ai", "cms-admin:0", "cms-admin:99999999999999"):
+            with self.assertRaises(ValueError):
+                self.ledger.set_scope("pdf:"+A,SCOPE,reviewer)
+        item=self.item()
+        self.ledger.set_scope("pdf:"+A,SCOPE,ACTOR)
+        with self.assertRaises(ValueError):
+            self.ledger.review(item["id"],item["quote_sha"],item["revision"],
+                               ACTOR,"support")
+        self.ledger.review(item["id"],item["quote_sha"],item["revision"],
+                           ACTOR,"support",expected_scope=SCOPE)
+        with sqlite3.connect(self.pdf) as db:
+            db.execute("UPDATE excerpts SET text='Rear axle torque: 50 Nm'")
+            db.execute("UPDATE documents SET updated_at=2")
+        self.research.inventory()
+        self.assertEqual(self.ledger.reconcile(),1)
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("SELECT state FROM cr_claims").
+                             fetchone()[0],"superseded")
+
+    def test_evidence_claim_scope_column_migrates_without_erasing_old_versions(self):
+        from research_evidence import init_schema
+        with connect(self.db) as db:
+            db.execute("DROP TRIGGER cr_claim_versions_no_update")
+            db.execute("DROP TRIGGER cr_claim_versions_no_delete")
+            db.execute("DROP TABLE cr_claim_versions")
+            db.execute("""CREATE TABLE cr_claim_versions(
+                claim_id TEXT NOT NULL,version INTEGER NOT NULL,
+                state TEXT NOT NULL,statement TEXT NOT NULL,quote_sha TEXT NOT NULL,
+                source_revision TEXT NOT NULL,reviewed_by TEXT NOT NULL,
+                reason TEXT NOT NULL DEFAULT '',created REAL NOT NULL,
+                PRIMARY KEY(claim_id,version))""")
+            db.execute("""INSERT INTO cr_claim_versions VALUES(
+                'older',1,'supported','Old quote','sha','revision','cms-admin:1','',123)""")
+        init_schema(self.db)
+        init_schema(self.db)
+        with connect(self.db) as db:
+            prior=db.execute("""SELECT state,statement,applicability
+                FROM cr_claim_versions WHERE claim_id='older'""").fetchone()
+            self.assertEqual(tuple(prior),("supported","Old quote",""))
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("UPDATE cr_claim_versions SET state='rejected'")
+
     def test_scope_and_review_reject_invalid_input(self):
         self.add_doc(A,"Rear axle torque: 40 Nm")
         self.index()
         item=self.item()
         for scope in ("private-host", "HTTP://server", "../etc", "2026", "brp//2026"):
             with self.assertRaises(ValueError):
-                self.ledger.set_scope("pdf:"+A,scope)
+                self.ledger.set_scope("pdf:"+A,scope,ACTOR)
         with self.assertRaises(ValueError):
-            self.ledger.set_scope("research:"+"1"*32,SCOPE)
+            self.ledger.set_scope("research:"+"1"*32,SCOPE,ACTOR)
         with self.assertRaises(ValueError):
             self.ledger.review(item["id"],item["quote_sha"],item["revision"],
-                               ACTOR,"unsupported")
+                               ACTOR,"unsupported",expected_scope="")
         with self.assertRaises(ValueError):
             self.ledger.review(item["id"],item["quote_sha"],"invalid",
-                               ACTOR,"support")
+                               ACTOR,"support",expected_scope="")
 
 
 if __name__=="__main__":
