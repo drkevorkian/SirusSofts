@@ -11,7 +11,8 @@ import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"gentoo"))
 import input_server as ai
 from continuous_research import (ContinuousResearch, connect, digest,
-                                 init_schema, admission_reasons)
+                                 init_schema, admission_reasons,
+                                 gpu_memory_snapshot)
 
 
 SHA="a"*64
@@ -547,6 +548,107 @@ class ContinuousResearchTests(unittest.TestCase):
         self.assertEqual(self.research.status()["jobs"]["completed"],1)
         self.assertTrue(self.research.status()["draft_only"])
         self.assertFalse(self.research.status()["weight_training"])
+
+    def test_read_only_gpu_vram_discovery_and_invalid_counters(self):
+        from unittest.mock import Mock
+        root=self.base/"drm"
+        amd=root/"card2"/"device"
+        amd.mkdir(parents=True)
+        (amd/"vendor").write_text("0x1002\n")
+        (amd/"mem_info_vram_total").write_text(str(8*1048576)+"\n")
+        (amd/"mem_info_vram_used").write_text(str(3*1048576)+"\n")
+        other=root/"card5"/"device"
+        other.mkdir(parents=True)
+        (other/"vendor").write_text("0x8086\n")
+        command=self.base/"nvidia-smi"
+        command.write_text("")  # mock subprocess; no real shell execution
+        mock=Mock(returncode=0,stdout="0, 6144, 3072\n1, 4096, 1024\n")
+        runner=Mock(return_value=mock)
+        gpus=gpu_memory_snapshot(drm_root=root,nvidia_binary=str(command),
+                                 runner=runner)
+        self.assertEqual([(g["backend"],g["free_mib"]) for g in gpus],
+                         [("amd",5),("nvidia",3072),("nvidia",1024)])
+        self.assertEqual(runner.call_args.kwargs["timeout"],1)
+        self.assertFalse(runner.call_args.kwargs["check"])
+        self.assertTrue(runner.call_args.kwargs["capture_output"])
+        self.assertNotIn("shell",runner.call_args.kwargs)
+        (amd/"mem_info_vram_used").write_text(str(10*1048576))
+        gpus=gpu_memory_snapshot(drm_root=root,
+                                 nvidia_binary=str(self.base/"missing"),
+                                 runner=runner)
+        self.assertEqual(gpus[0]["backend"],"amd")
+        self.assertIsNone(gpus[0]["free_mib"])
+        self.assertEqual(gpus[0]["telemetry"],"unavailable")
+        runner.reset_mock()
+        self.assertEqual(len(gpus),1)
+        runner.assert_not_called()
+
+    def test_gpu_admission_is_disabled_by_default_and_fails_closed_on_unknown_vram(self):
+        from unittest.mock import patch
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("enable")
+        default=self.research.status()["config"]
+        self.assertEqual(default["min_gpu_free_mib"],0)
+        self.assertNotIn("vram-telemetry-unavailable",
+            admission_reasons(default,load=0,free_mib=999999,hour=12,
+                              gpu_devices=[]))
+        self.research.control("configure",value={
+            "min_gpu_free_mib":2048,"target":"amd"})
+        cfg=self.research.status()["config"]
+        self.assertIn("vram-telemetry-unavailable",
+            admission_reasons(cfg,load=0,free_mib=999999,hour=12,
+                              gpu_devices=[]))
+        self.assertIn("low-free-vram",
+            admission_reasons(cfg,load=0,free_mib=999999,hour=12,
+                              gpu_devices=[{"backend":"amd","free_mib":1024}]))
+        self.assertNotIn("low-free-vram",
+            admission_reasons(cfg,load=0,free_mib=999999,hour=12,
+                              gpu_devices=[{"backend":"amd","free_mib":4096}]))
+        with patch("continuous_research.gpu_memory_snapshot",return_value=[]):
+            self.assertIsNone(self.research.claim())
+        with patch("continuous_research.gpu_memory_snapshot",return_value=[
+                    {"backend":"amd","free_mib":4096}]):
+            lease=self.research.claim()
+        self.assertIsNotNone(lease)
+        self.assertEqual(lease["target"],"amd")
+        self.assertTrue(self.research.finish(lease,"Approved? No: draft only."))
+        self.research.control("configure",value={"target":"auto"})
+        cfg=self.research.status()["config"]
+        self.assertIn("gpu-target-required",
+            admission_reasons(cfg,load=0,free_mib=999999,hour=12,
+                              gpu_devices=[{"backend":"amd","free_mib":4096}]))
+        for invalid in (-1,1048577,"1024",True):
+            with self.assertRaises(ValueError):
+                self.research.control("configure",value={"min_gpu_free_mib":invalid})
+        self.research.control("configure",value={"min_gpu_free_mib":0})
+        self.assertEqual(self.research.status()["config"]["min_gpu_free_mib"],0)
+
+    def test_legacy_gpu_config_migration_keeps_existing_limits(self):
+        legacy=self.base/"legacy-gpu.sqlite3"
+        ai.init_db(legacy)
+        with sqlite3.connect(legacy) as db:
+            db.execute("ALTER TABLE cr_config RENAME TO old_config")
+            db.execute("""CREATE TABLE cr_config(
+                id INTEGER PRIMARY KEY,mode TEXT,passes INTEGER,model_id TEXT,
+                target TEXT,revisit_seconds INTEGER,max_cpu_load REAL,
+                max_chat_jobs INTEGER,last_completed REAL,updated REAL,
+                last_inventory REAL,scan_requested INTEGER,scan_error TEXT,
+                min_available_ram_mib INTEGER,quiet_start_utc INTEGER,
+                quiet_end_utc INTEGER)""")
+            db.execute("""INSERT INTO cr_config VALUES(
+                1,'paused',3,'sirussofts-coder','nvidia',90,1.5,0,1,2,3,0,'',
+                8000,-1,-1)""")
+            db.execute("DROP TABLE old_config")
+        init_schema(legacy)
+        init_schema(legacy)
+        with sqlite3.connect(legacy) as db:
+            self.assertEqual(db.execute("""SELECT min_gpu_free_mib
+                FROM cr_config""").fetchone()[0],0)
+            self.assertEqual(db.execute("""SELECT min_available_ram_mib
+                FROM cr_config""").fetchone()[0],8000)
+            self.assertEqual(db.execute("SELECT mode FROM cr_config").fetchone()[0],
+                             "paused")
 
     def test_resource_policy_wraparound_and_conservative_memory_gate(self):
         self.add_doc()
