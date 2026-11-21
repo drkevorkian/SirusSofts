@@ -13,6 +13,7 @@ import os
 import re
 from pathlib import Path
 import sqlite3
+import subprocess
 from threading import Event, Thread
 import time
 import uuid
@@ -64,6 +65,7 @@ def init_schema(path):
           max_cpu_load REAL NOT NULL DEFAULT 0,
           max_chat_jobs INTEGER NOT NULL DEFAULT 0,
           min_available_ram_mib INTEGER NOT NULL DEFAULT 0,
+          min_gpu_free_mib INTEGER NOT NULL DEFAULT 0,
           quiet_start_utc INTEGER NOT NULL DEFAULT -1,
           quiet_end_utc INTEGER NOT NULL DEFAULT -1,
           last_completed REAL NOT NULL DEFAULT 0,
@@ -130,6 +132,7 @@ def init_schema(path):
         cols={row[1] for row in db.execute("PRAGMA table_info(cr_config)")}
         for column,definition in (
             ("min_available_ram_mib","INTEGER NOT NULL DEFAULT 0"),
+            ("min_gpu_free_mib","INTEGER NOT NULL DEFAULT 0"),
             ("quiet_start_utc","INTEGER NOT NULL DEFAULT -1"),
             ("quiet_end_utc","INTEGER NOT NULL DEFAULT -1")):
             if column not in cols:
@@ -161,7 +164,75 @@ def free_memory_mib():
     return None
 
 
-def admission_reasons(cfg, *, free_mib=None, load=None, hour=None):
+def gpu_memory_snapshot(*, drm_root="/sys/class/drm",
+                        nvidia_binary="/usr/bin/nvidia-smi",
+                        runner=None):
+    """Read-only, bounded local GPU/VRAM discovery for Gentoo.
+
+    Linux amdgpu sysfs provides VRAM bytes. NVIDIA's fixed-path local
+    nvidia-smi provides MiB. Unknown memory is None, NEVER assumed free.
+    No CUDA/Vulkan initialization, GPU workloads, shells or network calls.
+    """
+    devices=[]
+    root=Path(drm_root)
+    try:
+        cards=sorted((c for c in root.glob("card[0-9]*")
+                      if re.fullmatch(r"card[0-9]+",c.name)),
+                     key=lambda c:int(c.name[4:]))[:32]
+    except OSError:
+        cards=[]
+    for card in cards:
+        try:
+            vendor=(card/"device"/"vendor").read_text(encoding="ascii").strip().lower()
+            if vendor!="0x1002":
+                continue
+            total=int((card/"device"/"mem_info_vram_total").read_text().strip())
+            used=int((card/"device"/"mem_info_vram_used").read_text().strip())
+            if total<0 or used<0 or used>total:
+                raise ValueError("Invalid amdgpu VRAM counters")
+            devices.append({"backend":"amd","device":card.name,
+                "total_mib":total//1048576,"free_mib":(total-used)//1048576,
+                "used_mib":used//1048576,"telemetry":"amdgpu-sysfs"})
+        except (OSError,ValueError):
+            # An AMD card with unknown memory must not be declared available.
+            try:
+                if (card/"device"/"vendor").read_text().strip().lower()=="0x1002":
+                    devices.append({"backend":"amd","device":card.name,
+                                    "total_mib":None,"free_mib":None,
+                                    "used_mib":None,"telemetry":"unavailable"})
+            except OSError:
+                continue
+    # Explicit allowlisted command path, not PATH search or document input.
+    command=Path(nvidia_binary)
+    if command.is_absolute() and command.is_file():
+        if runner is None:
+            runner=subprocess.run
+        try:
+            result=runner([str(command),
+                "--query-gpu=index,memory.total,memory.free",
+                "--format=csv,noheader,nounits"],
+                capture_output=True,text=True,timeout=1,check=False)
+            if result.returncode==0:
+                for line in result.stdout.splitlines()[:32]:
+                    fields=[piece.strip() for piece in line.split(",")]
+                    if len(fields)!=3:
+                        continue
+                    try:
+                        index,total,free=map(int,fields)
+                    except ValueError:
+                        continue
+                    if index<0 or total<0 or not 0<=free<=total:
+                        continue
+                    devices.append({"backend":"nvidia","device":str(index),
+                        "total_mib":total,"free_mib":free,
+                        "used_mib":total-free,"telemetry":"nvidia-smi"})
+        except (OSError,subprocess.TimeoutExpired,ValueError):
+            pass
+    return devices
+
+
+def admission_reasons(cfg, *, free_mib=None, load=None, hour=None,
+                      gpu_devices=None):
     """Pure, testable background gating. Never affects interactive requests."""
     if free_mib is None:
         free_mib=free_memory_mib()
@@ -177,6 +248,20 @@ def admission_reasons(cfg, *, free_mib=None, load=None, hour=None):
             blocked.append("low-free-ram")
     if cfg["max_cpu_load"] and load>cfg["max_cpu_load"]:
         blocked.append("cpu-load")
+    min_vram=cfg["min_gpu_free_mib"]
+    if min_vram:
+        target=cfg["target"]
+        if target not in ("amd","nvidia"):
+            blocked.append("gpu-target-required")
+        else:
+            if gpu_devices is None:
+                gpu_devices=gpu_memory_snapshot()
+            selected=[gpu for gpu in gpu_devices if gpu["backend"]==target]
+            if not selected or any(type(gpu.get("free_mib")) is not int
+                                   for gpu in selected):
+                blocked.append("vram-telemetry-unavailable")
+            elif any(gpu["free_mib"]<min_vram for gpu in selected):
+                blocked.append("low-free-vram")
     start,end=cfg["quiet_start_utc"],cfg["quiet_end_utc"]
     if 0<=start<=23 and 0<=end<=23:
         if (start<end and start<=hour<end) or (
@@ -377,7 +462,7 @@ class ContinuousResearch:
                 if not isinstance(value,dict) or not value or not set(value) <= {
                     "passes","model_id","target","revisit_seconds",
                     "max_cpu_load","max_chat_jobs","min_available_ram_mib",
-                    "quiet_start_utc","quiet_end_utc"}:
+                    "min_gpu_free_mib","quiet_start_utc","quiet_end_utc"}:
                     raise ValueError("Invalid research settings")
                 if "quiet_start_utc" in value or "quiet_end_utc" in value:
                     if not {"quiet_start_utc","quiet_end_utc"} <= set(value):
@@ -408,6 +493,9 @@ class ContinuousResearch:
                     if key=="min_available_ram_mib" and (type(item) is not int
                                                 or not 0<=item<=1048576):
                         raise ValueError("Invalid minimum free RAM")
+                    if key=="min_gpu_free_mib" and (type(item) is not int
+                                                or not 0<=item<=1048576):
+                        raise ValueError("Invalid minimum free VRAM")
                     # Column names are literal allowlisted, never external SQL.
                     db.execute(f"UPDATE cr_config SET {key}=?,updated=? WHERE id=1",
                                (item,now))
@@ -504,6 +592,12 @@ class ContinuousResearch:
 
     def claim(self, *, now=None):
         now = time.time() if now is None else now
+        # GPU telemetry can execute a bounded local subprocess. Probe BEFORE
+        # obtaining the write lock, so normal interactive work is not blocked.
+        with connect(self.db_path) as preflight:
+            initial=preflight.execute("""SELECT min_gpu_free_mib FROM cr_config
+                WHERE id=1""").fetchone()
+        gpu_devices=gpu_memory_snapshot() if initial["min_gpu_free_mib"] else None
         # Source reads and model calls occur OUTSIDE this short write transaction.
         with connect(self.db_path) as db:
             db.execute("BEGIN IMMEDIATE")
@@ -528,7 +622,9 @@ class ContinuousResearch:
             if db.execute("""SELECT 1 FROM research_jobs
                 WHERE state IN ('queued','running') LIMIT 1""").fetchone():
                 return None
-            if admission_reasons(conf):
+            if conf["min_gpu_free_mib"] and gpu_devices is None:
+                return None  # Config enabled during preflight; fail closed.
+            if admission_reasons(conf,gpu_devices=gpu_devices):
                 return None
             row=db.execute("""SELECT j.id,j.slot,j.revision,j.pass_completed,
                 j.passes,s.source_id,s.page,s.part,s.byte_offset,
@@ -788,7 +884,9 @@ class ContinuousResearch:
                     "estimation":"inference-time-only; excludes queue delays, source IO, GPU contention and retries"}
         free_mib=free_memory_mib()
         load=os.getloadavg()[0]
-        blocked=admission_reasons(config,free_mib=free_mib,load=load)
+        gpu_devices=gpu_memory_snapshot()
+        blocked=admission_reasons(config,free_mib=free_mib,load=load,
+                                  gpu_devices=gpu_devices)
         if chat>config["max_chat_jobs"]:
             blocked.append("interactive-queue")
         return {"config":config,"jobs":{r["state"]:r["n"] for r in rows},
@@ -797,6 +895,7 @@ class ContinuousResearch:
                 "cycle_progress":progress,"throughput":throughput,
                 "active":dict(in_flight) if in_flight else None,
                 "interactive_jobs":chat,"cpu_load_1m":load,
-                "free_ram_mib":free_mib,"admission_blocks":blocked,
+                "free_ram_mib":free_mib,"cpu_logical":os.cpu_count(),
+                "gpu_devices":gpu_devices,"admission_blocks":blocked,
                 "sources":[dict(r) for r in recent],
                 "draft_only":True,"weight_training":False}
