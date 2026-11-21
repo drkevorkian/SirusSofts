@@ -66,6 +66,7 @@ def init_schema(path):
           max_chat_jobs INTEGER NOT NULL DEFAULT 0,
           min_available_ram_mib INTEGER NOT NULL DEFAULT 0,
           min_gpu_free_mib INTEGER NOT NULL DEFAULT 0,
+          max_database_mib INTEGER NOT NULL DEFAULT 0,
           quiet_start_utc INTEGER NOT NULL DEFAULT -1,
           quiet_end_utc INTEGER NOT NULL DEFAULT -1,
           last_completed REAL NOT NULL DEFAULT 0,
@@ -156,6 +157,7 @@ def init_schema(path):
         for column,definition in (
             ("min_available_ram_mib","INTEGER NOT NULL DEFAULT 0"),
             ("min_gpu_free_mib","INTEGER NOT NULL DEFAULT 0"),
+            ("max_database_mib","INTEGER NOT NULL DEFAULT 0"),
             ("quiet_start_utc","INTEGER NOT NULL DEFAULT -1"),
             ("quiet_end_utc","INTEGER NOT NULL DEFAULT -1")):
             if column not in cols:
@@ -173,6 +175,38 @@ def init_schema(path):
             ON cr_jobs(slot,revision,created)""")
         db.execute("""CREATE INDEX IF NOT EXISTS cr_result_recent
             ON cr_results(created)""")
+
+
+def database_size_bytes(path):
+    """On-disk private SQLite footprint, including uncheckpointed WAL bytes.
+
+    Returns unknown instead of zero when the active main database cannot be
+    stat'ed. Only used for optional background admission, never normal chat.
+    """
+    path=Path(path)
+    try:
+        total=path.stat().st_size
+        for suffix in ("-wal","-shm"):
+            sidecar=Path(str(path)+suffix)
+            try:
+                total+=sidecar.stat().st_size
+            except FileNotFoundError:
+                continue
+        return total
+    except OSError:
+        return None
+
+
+def process_resident_mib():
+    """Linux resident memory of this process, not a claim about GPU VRAM."""
+    try:
+        with open("/proc/self/status",encoding="ascii") as stream:
+            for line in stream:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1])//1024
+    except (OSError,ValueError,IndexError):
+        pass
+    return None
 
 
 def free_memory_mib():
@@ -255,7 +289,7 @@ def gpu_memory_snapshot(*, drm_root="/sys/class/drm",
 
 
 def admission_reasons(cfg, *, free_mib=None, load=None, hour=None,
-                      gpu_devices=None):
+                      gpu_devices=None, database_bytes=None):
     """Pure, testable background gating. Never affects interactive requests."""
     if free_mib is None:
         free_mib=free_memory_mib()
@@ -271,6 +305,11 @@ def admission_reasons(cfg, *, free_mib=None, load=None, hour=None,
             blocked.append("low-free-ram")
     if cfg["max_cpu_load"] and load>cfg["max_cpu_load"]:
         blocked.append("cpu-load")
+    if cfg["max_database_mib"]:
+        if database_bytes is None:
+            blocked.append("database-size-unavailable")
+        elif database_bytes>=cfg["max_database_mib"]*1048576:
+            blocked.append("database-size-limit")
     min_vram=cfg["min_gpu_free_mib"]
     if min_vram:
         target=cfg["target"]
@@ -521,7 +560,8 @@ class ContinuousResearch:
                 if not isinstance(value,dict) or not value or not set(value) <= {
                     "passes","model_id","target","revisit_seconds",
                     "max_cpu_load","max_chat_jobs","min_available_ram_mib",
-                    "min_gpu_free_mib","quiet_start_utc","quiet_end_utc"}:
+                    "min_gpu_free_mib","max_database_mib",
+                    "quiet_start_utc","quiet_end_utc"}:
                     raise ValueError("Invalid research settings")
                 if "quiet_start_utc" in value or "quiet_end_utc" in value:
                     if not {"quiet_start_utc","quiet_end_utc"} <= set(value):
@@ -555,6 +595,9 @@ class ContinuousResearch:
                     if key=="min_gpu_free_mib" and (type(item) is not int
                                                 or not 0<=item<=1048576):
                         raise ValueError("Invalid minimum free VRAM")
+                    if key=="max_database_mib" and (type(item) is not int
+                                                or not 0<=item<=1048576):
+                        raise ValueError("Invalid database budget")
                     # Column names are literal allowlisted, never external SQL.
                     db.execute(f"UPDATE cr_config SET {key}=?,updated=? WHERE id=1",
                                (item,now))
@@ -672,9 +715,10 @@ class ContinuousResearch:
         # GPU telemetry can execute a bounded local subprocess. Probe BEFORE
         # obtaining the write lock, so normal interactive work is not blocked.
         with connect(self.db_path) as preflight:
-            initial=preflight.execute("""SELECT min_gpu_free_mib FROM cr_config
-                WHERE id=1""").fetchone()
+            initial=preflight.execute("""SELECT min_gpu_free_mib,max_database_mib
+                FROM cr_config WHERE id=1""").fetchone()
         gpu_devices=gpu_memory_snapshot() if initial["min_gpu_free_mib"] else None
+        db_bytes=database_size_bytes(self.db_path) if initial["max_database_mib"] else None
         # Source reads and model calls occur OUTSIDE this short write transaction.
         with connect(self.db_path) as db:
             db.execute("BEGIN IMMEDIATE")
@@ -689,10 +733,17 @@ class ContinuousResearch:
                 self._event(db,"lease-expired",row["id"])
                 if tries>=MAX_ATTEMPTS:
                     self._event(db,"job-failed",row["id"],"lease-expired")
-            self._schedule(db,now)
             conf=db.execute("SELECT * FROM cr_config WHERE id=1").fetchone()
             if conf["mode"]!="running":
                 return None
+            # Verify any newly-enabled ceiling even if config changed between
+            # preflight and the claim transaction. A ceiling blocks scheduling
+            # new background work, never existing interactive chat.
+            if conf["max_database_mib"] and (
+                db_bytes is None or
+                db_bytes>=conf["max_database_mib"]*1048576):
+                return None
+            self._schedule(db,now)
             if db.execute("SELECT 1 FROM cr_jobs WHERE state='leased' LIMIT 1").fetchone():
                 return None
             if db.execute("""SELECT count(*) FROM jobs
@@ -703,7 +754,8 @@ class ContinuousResearch:
                 return None
             if conf["min_gpu_free_mib"] and gpu_devices is None:
                 return None  # Config enabled during preflight; fail closed.
-            if admission_reasons(conf,gpu_devices=gpu_devices):
+            if admission_reasons(conf,gpu_devices=gpu_devices,
+                                 database_bytes=db_bytes):
                 return None
             row=db.execute("""SELECT j.id,j.slot,j.revision,j.pass_completed,
                 j.passes,s.source_id,s.page,s.part,s.byte_offset,
@@ -1002,8 +1054,10 @@ class ContinuousResearch:
         free_mib=free_memory_mib()
         load=os.getloadavg()[0]
         gpu_devices=gpu_memory_snapshot()
+        db_bytes=database_size_bytes(self.db_path)
+        resident_mib=process_resident_mib()
         blocked=admission_reasons(config,free_mib=free_mib,load=load,
-                                  gpu_devices=gpu_devices)
+                                  gpu_devices=gpu_devices,database_bytes=db_bytes)
         if chat>config["max_chat_jobs"]:
             blocked.append("interactive-queue")
         return {"config":config,"jobs":{r["state"]:r["n"] for r in rows},
@@ -1012,8 +1066,10 @@ class ContinuousResearch:
                 "cycle_progress":progress,"throughput":throughput,
                 "active":dict(in_flight) if in_flight else None,
                 "interactive_jobs":chat,"cpu_load_1m":load,
-                "free_ram_mib":free_mib,"cpu_logical":os.cpu_count(),
-                "gpu_devices":gpu_devices,"admission_blocks":blocked,
+                "free_ram_mib":free_mib,"process_rss_mib":resident_mib,
+                "cpu_logical":os.cpu_count(),
+                "database_bytes":db_bytes,"gpu_devices":gpu_devices,
+                "admission_blocks":blocked,
                 "sources":[dict(r) for r in recent],
                 "recent_jobs":[dict(r) for r in recent_jobs],
                 "draft_only":True,"weight_training":False}
