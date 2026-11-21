@@ -43,6 +43,7 @@ function cms_ai_continuous_payload(array $post,string $actor=''):array {
         $load=$post['max_cpu_load']??null;
         $ram=filter_var($post['min_available_ram_mib']??'0',FILTER_VALIDATE_INT);
         $vram=filter_var($post['min_gpu_free_mib']??'0',FILTER_VALIDATE_INT);
+        $dbCeiling=filter_var($post['max_database_mib']??'0',FILTER_VALIDATE_INT);
         $quietStart=filter_var($post['quiet_start_utc']??'-1',FILTER_VALIDATE_INT);
         $quietEnd=filter_var($post['quiet_end_utc']??'-1',FILTER_VALIDATE_INT);
         $target=$post['target']??null;
@@ -52,6 +53,7 @@ function cms_ai_continuous_payload(array $post,string $actor=''):array {
            $chat===false||$chat<0||$chat>4||
            $ram===false||$ram<0||$ram>1048576||
            $vram===false||$vram<0||$vram>1048576||
+           $dbCeiling===false||$dbCeiling<0||$dbCeiling>1048576||
            $quietStart===false||$quietEnd===false||
            !(($quietStart===-1&&$quietEnd===-1)||
               ($quietStart>=0&&$quietStart<=23&&
@@ -66,6 +68,7 @@ function cms_ai_continuous_payload(array $post,string $actor=''):array {
         $data['value']=['passes'=>$passes,'revisit_seconds'=>$interval,
             'max_chat_jobs'=>$chat,'max_cpu_load'=>(float)$load,
             'min_available_ram_mib'=>$ram,'min_gpu_free_mib'=>$vram,
+            'max_database_mib'=>$dbCeiling,
             'quiet_start_utc'=>$quietStart,
             'quiet_end_utc'=>$quietEnd,
             'target'=>$target,'model_id'=>$model];
@@ -232,7 +235,17 @@ function cms_ai_continuous_panel(PDO $db):void {
         Chat queue: <?=cms_esc((string)($info['interactive_jobs']??0))?>.
         CPU load (1m): <?=cms_esc((string)($info['cpu_load_1m']??'?'))?>.
         Available logical CPU threads: <?=cms_esc((string)($info['cpu_logical']??'?'))?>.
-        Free host RAM (MiB): <?=cms_esc((string)($info['free_ram_mib']??'?'))?>.</p>
+        Free host RAM (MiB): <?=cms_esc((string)($info['free_ram_mib']??'?'))?>.
+        Input service resident RAM (MiB):
+        <?=cms_esc((string)($info['process_rss_mib']??'unavailable'))?>.</p>
+      <p>Private Gentoo input SQLite footprint (main database + WAL + SHM):
+        <?=cms_esc(isset($info['database_bytes'])?
+          (string)round(((int)$info['database_bytes'])/1048576,2).' MiB':'unavailable')?>.
+        Configured background database ceiling:
+        <?=cms_esc((string)($cfg['max_database_mib']??0))?> MiB
+        (0 disables ceiling). When reached, new autonomous research
+        admission stops. It does not delete history or interrupt chat,
+        and is not a guarantee of available physical disk space.</p>
       <h3>Local GPU / VRAM telemetry</h3>
       <p>This is a read-only point-in-time snapshot from Gentoo. Unavailable
       GPU telemetry is <strong>not</strong> interpreted as free VRAM.
@@ -355,6 +368,14 @@ function cms_ai_continuous_panel(PDO $db):void {
           <input type="number" name="min_gpu_free_mib" min="0" max="1048576"
             value="<?=cms_esc((string)($cfg['min_gpu_free_mib']??0))?>">
         </label>
+        <label>Maximum private input database footprint (MiB; 0 disables limit)
+          <input type="number" name="max_database_mib" min="0" max="1048576"
+            value="<?=cms_esc((string)($cfg['max_database_mib']??0))?>">
+        </label>
+        <p>Once the private input SQLite database, write-ahead log and metadata
+        exceed this limit, the system refuses new background research jobs.
+        Existing history is retained, and a verified private archive and
+        operator-approved retention plan are still required.</p>
         <label>Quiet hours start UTC (-1 disables)
           <input type="number" name="quiet_start_utc" min="-1" max="23"
             value="<?=cms_esc((string)($cfg['quiet_start_utc']??-1))?>">

@@ -17,6 +17,12 @@ continuous_check($parsed['value']['max_cpu_load']===3.5,'Load limit parsed');
 continuous_check($parsed['value']['max_chat_jobs']===0,'Chat admission enforced');
 continuous_check($parsed['value']['min_gpu_free_mib']===0,
     'Default VRAM guard remains optional and disabled');
+continuous_check($parsed['value']['max_database_mib']===0,
+    'Private input database budget disabled by default');
+$bounded=cms_ai_continuous_payload(array_replace($base,[
+    'max_database_mib'=>'512']));
+continuous_check($bounded['value']['max_database_mib']===512,
+    'Valid private database growth ceiling');
 $withGpu=cms_ai_continuous_payload(array_replace($base,[
     'min_gpu_free_mib'=>'2048','target'=>'amd']));
 continuous_check($withGpu['value']['min_gpu_free_mib']===2048&&
@@ -94,6 +100,9 @@ foreach([
   array_replace($base,['min_gpu_free_mib'=>'-1']),
   array_replace($base,['min_gpu_free_mib'=>'1048577']),
   array_replace($base,['min_gpu_free_mib'=>'not-a-number']),
+  array_replace($base,['max_database_mib'=>'-1']),
+  array_replace($base,['max_database_mib'=>'1048577']),
+  array_replace($base,['max_database_mib'=>'not-a-number']),
 ] as $bad){
     try {
         cms_ai_continuous_payload($bad);
