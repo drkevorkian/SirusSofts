@@ -12,6 +12,16 @@ This document is a **future operator runbook**. A GitHub commit and green CI are
 6. Confirm application-scope changes append immutable audit records and immediately supersede supported claims. A stale review form must be rejected, not silently approved. Back up `cr_scope_versions` and the additive claim applicability column with the private Gentoo SQLite database.
 7. Stage the **separate private administrative bridge key** described below before relying on any controller panel or claim review. Without it, private research GET/POST endpoints intentionally reject requests while existing chat and one-off research remain available.
 
+## Source-only checks added for targeted cancellation and audit
+
+Before enabling an unattended workload, select a noncritical small test PDF on Gentoo, configure more than one pass, and start two jobs. Cancel one job from the authenticated CMS using its exact job ID and explicit confirmation, then verify: its already checkpointed passes remain available; stale in-flight results are rejected; another queued job continues; and global Resume does not revive the canceled job. A later full revisit cycle may schedule a fresh job for that section. Cancellation **does not forcibly interrupt a running llama.cpp inference call**, so test GPU/CPU contention independently.
+
+For a selected source, page through both the signed pass history (eight passes per page) and the independent private lifecycle event history (20 events per page); ensure unrelated source events are never mixed in. Verify that JSON report downloads include only the selected pages, preserve source identity, and remain marked private and unreviewed. Previous pre-upgrade events remain, but unlogged historical transitions cannot be retroactively reconstructed.
+
+SQLite cr_events and cr_job_cancellations now have append-only triggers. Do **not** run destructive cleanup or drop these tables during rollback. Ensure the operator's consistent input SQLite backup captures both tables. Continuously running research will grow these tables and draft storage; a reviewed archival/retention/restore plan is still required before broad rollout. Confirm actual service interruption and restart behavior separately; unit tests alone do not establish production acceptance.
+
+The evidence dashboard includes a separate recent human-supported original-PDF quotation feed. Test that supported source/page/part metadata is displayed, while disputed, rejected, superseded and changed-applicability claims are excluded. A verified quote is not blanket approval of a repair procedure.
+
 ## Privileged CMS-to-Gentoo bridge: mandatory key provisioning
 
 **Never write the key into this repository, a command argument, HTTP query string, server log, web root or chat.** On the authorized maintenance window, generate exactly **32 raw random bytes** once with the operating system CSPRNG and transfer the same binary key over the preexisting trusted, host-key-pinned administrator channel.

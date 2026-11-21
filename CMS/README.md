@@ -406,3 +406,12 @@ The administrator-only Continuous Research panel includes signed, source-scoped 
 Changing an original PDF's explicit application scope now requires a signed authenticated administrator action; the private claim ledger immediately supersedes older supported reviews, retaining original scope values and immutable reviewer history. The CMS panel exposes the latest scope audit and binds each review form to the applicability visible when the form opened. A stale page cannot silently reapprove a claim for another model or engine.
 
 The Continuous Research panel displays Gentoo's read-only AMD/NVIDIA VRAM status where supported by installed driver counters, alongside host CPU/RAM. Administrators may set a minimum free GPU VRAM threshold for a specific AMD or NVIDIA background target; absent GPU counters fail closed. Threshold 0 disables the gate. This is an admission limit, not a hardware reservation or guarantee of chatbot latency.
+
+
+### Cancel one research job and inspect its audit
+
+The Continuous Research panel now lists recent pending and failed jobs and provides a confirmed single-job cancellation action for queued or leased work. The action is authorized through CMS administrator session identity and the signed Gentoo bridge, not an actor field supplied by the browser. Past pass checkpoints remain intact. Global Resume cannot revive an intentionally cancelled job, but cancellation **does not forcibly stop a running llama.cpp request**.
+
+The source-history panel now pages separately through draft passes and append-only lifecycle events; the private JSON report includes the currently selected event page. Because downloads contain original source metadata and unreviewed draft text, treat the reports as private; they are not validated repair instructions or training datasets.
+
+The Evidence panel has a dedicated recent human-supported original-quotation feed showing original source, page/part, reviewer and application scope. Disputed, rejected and superseded entries are excluded. This status validates the presence of the quoted source line, **not** the safety or correctness of service procedures.
