@@ -127,6 +127,16 @@ def init_schema(path):
           id INTEGER PRIMARY KEY AUTOINCREMENT, happened REAL NOT NULL,
           kind TEXT NOT NULL, subject TEXT NOT NULL, detail TEXT NOT NULL DEFAULT ''
         );
+        CREATE INDEX IF NOT EXISTS cr_event_subject
+          ON cr_events(subject,id);
+        CREATE TRIGGER IF NOT EXISTS cr_events_no_update
+          BEFORE UPDATE ON cr_events BEGIN
+            SELECT RAISE(ABORT,'Research audit is append-only');
+          END;
+        CREATE TRIGGER IF NOT EXISTS cr_events_no_delete
+          BEFORE DELETE ON cr_events BEGIN
+            SELECT RAISE(ABORT,'Research audit cannot be deleted');
+          END;
         CREATE TABLE IF NOT EXISTS cr_job_cancellations (
           job_id TEXT PRIMARY KEY, actor TEXT NOT NULL, happened REAL NOT NULL,
           source_id TEXT NOT NULL, cycle INTEGER NOT NULL,
@@ -422,6 +432,13 @@ class ContinuousResearch:
 
     @staticmethod
     def _supersede(db):
+        db.execute("""INSERT INTO cr_events(happened,kind,subject,detail)
+            SELECT ?,'job-superseded',j.id,'' FROM cr_jobs j
+            WHERE j.state IN ('queued','leased') AND NOT EXISTS
+            (SELECT 1 FROM cr_sections s JOIN cr_sources d ON d.id=s.source_id
+             WHERE s.slot=j.slot AND s.revision=j.revision
+             AND s.current=1 AND d.eligible=1 AND d.present=1 AND d.excluded=0)""",
+            (time.time(),))
         db.execute("""UPDATE cr_jobs SET state='superseded',token='',lease_until=0,
             updated=? WHERE state IN ('queued','leased') AND NOT EXISTS
             (SELECT 1 FROM cr_sections s JOIN cr_sources d ON d.id=s.source_id
@@ -548,10 +565,18 @@ class ContinuousResearch:
                 db.execute("UPDATE cr_config SET mode=?,updated=?,scan_requested=CASE WHEN ?='running' THEN 1 ELSE scan_requested END WHERE id=1",
                            (next_mode,now,next_mode))
                 if action=="stop":
+                    db.execute("""INSERT INTO cr_events(happened,kind,subject,detail)
+                        SELECT ?,'job-stopped',id,'' FROM cr_jobs
+                        WHERE state IN ('queued','leased')""",(now,))
                     db.execute("""UPDATE cr_jobs SET state='stopped',token='',
                         lease_until=0,updated=? WHERE state IN ('queued','leased')""",
                                (now,))
                 if action in ("enable","resume"):
+                    db.execute("""INSERT INTO cr_events(happened,kind,subject,detail)
+                        SELECT ?,'job-resumed',j.id,'' FROM cr_jobs j
+                        WHERE j.state='stopped' AND NOT EXISTS (
+                          SELECT 1 FROM cr_job_cancellations c
+                          WHERE c.job_id=j.id)""",(now,))
                     db.execute("""UPDATE cr_jobs SET state='queued',retry_at=0
                         WHERE state='stopped' AND NOT EXISTS (
                           SELECT 1 FROM cr_job_cancellations c
@@ -625,6 +650,11 @@ class ContinuousResearch:
             FROM cr_sections s JOIN cr_sources d ON d.id=s.source_id
             WHERE s.current=1 AND d.present=1 AND d.eligible=1 AND d.excluded=0 """
             +predicate,(cycle,conf["passes"],now,now))
+        db.execute("""INSERT INTO cr_events(happened,kind,subject,detail)
+            SELECT ?,'job-queued',j.id,'' FROM cr_jobs j
+            WHERE j.cycle=? AND j.created=? AND NOT EXISTS (
+              SELECT 1 FROM cr_events v WHERE v.subject=j.id
+              AND v.kind='job-queued')""",(now,cycle,now))
         active_count = db.execute("""SELECT count(*) FROM cr_jobs
             WHERE cycle=? AND state IN ('queued','leased')""",(cycle,)).fetchone()[0]
         if not active_count:
@@ -657,6 +687,8 @@ class ContinuousResearch:
                     ("failed" if tries>=MAX_ATTEMPTS else "queued",
                      now+self._retry_delay(tries),now,row["id"]))
                 self._event(db,"lease-expired",row["id"])
+                if tries>=MAX_ATTEMPTS:
+                    self._event(db,"job-failed",row["id"],"lease-expired")
             self._schedule(db,now)
             conf=db.execute("SELECT * FROM cr_config WHERE id=1").fetchone()
             if conf["mode"]!="running":
@@ -776,6 +808,9 @@ class ContinuousResearch:
                  now+self._retry_delay(attempts),type(error).__name__[:80],
                  now,lease["id"]))
             self._event(db,"job-error",lease["id"],type(error).__name__)
+            if attempts>=MAX_ATTEMPTS:
+                self._event(db,"job-failed",lease["id"],type(error).__name__)
+                self._schedule(db,now)
             return True
 
     def run_once(self, infer):
@@ -828,7 +863,7 @@ class ContinuousResearch:
             raise ValueError("Invalid source identifier")
         return source_id
 
-    def history(self, source_id, offset=0, limit=8):
+    def history(self, source_id, offset=0, limit=8, audit_offset=0):
         """Page original private draft history with stable source provenance.
 
         Read-only. Includes superseded and failed jobs, and all past cycles.
@@ -839,6 +874,8 @@ class ContinuousResearch:
             raise ValueError("Invalid history offset")
         if type(limit) is not int or not 1<=limit<=8:
             raise ValueError("Invalid history page size")
+        if type(audit_offset) is not int or not 0<=audit_offset<=1000000:
+            raise ValueError("Invalid audit offset")
         with connect(self.db_path) as db:
             source=db.execute("""SELECT id,kind,title,revision,content_sha,
                 extraction_status,reviewed,pages,extracted_parts,missing_pages,
@@ -873,11 +910,27 @@ class ContinuousResearch:
                 WHERE s.source_id=? ORDER BY r.created DESC,r.job_id DESC,
                 r.pass_number DESC LIMIT ? OFFSET ?""",
                 (source_id,limit,offset)).fetchall()
+            # All source/job events are private; only metadata, no PDF text or
+            # untrusted model answers. SQL pages are bounded to 20 events.
+            audit_scope="""FROM cr_events e WHERE e.subject=?
+                OR EXISTS (SELECT 1 FROM cr_jobs j JOIN cr_sections s
+                  ON s.slot=j.slot AND s.revision=j.revision
+                  WHERE j.id=e.subject AND s.source_id=?)"""
+            audit_total=db.execute("SELECT count(*) "+audit_scope,
+                                  (source_id,source_id)).fetchone()[0]
+            audit=db.execute("""SELECT e.id,e.happened,e.kind,e.subject,e.detail
+                """+audit_scope+"""
+                ORDER BY e.id DESC LIMIT 20 OFFSET ?""",
+                (source_id,source_id,audit_offset)).fetchall()
         return {"source":dict(source),"jobs_total":count,
                 "pass_results_total":pass_total,"offset":offset,
                 "limit":limit,"has_more":offset+len(rows)<pass_total,
                 "jobs":[dict(j) for j in jobs],
                 "passes":[dict(r) for r in rows],
+                "audit_total":audit_total,
+                "audit_offset":audit_offset,
+                "audit_has_more":audit_offset+len(audit)<audit_total,
+                "audit_events":[dict(r) for r in audit],
                 "draft_only":True,"weight_training":False}
 
     def status(self):
