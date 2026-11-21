@@ -208,6 +208,56 @@ class ContinuousResearchTests(unittest.TestCase):
         after=self.research.claim(now=time.time()+3601)
         self.assertIsNotNone(after)
 
+    def test_new_revision_precedes_unchanged_revisit_at_equal_priority(self):
+        self.add_doc()
+        second="b"*64
+        self.add_doc(second,text="Other unchanged approved source")
+        self.research.inventory()
+        self.research.control("configure",value={"revisit_seconds":60})
+        self.research.control("enable")
+        for _ in range(2):
+            lease=self.research.claim()
+            self.assertIsNotNone(lease)
+            self.assertTrue(self.research.finish(lease,"Historical draft"))
+        self.assertIsNone(self.research.claim())
+        with sqlite3.connect(self.pdf) as db:
+            db.execute("""UPDATE excerpts SET text='Changed primary source.'
+                WHERE sha256=?""",(SHA,))
+            db.execute("UPDATE documents SET updated_at=2 WHERE sha256=?",(SHA,))
+        self.research.inventory()
+        # Both are due for a full cycle. The changed revision must win over
+        # the previous completed unchanged revision at equal admin priority.
+        lease=self.research.claim(now=time.time()+61)
+        self.assertIsNotNone(lease)
+        self.assertEqual(lease["source_id"],"pdf:"+SHA)
+        self.assertTrue(self.research.finish(lease,"New source revision draft"))
+        older=self.research.claim()
+        self.assertIsNotNone(older)
+        self.assertEqual(older["source_id"],"pdf:"+second)
+        self.assertTrue(self.research.finish(older,"Unchanged review completed"))
+        self.assertEqual(self.research.status()["cycle"]["state"],"completed")
+
+    def test_explicit_admin_priority_still_overrides_novelty(self):
+        self.add_doc()
+        other="b"*64
+        self.add_doc(other,text="Unchanged source with operator priority")
+        self.research.inventory()
+        self.research.control("configure",value={"revisit_seconds":60})
+        self.research.control("enable")
+        for _ in range(2):
+            self.assertTrue(self.research.finish(self.research.claim(),
+                                                 "Initial supported? No, draft."))
+        self.research.control("priority",source_id="pdf:"+other,value=10)
+        with sqlite3.connect(self.pdf) as db:
+            db.execute("UPDATE excerpts SET text='Fresh revision.' WHERE sha256=?",
+                       (SHA,))
+            db.execute("UPDATE documents SET updated_at=2 WHERE sha256=?",(SHA,))
+        self.research.inventory()
+        lease=self.research.claim(now=time.time()+61)
+        self.assertIsNotNone(lease)
+        self.assertEqual(lease["source_id"],"pdf:"+other)
+        self.assertTrue(self.research.finish(lease,"Operator priority honored"))
+
     def test_targeted_cycle_scope_survives_restart(self):
         # Three PDFs: after full coverage, revise two and leave one untouched.
         self.add_doc(SHA,text="Original source A.")
