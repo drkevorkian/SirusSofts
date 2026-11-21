@@ -22,6 +22,28 @@ $withGpu=cms_ai_continuous_payload(array_replace($base,[
 continuous_check($withGpu['value']['min_gpu_free_mib']===2048&&
     $withGpu['value']['target']==='amd','Explicit GPU VRAM threshold parsed');
 $source='pdf:'.str_repeat('a',64);
+$jobId=str_repeat('1',32);
+$cancel=cms_ai_continuous_payload([
+    'operation'=>'cancel','job_id'=>$jobId,
+    'confirmation'=>'CANCEL JOB','actor'=>'cms-admin:999'
+],'cms-admin:12');
+continuous_check($cancel['job_id']===$jobId&&
+    $cancel['actor']==='cms-admin:12'&&$cancel['action']==='cancel',
+    'Targeted cancellation binds current admin actor rather than untrusted form input');
+foreach([
+    [['operation'=>'cancel','job_id'=>$jobId,'confirmation'=>'CANCEL JOB'],''],
+    [['operation'=>'cancel','job_id'=>$jobId,'confirmation'=>'YES'],'cms-admin:12'],
+    [['operation'=>'cancel','job_id'=>'../secret',
+      'confirmation'=>'CANCEL JOB'],'cms-admin:12'],
+    [['operation'=>'cancel','job_id'=>$jobId,
+      'confirmation'=>'CANCEL JOB'],'model:fake'],
+] as [$badCancel,$badActor]){
+    try{
+        cms_ai_continuous_payload($badCancel,$badActor);
+        throw new LogicException('Invalid job cancellation accepted');
+    }catch(InvalidArgumentException $e){}
+}
+
 $history=cms_ai_continuous_history_payload($source,'8');
 continuous_check($history['source_id']===$source&&$history['offset']===8,
     'Authenticated history source and offset normalized');

@@ -508,6 +508,127 @@ class ContinuousResearchTests(unittest.TestCase):
         self.research.control("resume")
         self.assertIsNotNone(self.research.claim())
 
+    def test_cancel_one_leased_job_fences_output_and_persists_after_resume(self):
+        self.add_doc(text="A controlled source.")
+        other="b"*64
+        self.add_doc(other,text="An independent source.")
+        self.research.inventory()
+        self.research.control("configure",value={"passes":3,
+                                                  "revisit_seconds":60})
+        self.research.control("enable")
+        lease=self.research.claim()
+        self.assertIsNotNone(lease)
+        self.assertTrue(self.research.finish(lease,"First checkpointed pass"))
+        next_pass=self.research.claim()
+        self.assertEqual(next_pass["id"],lease["id"])
+        self.assertEqual(next_pass["pass_completed"],1)
+        cancelled=self.research.control("cancel",job_id=lease["id"],
+                                        actor="cms-admin:12")
+        self.assertEqual(cancelled["jobs"]["stopped"],1)
+        self.assertFalse(self.research.heartbeat(next_pass["id"],next_pass["token"]))
+        self.assertFalse(self.research.finish(next_pass,"Should not be stored"))
+        self.assertFalse(self.research.fail(next_pass,RuntimeError("late error")))
+        with connect(self.db) as db:
+            old=db.execute("""SELECT pass_number,notes FROM cr_results
+                WHERE job_id=?""",(lease["id"],)).fetchall()
+            self.assertEqual([tuple(r) for r in old],
+                             [(1,"First checkpointed pass")])
+            c=db.execute("""SELECT actor,source_id,cycle,pass_completed
+                FROM cr_job_cancellations WHERE job_id=?""",
+                (lease["id"],)).fetchone()
+            self.assertEqual(c["actor"],"cms-admin:12")
+            self.assertEqual(c["pass_completed"],1)
+            self.assertEqual(db.execute("""SELECT count(*) FROM cr_events
+                WHERE kind='job-cancelled' AND subject=?""",
+                (lease["id"],)).fetchone()[0],1)
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("""DELETE FROM cr_job_cancellations
+                    WHERE job_id=?""",(lease["id"],))
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("""UPDATE cr_job_cancellations SET actor='other'
+                    WHERE job_id=?""",(lease["id"],))
+        hist=self.research.history(next_pass["source_id"])
+        row=next(j for j in hist["jobs"] if j["id"]==lease["id"])
+        self.assertEqual(row["cancelled_by"],"cms-admin:12")
+        self.research.control("pause")
+        self.research.control("resume")
+        with connect(self.db) as db:
+            state=db.execute("SELECT state FROM cr_jobs WHERE id=?",
+                             (lease["id"],)).fetchone()[0]
+            self.assertEqual(state,"stopped")
+        # Other queued work is unaffected by the targeted cancellation.
+        other_lease=self.research.claim()
+        self.assertIsNotNone(other_lease)
+        self.assertNotEqual(other_lease["id"],lease["id"])
+        self.assertEqual(other_lease["source_id"],"pdf:"+other
+                         if next_pass["source_id"]=="pdf:"+SHA
+                         else "pdf:"+SHA)
+        for _ in range(3):
+            self.assertTrue(self.research.finish(other_lease,"Other research"))
+            other_lease=self.research.claim()
+            if other_lease is None:
+                break
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("""SELECT count(*) FROM cr_cycles
+                WHERE state='completed'""").fetchone()[0],1)
+        restored=ContinuousResearch(self.db,self.pdf,self.base/"index.sqlite3")
+        self.assertIsNone(restored.claim())
+        newer=restored.claim(now=time.time()+61)
+        self.assertIsNotNone(newer)
+        self.assertNotEqual(newer["id"],lease["id"])
+
+    def test_cancel_queued_job_does_not_cancel_other_pending_sections(self):
+        self.add_doc()
+        other="b"*64
+        self.add_doc(other,text="Other source section")
+        self.research.inventory()
+        self.research.control("enable")
+        first=self.research.claim()
+        with connect(self.db) as db:
+            queued=db.execute("""SELECT id FROM cr_jobs
+                WHERE state='queued' LIMIT 1""").fetchone()[0]
+        self.research.control("cancel",job_id=queued,actor="cms-admin:1")
+        self.assertTrue(self.research.finish(first,"Original lease remains valid"))
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("""SELECT state FROM cr_jobs
+                WHERE id=?""",(queued,)).fetchone()[0],"stopped")
+            self.assertEqual(db.execute("""SELECT state FROM cr_jobs
+                WHERE id=?""",(first["id"],)).fetchone()[0],"completed")
+        self.assertIsNone(self.research.claim())
+
+    def test_cancellation_rejects_bad_actor_bad_id_and_completed_or_repeat(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("enable")
+        lease=self.research.claim()
+        for job,actor in (("", "cms-admin:1"), ("../escape","cms-admin:1"),
+                          ("A"*32,"cms-admin:1"),(lease["id"],"model:auto"),
+                          (lease["id"],"cms-admin:0"),(lease["id"],""),
+                          (lease["id"],None)):
+            with self.assertRaises(ValueError):
+                self.research.control("cancel",job_id=job,actor=actor)
+        with self.assertRaises(ValueError):
+            self.research.control("cancel",job_id="f"*32,actor="cms-admin:1")
+        self.research.control("cancel",job_id=lease["id"],actor="cms-admin:1")
+        with self.assertRaises(ValueError):
+            self.research.control("cancel",job_id=lease["id"],actor="cms-admin:1")
+        self.assertFalse(self.research.finish(lease,"stale"))
+        self.assertEqual(self.research.status()["recent_jobs"][0]["cancelled_by"],
+                         "cms-admin:1")
+
+    def test_legacy_schema_supports_additive_cancel_table(self):
+        self.add_doc()
+        self.research.inventory()
+        with connect(self.db) as db:
+            db.execute("INSERT INTO cr_events(happened,kind,subject) "
+                       "VALUES(1,'legacy','preserve')")
+        init_schema(self.db)
+        init_schema(self.db)
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM cr_events").fetchone()[0],1)
+            self.assertTrue(db.execute("""SELECT 1 FROM sqlite_master
+                WHERE type='table' AND name='cr_job_cancellations'""").fetchone())
+
     def test_snapshot_is_private_and_opt_in_without_refetch(self):
         self.add_doc()
         spec='{"source_type":"url","title":"Saved https page"}'
