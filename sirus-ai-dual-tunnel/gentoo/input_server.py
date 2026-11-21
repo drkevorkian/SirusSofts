@@ -678,7 +678,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise ValueError('Local-only administration required')
                 self.respond(200,self.server.engine.continuous.control(
                     data.get('action'),source_id=data.get('source_id',''),
-                    value=data.get('value')))
+                    value=data.get('value'),job_id=data.get('job_id',''),
+                    actor=data.get('actor','')))
                 return
             if research_cancel:
                 self.respond(200,self.server.engine.cancel_research(self.path.split('/')[4]))

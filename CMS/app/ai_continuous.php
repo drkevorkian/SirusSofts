@@ -6,13 +6,23 @@ if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
  * CMS administrator facade for the loopback-only Gentoo continuous scheduler.
  * Never accept a path, command, arbitrary URL, source body or model endpoint.
  */
-function cms_ai_continuous_payload(array $post):array {
+function cms_ai_continuous_payload(array $post,string $actor=''):array {
     $action=$post['operation']??null;
     if(!is_string($action)||!in_array($action,[
         'enable','pause','resume','stop','disable','scan',
-        'configure','include','exclude','priority'],true))
+        'configure','include','exclude','priority','cancel'],true))
         throw new InvalidArgumentException('Unknown continuous research operation.');
     $data=['local_only'=>true,'action'=>$action];
+    if($action==='cancel'){
+        $job=$post['job_id']??null;
+        if(!is_string($job)||!preg_match('/^[a-f0-9]{32}$/D',$job)||
+           !preg_match('/^cms-admin:[1-9][0-9]{0,12}$/D',$actor)||
+           ($post['confirmation']??null)!=='CANCEL JOB')
+            throw new InvalidArgumentException(
+                'Select one valid job and explicitly confirm cancellation.');
+        $data['job_id']=$job;
+        $data['actor']=$actor; // Not trusted from form data.
+    }
     if(in_array($action,['include','exclude','priority'],true)){
         $source=$post['source_id']??null;
         if(!is_string($source)||!preg_match(
@@ -67,13 +77,14 @@ function cms_ai_continuous_post(PDO $db,array $post):never {
     require_once __DIR__.'/ai_api.php';
     cms_need_admin(); // CMS router has already enforced POST CSRF.
     cms_ai_api_rate($db,'continuous:'.hash('sha256',session_id()),'admin');
-    $payload=cms_ai_continuous_payload($post);
+    $actor='cms-admin:'.(string)($_SESSION['cms_admin_id']??'');
+    $payload=cms_ai_continuous_payload($post,$actor);
     $response=cms_ai_api_upstream('input',
         '/api/in/research/continuous/control',$payload);
     if(!isset($response['config'])||!is_array($response['config']))
         throw new RuntimeException('Research controller confirmation unavailable.');
     cms_audit($db,'ai-continuous-'.$payload['action'],
-        substr((string)($payload['source_id']??'research'),0,80));
+        substr((string)($payload['job_id']??$payload['source_id']??'research'),0,80));
     cms_flash('Continuous research control saved. No deployment or model training performed.');
     cms_go('/admin/ai');
 }
@@ -179,6 +190,8 @@ function cms_ai_continuous_panel(PDO $db):void {
     $throughput=is_array($info['throughput']??null)?$info['throughput']:[];
     $active=is_array($info['active']??null)?$info['active']:[];
     $sourceRows=is_array($info['sources']??null)?$info['sources']:[];
+    $recentJobs=is_array($info['recent_jobs']??null)?
+        array_slice($info['recent_jobs'],0,24):[];
     $mode=(string)($cfg['mode']??'unknown');
     ?>
     <section class="admin-panel">
@@ -259,6 +272,47 @@ function cms_ai_continuous_panel(PDO $db):void {
         </form>
       <?php endforeach; ?>
       </div>
+      <h3>Individual job cancellation (latest 24 pending / failed)</h3>
+      <p>Cancel only the selected background job, without stopping the rest
+      of the queue. An active model request may finish computing, but its
+      stale lease is fenced and its result is not saved. Earlier checkpointed
+      passes remain in the private history. Cancellation is persistent and
+      cannot be undone by a global Resume; a future full coverage cycle may
+      revisit that section normally.</p>
+      <div class="table-scroll"><table><thead><tr>
+        <th>Job</th><th>Source</th><th>Cycle / section</th>
+        <th>State / pass</th><th>Action</th></tr></thead><tbody>
+      <?php foreach($recentJobs as $job):if(!is_array($job))continue;
+          $jid=(string)($job['id']??'');
+          if(!preg_match('/^[a-f0-9]{32}$/D',$jid))continue;
+          $state=(string)($job['state']??'');
+      ?>
+      <tr><td><code><?=cms_esc($jid)?></code></td>
+        <td><?=cms_esc((string)($job['title']??''))?>
+          <small><?=cms_esc((string)($job['source_id']??''))?></small></td>
+        <td>Cycle <?=cms_esc((string)($job['cycle']??0))?>,
+          page <?=cms_esc((string)($job['page']??0))?>,
+          part <?=cms_esc((string)($job['part']??0))?></td>
+        <td><?=cms_esc($state)?>,
+          pass <?=cms_esc((string)($job['pass_completed']??0))?> /
+          <?=cms_esc((string)($job['passes']??0))?>
+          <?php if(!empty($job['cancelled_by'])):?>
+            <small>Cancelled by <?=cms_esc((string)$job['cancelled_by'])?></small>
+          <?php endif;?></td>
+        <td><?php if(in_array($state,['queued','leased'],true)):?>
+          <form method="post" action="/admin/ai">
+            <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+            <input type="hidden" name="action" value="ai_continuous">
+            <input type="hidden" name="operation" value="cancel">
+            <input type="hidden" name="job_id" value="<?=cms_esc($jid)?>">
+            <label>Confirm <input type="checkbox" name="confirmation"
+              value="CANCEL JOB" required> cancel this job</label>
+            <button class="btn small" type="submit">Cancel job</button>
+          </form>
+          <?php else:?>
+            <?=cms_esc((string)($job['error']??'No action available'))?>
+          <?php endif;?></td></tr>
+      <?php endforeach;?></tbody></table></div>
       <h3>Background scheduling and admission limits</h3>
       <form method="post" action="/admin/ai">
         <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
