@@ -138,6 +138,13 @@ def init_schema(path):
           BEFORE DELETE ON cr_events BEGIN
             SELECT RAISE(ABORT,'Research audit cannot be deleted');
           END;
+        CREATE TABLE IF NOT EXISTS cr_resource_samples (
+          minute INTEGER PRIMARY KEY, queued INTEGER NOT NULL,
+          leased INTEGER NOT NULL, failed INTEGER NOT NULL,
+          process_rss_mib INTEGER NOT NULL DEFAULT -1,
+          host_free_ram_mib INTEGER NOT NULL DEFAULT -1,
+          database_bytes INTEGER NOT NULL DEFAULT -1
+        );
         CREATE TABLE IF NOT EXISTS cr_job_cancellations (
           job_id TEXT PRIMARY KEY, actor TEXT NOT NULL, happened REAL NOT NULL,
           source_id TEXT NOT NULL, cycle INTEGER NOT NULL,
@@ -985,7 +992,50 @@ class ContinuousResearch:
                 "audit_events":[dict(r) for r in audit],
                 "draft_only":True,"weight_training":False}
 
+    def sample_resources(self, *, now=None, resident=None,
+                         available=None, size_bytes=None):
+        """Persist one bounded operational sample per minute (not evidence).
+
+        Only current job counts, self process RAM, host available RAM and
+        private DB size are recorded. A rotating seven-day window keeps
+        telemetry bounded; evidence, audit events, claims and drafts are NEVER
+        pruned. No externally supplied SQL, filesystem paths or subprocesses.
+        """
+        now=time.time() if now is None else now
+        if type(now) not in (int,float) or not 0<=now<2**40:
+            raise ValueError("Invalid operational sample time")
+        minute=int(now)//60*60
+        if resident is None:
+            resident=process_resident_mib()
+        if available is None:
+            available=free_memory_mib()
+        if size_bytes is None:
+            size_bytes=database_size_bytes(self.db_path)
+        for field in (resident,available,size_bytes):
+            if field is not None and (type(field) is not int or field<0):
+                raise ValueError("Invalid resource sample")
+        with connect(self.db_path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("""SELECT 1 FROM cr_resource_samples
+                WHERE minute=?""",(minute,)).fetchone():
+                return False
+            counts={r["state"]:r["n"] for r in db.execute(
+                "SELECT state,count(*) n FROM cr_jobs GROUP BY state")}
+            db.execute("""INSERT INTO cr_resource_samples(
+                minute,queued,leased,failed,process_rss_mib,
+                host_free_ram_mib,database_bytes)
+                VALUES(?,?,?,?,?,?,?)""",
+                (minute,counts.get("queued",0),counts.get("leased",0),
+                 counts.get("failed",0),
+                 -1 if resident is None else resident,
+                 -1 if available is None else available,
+                 -1 if size_bytes is None else size_bytes))
+            db.execute("""DELETE FROM cr_resource_samples
+                WHERE minute<?""",(minute-7*86400,))
+            return True
+
     def status(self):
+        self.sample_resources()
         with connect(self.db_path) as db:
             config=dict(db.execute("SELECT * FROM cr_config WHERE id=1").fetchone())
             rows=db.execute("""SELECT state,count(*) n FROM cr_jobs GROUP BY state""").fetchall()
@@ -1040,6 +1090,10 @@ class ContinuousResearch:
                 FROM cr_results WHERE duration_ms>0""").fetchone()
             completed_hour=db.execute("""SELECT count(*) FROM cr_results
                 WHERE created>=?""",(time.time()-3600,)).fetchone()[0]
+            trend=db.execute("""SELECT minute,queued,leased,failed,
+                process_rss_mib,host_free_ram_mib,database_bytes
+                FROM cr_resource_samples
+                ORDER BY minute DESC LIMIT 60""").fetchall()
         planned=progress["planned_passes"]
         progress["pass_percent"]=round(100*progress["finished_passes"]/planned,1) if planned else 0.0
         sample=measured["count"]
@@ -1060,10 +1114,17 @@ class ContinuousResearch:
                                   gpu_devices=gpu_devices,database_bytes=db_bytes)
         if chat>config["max_chat_jobs"]:
             blocked.append("interactive-queue")
+        history=[dict(r) for r in reversed(trend)]
+        if history:
+            queue_delta=history[-1]["queued"]-history[0]["queued"]
+        else:
+            queue_delta=0
         return {"config":config,"jobs":{r["state"]:r["n"] for r in rows},
                 "inventory":dict(source),"sections":dict(sections),
                 "cycle":dict(cycle) if cycle else None,
                 "cycle_progress":progress,"throughput":throughput,
+                "resource_history":history,
+                "queued_growth_last_samples":queue_delta,
                 "active":dict(in_flight) if in_flight else None,
                 "interactive_jobs":chat,"cpu_load_1m":load,
                 "free_ram_mib":free_mib,"process_rss_mib":resident_mib,
