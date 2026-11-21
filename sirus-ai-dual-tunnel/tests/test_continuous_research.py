@@ -625,7 +625,8 @@ class ContinuousResearchTests(unittest.TestCase):
         init_schema(self.db)
         init_schema(self.db)
         with connect(self.db) as db:
-            self.assertEqual(db.execute("SELECT count(*) FROM cr_events").fetchone()[0],1)
+            self.assertEqual(db.execute("""SELECT count(*) FROM cr_events
+                WHERE kind='legacy' AND subject='preserve'""").fetchone()[0],1)
             self.assertTrue(db.execute("""SELECT 1 FROM sqlite_master
                 WHERE type='table' AND name='cr_job_cancellations'""").fetchone())
 
