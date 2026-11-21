@@ -479,6 +479,24 @@ class EvidenceLedger:
                 e.page,e.part,e.quote,e.quote_sha,e.revision
                 FROM cr_claims c JOIN cr_evidence e ON e.id=c.evidence_id
                 ORDER BY c.updated DESC LIMIT ?""",(limit,)).fetchall()
+            # A separate human-supported feed must never include drafts,
+            # disputed/rejected entries or source revisions no longer current.
+            # This is proof of quote review, not validation of repair safety.
+            supported=db.execute("""SELECT c.id,c.version,c.updated,e.source_id,
+                d.title,e.page,e.part,e.quote,e.quote_sha,e.revision,
+                e.applicability,v.reviewed_by
+                FROM cr_claims c JOIN cr_evidence e ON e.id=c.evidence_id
+                JOIN cr_sources d ON d.id=e.source_id
+                JOIN cr_claim_versions v ON v.claim_id=c.id
+                  AND v.version=c.version
+                LEFT JOIN cr_evidence_scopes sc ON sc.source_id=e.source_id
+                WHERE c.state='supported' AND v.state='supported'
+                AND v.applicability=e.applicability
+                AND e.applicability=COALESCE(sc.applicability,'')
+                AND (d.reviewed=1 OR d.extraction_status='approved')
+                AND """+self._current_clause("e")+"""
+                ORDER BY c.updated DESC,c.id DESC LIMIT ?""",
+                (limit,)).fetchall()
             scope_history=db.execute("""SELECT source_id,version,previous_scope,
                 new_scope,reviewed_by,created FROM cr_scope_versions
                 ORDER BY created DESC,source_id DESC,version DESC LIMIT ?""",
@@ -497,6 +515,7 @@ class EvidenceLedger:
                     "evidence":[dict(r) for r in evidence],
                     "conflicts":[dict(r) for r in conflicts],
                     "claims":[dict(r) for r in reviewed],
+                    "supported_findings":[dict(r) for r in supported],
                     "scopes":[dict(r) for r in scope_rows],
                     "scope_history":[dict(r) for r in scope_history],
                     "draft_only":False,"automatic_promotion":False,

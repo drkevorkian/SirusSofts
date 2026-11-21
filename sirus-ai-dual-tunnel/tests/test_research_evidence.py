@@ -196,6 +196,35 @@ class EvidenceTests(unittest.TestCase):
                 AND revision<>?""",("pdf:"+A,item["revision"])).fetchone()
             self.assertIn("45 Nm",new["quote"])
 
+    def test_recent_supported_feed_excludes_disputed_and_stale_claims(self):
+        self.add_doc(A,"Rear axle torque: 40 Nm")
+        self.add_doc(B,"Rear axle torque: 45 Nm")
+        self.index()
+        self.ledger.set_scope("pdf:"+A,SCOPE,ACTOR)
+        self.ledger.set_scope("pdf:"+B,SCOPE,ACTOR)
+        first=self.item(A)
+        second=self.item(B)
+        self.ledger.review(first["id"],first["quote_sha"],first["revision"],
+                           ACTOR,"support",expected_scope=SCOPE)
+        self.ledger.review(second["id"],second["quote_sha"],second["revision"],
+                           ACTOR,"support",expected_scope=SCOPE)
+        feed=self.ledger.status()["supported_findings"]
+        self.assertEqual(len(feed),2)
+        self.assertEqual({r["source_id"] for r in feed},{"pdf:"+A,"pdf:"+B})
+        self.assertEqual({r["reviewed_by"] for r in feed},{ACTOR})
+        self.assertEqual({r["page"] for r in feed},{5})
+        self.ledger.review(second["id"],second["quote_sha"],second["revision"],
+                           ACTOR,"dispute",expected_scope=SCOPE)
+        feed=self.ledger.status()["supported_findings"]
+        self.assertEqual(len(feed),1)
+        self.assertEqual(feed[0]["source_id"],"pdf:"+A)
+        self.ledger.set_scope("pdf:"+A,"brp/defender/2025/hd10/clutch",ACTOR)
+        self.assertEqual(self.ledger.status()["supported_findings"],[])
+        # No independently approved claim is created by changes to generated drafts.
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("""SELECT count(*) FROM cr_claims
+                WHERE state='supported'""").fetchone()[0],0)
+
     def test_source_snapshot_is_not_evidence_or_verified_knowledge(self):
         with connect(self.db) as db:
             db.execute("""INSERT INTO research_jobs(id,spec,target,model_id,state,

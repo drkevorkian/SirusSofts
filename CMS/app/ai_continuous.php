@@ -595,6 +595,8 @@ function cms_ai_evidence_panel(PDO $db):void {
     $evidence=is_array($data['evidence']??null)?$data['evidence']:[];
     $conflicts=is_array($data['conflicts']??null)?$data['conflicts']:[];
     $claims=is_array($data['claims']??null)?$data['claims']:[];
+    $supportedFindings=is_array($data['supported_findings']??null)?
+        array_slice($data['supported_findings'],0,20):[];
     $scopes=is_array($data['scopes']??null)?$data['scopes']:[];
     $scopeHistory=is_array($data['scope_history']??null)?
         array_slice($data['scope_history'],0,20):[];
@@ -653,6 +655,31 @@ function cms_ai_evidence_panel(PDO $db):void {
         <td><?=cms_esc((string)($change['reviewed_by']??''))?></td>
         <td><?=cms_esc((string)($change['version']??0))?></td></tr>
       <?php endforeach; ?></tbody></table></div>
+    </section>
+    <section class="admin-panel table-scroll">
+      <h2>Recently human-supported source quotations</h2>
+      <p>These excerpts have been explicitly checked by a CMS administrator
+      against an already approved PDF in the private inventory. They are
+      <strong>not</strong> independent proof of a safe/correct service
+      procedure or the correct application for another model/year.
+      Entries with superseded, disputed, rejected or stale source revisions
+      are deliberately excluded. The list updates only after a fresh
+      inventory reconciliation.</p>
+      <table><thead><tr><th>Original document</th><th>Exact quotation</th>
+        <th>Application / reviewed by</th></tr></thead><tbody>
+      <?php foreach($supportedFindings as $finding):if(!is_array($finding))continue;?>
+      <tr><td><?=cms_esc((string)($finding['title']??''))?>
+        <small><?=cms_esc((string)($finding['source_id']??''))?></small>
+        <p>Page <?=cms_esc((string)($finding['page']??0))?>,
+        part <?=cms_esc((string)($finding['part']??0))?></p></td>
+        <td><code><?=cms_esc((string)($finding['quote']??''))?></code>
+          <small><?=cms_esc((string)($finding['quote_sha']??''))?></small></td>
+        <td><?=cms_esc((string)($finding['applicability']??''))?>
+          <p><?=cms_esc((string)($finding['reviewed_by']??''))?></p></td></tr>
+      <?php endforeach;?></tbody></table>
+      <?php if(!$supportedFindings):?>
+        <p>No current original-source quotations have completed manual support review.</p>
+      <?php endif;?>
     </section>
     <section class="admin-panel table-scroll">
       <h2>Unreviewed original-source measurements (latest 20)</h2>
