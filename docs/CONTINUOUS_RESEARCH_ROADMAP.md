@@ -2,7 +2,7 @@
 
 **Status:** Approved roadmap — source implementation underway; production deployment and acceptance pending  
 **Priority:** High  
-**Tracking baseline:** 86f0a3f7ef51 (source features tested in GitHub; production acceptance pending, 2026-11-20)  
+**Tracking baseline:** f5c05be3f829 (source-feature code validated by both CI workflows; production acceptance pending, 2026-11-20)  
 **Platform:** Gentoo local AI workers + Ubuntu public CMS gateway  
 **Objective:** Enable the local LLM to continuously revisit, analyze, cross-reference, and improve its understanding of the entire available knowledge library without requiring a user to initiate each research session.
 
@@ -14,18 +14,18 @@
 - **No source or checklist update deploys servers.** In particular, the 32-byte private signed administrative bridge key still needs secure provisioning in an approved maintenance window. Model-weight training remains disabled.
 - **Git workflow:** The repository root README specifies `main` only; the original dedicated-development-branch requirement is superseded rather than performed. Keep history and rollbacks through normal reviewed commits.
 
-**Overall source checklist: 67 / 138 checked (48.6%).** This is development progress, **not production readiness**.
+**Overall source checklist: 70 / 138 checked (50.7%).** This is development progress, **not production readiness**.
 
 | Section | Source-complete | Still open |
 |---|---:|---:|
-| 1. Core requirements | 5/10 | 5 |
+| 1. Core requirements | 6/10 | 4 |
 | 2. Knowledge inventory | 6/10 | 4 |
-| 3. Scheduler | 10/12 | 2 |
+| 3. Scheduler | 11/12 | 1 |
 | 4. Multi-pass reasoning | 4/12 | 8 |
 | 5. Verification and memory | 9/12 | 3 |
 | 6. Cross-document intelligence | 1/9 | 8 |
 | 7. Resource management | 3/11 | 8 |
-| 8. Administrator dashboard | 14/15 | 1 |
+| 8. Administrator dashboard | 15/15 | 0 |
 | 9. Safety and reliability | 7/12 | 5 |
 | 10. Optional model training | 1/9 | 8 |
 | 11. Acceptance tests | 0/12 | 12 |
@@ -42,7 +42,7 @@
 - [ ] Process **all eligible indexed knowledge**, not merely recent documents. **Partial (source):** PDF ingestion records and saved one-off research snapshots are indexed; other knowledge formats remain.
 - [x] Revisit previously analyzed material indefinitely.
 - [x] Maintain persistent state across cycles and software updates.
-- [ ] Allow administrators to start, pause, resume, cancel, and reprioritize research. **Partial (source):** Start/pause/resume/stop and source priorities exist; targeted per-job cancellation is incomplete.
+- [x] Allow administrators to start, pause, resume, cancel, and reprioritize research. **Source implementation:** Admin controls include start/pause/resume/stop, source priorities and signed single-job cancellation. Cancellation fences leases, preserves completed passes, survives global resume and permits later full-cycle revisits. It does not forcibly stop in-flight model computation.
 - [ ] Allow the system to run continuously while maintaining interactive chatbot availability. **Partial (source):** Interactive-queue admission exists; in-flight inference cannot yet be preempted.
 - [x] Never silently modify model weights or promote generated claims into verified facts.
 
@@ -74,7 +74,7 @@
 - [x] Detect stalled workers and recover abandoned jobs safely.
 - [x] Implement exponential backoff for repeated failures.
 - [x] Automatically begin another coverage cycle when eligible work has been completed.
-- [ ] Preserve a complete audit trail of completed and failed jobs. **Partial (source):** Job states, results and events are stored; exhaustive per-pass/error audit exports remain.
+- [x] Preserve a complete audit trail of completed and failed jobs. **Source implementation:** Newly created jobs have append-only source-scoped creation, lease, pass checkpoint, retry/failure, stop/resume, supersession and cancellation events, with admin attribution. Histories can be paged and downloaded as private reports. Older records retain existing events but cannot retroactively acquire omitted lifecycle events; production acceptance remains open.
 
 **Important:** A complete cycle does not mean a source is permanently finished. It becomes eligible for analysis again.
 
@@ -133,7 +133,7 @@ For each selected document or document section:
 - [x] Throttle research when resource utilization exceeds configured limits.
 - [ ] Monitor memory consumption, inference latency, and queue growth. **Partial (source):** Host available RAM, CPU/queue counts and per-pass inference latency are available; process-specific memory utilization and historical queue-growth trends are not.
 - [ ] Track tokens processed per second and per research job.
-- [ ] Prevent uncontrolled database growth through configurable retention and archival.
+- [ ] Prevent uncontrolled database growth through configurable retention and archival. **Still open:** Append-only job audit and draft histories require a separately reviewed archival/retention mechanism, consistent backups and restore tests. No audit pruning is implemented.
 - [ ] Avoid continuously reprocessing unchanged material at unnecessarily high priority.
 - [ ] Support quiet hours, power-management policies, and operator overrides. **Partial (source):** UTC quiet hours, CPU/RAM/VRAM admission settings and admin overrides exist; power-management policy and energy budgets are missing.
 - [ ] Track resource consumption and estimated energy costs.
@@ -151,7 +151,7 @@ Add a **Continuous Research** section to the existing SirusSofts AI administrati
 - [x] Processed, pending, failed, and excluded counts.
 - [x] Estimated processing throughput. **Source implementation:** Measured inference durations and completed passes feed a labeled inference-only estimate; queue delays/GPU contention are excluded.
 - [x] Resource utilization and active worker status. **Source implementation:** Admin status shows the active worker, CPU load, host RAM headroom and supported AMD/NVIDIA VRAM total/used/free snapshots, with missing counters clearly unknown. Hardware acceptance remains outstanding.
-- [ ] Recently verified findings. **Partial (source):** Latest human claim revisions are listed; a dedicated filtered verified-findings feed is missing.
+- [x] Recently verified findings. **Source implementation:** A separate admin feed displays only current human-supported original-PDF quotations, with original source/page/part, applicability and reviewer. It excludes disputed/rejected/superseded claims. A verified quotation is not necessarily a safe repair procedure; live acceptance remains open.
 - [x] Outstanding contradictions and review requests.
 - [x] Source-specific research histories. **Source implementation:** Admin-only signed source history lists recent jobs and pages through all stored pass results, including superseded revisions and failures.
 - [x] Research priorities and scheduling configuration.
@@ -200,7 +200,7 @@ This phase is separate from continuous inference.
 - [ ] Verify unsupported conclusions cannot enter the verified knowledge store. **Partial (source):** Database rejects promoting drafts and checks human-backed originals; live acceptance remains.
 - [ ] Verify changed documents trigger targeted re-analysis. **Partial (source):** Synthetic tests confirm prompt targeted cycles for revised sections, exclusion of unchanged revisions, durable cycle scope and later full revisit; real corpus acceptance remains.
 - [ ] Verify interactive AI chat remains available during background work. **Partial (source):** Chat priority admission is implemented; measured peak-load latency is missing.
-- [ ] Verify pause, cancellation, and restoration behavior. **Partial (source):** Unit tests cover pause/stop/resume; interruption and service restoration tests remain.
+- [ ] Verify pause, cancellation, and restoration behavior. **Partial (source):** Synthetic unit tests now cover single-job cancellation, fencing, audit immutability and resume/restart persistence; actual service interruption and live recovery acceptance remain.
 - [ ] Verify that an administrator can inspect and reverse promoted findings. **Partial (source):** Unit tests cover admin review/reversal; real CMS/Gentoo acceptance remains.
 - [ ] Test database migration, backup, restore, and rollback. **Partial (source):** Additive migrations tested; consistent backup/restore and rollback not yet performed.
 
@@ -329,6 +329,16 @@ A persistent, opt-in Gentoo background thread executes one research pass at a ti
 
 **Measurable gate:** Two long cycles and peak interactive load without OOM, data loss, unacceptable latency, or unbounded storage growth.
 
+## Continued implementation: targeted cancellation, lifecycle audit, verified quotation display (source only)
+
+**Single-job cancel:** CMS administrators explicitly confirm cancellation for one fixed-format private job ID, with identity derived from their session. Gentoo validates job and actor through the existing signed control bridge, records an immutable cancellation marker, fences the lease, and retains all previously checkpointed drafts. Global Resume does not revive an intentionally cancelled job, and targeted cycles do not immediately recreate it. A later full revisit cycle may issue a new job for that source. Cancellation does **not** forcibly interrupt a running inference request: any in-flight model call may finish computing, but its old lease cannot store additional results.
+
+**Durable audit:** New jobs now record creation, lease, pass checkpoints, failures, lease expiration, cancellations, stops/resumes and source supersession in append-only private SQLite audit events. HMAC-protected source history has independent bounded pagination for passes (eight) and events (20), including export of the current private page. Historic records from earlier code retain existing events but cannot reconstruct missing transitions. Source text and model drafts are not inserted into audit event details, though downloaded pass reports still contain private unreviewed model text.
+
+**Current human-supported findings:** The evidence dashboard now has a dedicated feed of supported quotes drawn from current approved original PDFs, with source identity, page, part, applicability, hash and human reviewer. Disputed, rejected, superseded or changed-scope entries do not appear. A human-supported quote means the literal source statement was checked, **not** that a procedure is correct in all model/year/equipment contexts.
+
+**Unfinished:** Live Gentoo/Ubuntu installation, real process-kill and service restoration tests, in-flight inference preemption, corpus-level source-author independence, reviewed-claim retrieval integration, sanitized report policy and approved retention/archival for growing immutable logs.
+
 ## Phase E: Training — intentionally separate
 
 No autonomous LoRA or model-weight changes. Future training requires curated **human-reviewed** references, duplicate filtering, independent evaluation, explicit model checkpoint control, an offline run and rollback. Disabled until separately approved.
@@ -339,6 +349,7 @@ No autonomous LoRA or model-weight changes. Future training requires curated **h
 - PHP: php CMS/tests/ai_continuous_test.php, php CMS/tests/ai_evidence_test.php, php CMS/tests/ai_research_test.php and the full existing CMS suite
 - CI: .github/workflows/sirus-ai-dual-tunnel.yml and .github/workflows/php-framework.yml, including Python syntax, PHP lint, serious undefined-name and shell analysis
 - Source tests also cover application-scope change auditing, human-approval supersession, stale review-form rejection, old claim-history migration, AMD/NVIDIA telemetry parsing, unknown/invalid counters, fail-closed admission, and legacy GPU config migration.
+- Source tests now additionally cover scoped single-job cancellation and actor attribution, future-cycle eligibility, immutable cancellation/audit rows, retries and terminal failure audit, source-isolated history pagination, and current human-supported quote filtering.
 - Source tests cover inventory completeness, long-section coverage, additive migration preservation, content changes, duplicate prevention, leases/fencing, retries, cycle eligibility, pauses, source exclusion, chat admission, RAM and UTC quiet-hours gates, deterministic evidence indexing, scope-limited contradiction candidates, stale original rejection, append-only human review/reversal, HMAC/nonce validation and real unsigned-localhost route rejection.
 
 **Safe installation plan:** docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md. Pin and review a green main SHA; use existing backup-backed in-place upgrade scripts, not the old full installers. No Ubuntu/Gentoo apply, service restart, model change, or destructive storage operation has been done during this implementation.
