@@ -2,7 +2,7 @@
 
 **Status:** Approved roadmap — source implementation underway; production deployment and acceptance pending  
 **Priority:** High  
-**Tracking baseline:** f5c05be3f829 (source-feature code validated by both CI workflows; production acceptance pending, 2026-11-20)  
+**Tracking baseline:** a70275e6ceb9 (source changes tested in GitHub; live acceptance pending, 2026-11-20)  
 **Platform:** Gentoo local AI workers + Ubuntu public CMS gateway  
 **Objective:** Enable the local LLM to continuously revisit, analyze, cross-reference, and improve its understanding of the entire available knowledge library without requiring a user to initiate each research session.
 
@@ -14,7 +14,7 @@
 - **No source or checklist update deploys servers.** In particular, the 32-byte private signed administrative bridge key still needs secure provisioning in an approved maintenance window. Model-weight training remains disabled.
 - **Git workflow:** The repository root README specifies `main` only; the original dedicated-development-branch requirement is superseded rather than performed. Keep history and rollbacks through normal reviewed commits.
 
-**Overall source checklist: 70 / 138 checked (50.7%).** This is development progress, **not production readiness**.
+**Overall source checklist: 72 / 138 checked (52.2%).** This is development progress, **not production readiness**.
 
 | Section | Source-complete | Still open |
 |---|---:|---:|
@@ -24,7 +24,7 @@
 | 4. Multi-pass reasoning | 4/12 | 8 |
 | 5. Verification and memory | 9/12 | 3 |
 | 6. Cross-document intelligence | 1/9 | 8 |
-| 7. Resource management | 3/11 | 8 |
+| 7. Resource management | 5/11 | 6 |
 | 8. Administrator dashboard | 15/15 | 0 |
 | 9. Safety and reliability | 7/12 | 5 |
 | 10. Optional model training | 1/9 | 8 |
@@ -131,10 +131,10 @@ For each selected document or document section:
 - [ ] Reserve resources for interactive chat and existing system services. **Partial (source):** New background work defers to chat and can require a minimum free VRAM threshold at admission for explicit AMD/NVIDIA targets. This is not a GPU allocation/reservation; it cannot preempt or isolate in-flight inference.
 - [ ] Allow configurable background inference concurrency.
 - [x] Throttle research when resource utilization exceeds configured limits.
-- [ ] Monitor memory consumption, inference latency, and queue growth. **Partial (source):** Host available RAM, CPU/queue counts and per-pass inference latency are available; process-specific memory utilization and historical queue-growth trends are not.
+- [x] Monitor memory consumption, inference latency, and queue growth. **Source implementation:** Measures the Gentoo input-service process RSS and host RAM; checkpointed pass inference latency; and durable per-minute queued/leased/failed counts with seven-day bounded telemetry and 60-sample admin history. Input-service RSS is not separate llama.cpp process memory or GPU allocation; real hardware acceptance remains in section 11.
 - [ ] Track tokens processed per second and per research job.
-- [ ] Prevent uncontrolled database growth through configurable retention and archival. **Still open:** Append-only job audit and draft histories require a separately reviewed archival/retention mechanism, consistent backups and restore tests. No audit pruning is implemented.
-- [ ] Avoid continuously reprocessing unchanged material at unnecessarily high priority.
+- [ ] Prevent uncontrolled database growth through configurable retention and archival. **Partial (source):** A manual WAL-consistent, hashed private full-SQLite archive and non-destructive restore-copy tool is tested. An optional background admission ceiling monitors main DB + WAL + SHM and blocks new background work at the threshold; operational telemetry alone expires after seven days. No verified selective archival/pruning of immutable jobs, drafts or audits, no automatic separate PDF-ingest backup, and no live restore acceptance yet.
+- [x] Avoid continuously reprocessing unchanged material at unnecessarily high priority. **Source implementation:** Targeted cycles already exclude unchanged completed revisions until configured revisit; when a full cycle is due, previously completed unchanged sections rank behind unseen/revised sections of equal admin priority, while an operator's explicitly higher source priority wins. Full revisits remain indefinite.
 - [ ] Support quiet hours, power-management policies, and operator overrides. **Partial (source):** UTC quiet hours, CPU/RAM/VRAM admission settings and admin overrides exist; power-management policy and energy budgets are missing.
 - [ ] Track resource consumption and estimated energy costs.
 
@@ -168,7 +168,7 @@ Add a **Continuous Research** section to the existing SirusSofts AI administrati
 - [x] Prevent unauthorized network requests and local file access.
 - [ ] Set bounded job limits, source sizes, and timeouts. **Partial (source):** Section sizes, pass counts, retries and API request limits are bounded; hard limits on all model calls require validation.
 - [ ] Protect credentials and private source data from generated reports. **Partial (source):** Reports are explicitly downloaded only by authorized administrators, are not stored in a public directory, and carry unreviewed/possibly private notes. Automatic secret scanning/redaction and report-classification policy remain.
-- [ ] Maintain database backup and restore procedures. **Partial (source):** Backup-backed upgrade procedures are documented; restore has not been exercised on live data.
+- [ ] Maintain database backup and restore procedures. **Partial (source):** Backup-backed upgrades and a private consistent snapshot/hash/integrity verifier/new-file restore tool now have synthetic SQLite WAL recovery tests. Separate PDF-ingest and Ubuntu CMS database backups and full live restore acceptance are still outstanding.
 - [x] Provide safe shutdown and restart behavior.
 - [ ] Test job interruption, database corruption recovery, and queue resumption. **Partial (source):** Synthetic restart tests pass, but database-corruption recovery has not been tested.
 - [ ] Maintain detailed operational logging without exposing secrets. **Partial (source):** Private job and event tables exist; operational audit/retention and log coverage are incomplete.
@@ -339,6 +339,17 @@ A persistent, opt-in Gentoo background thread executes one research pass at a ti
 
 **Unfinished:** Live Gentoo/Ubuntu installation, real process-kill and service restoration tests, in-flight inference preemption, corpus-level source-author independence, reviewed-claim retrieval integration, sanitized report policy and approved retention/archival for growing immutable logs.
 
+## Continued implementation: bounded telemetry, database growth and offline archive
+
+**Operational resource telemetry:** Gentoo stores one bounded sample per UTC minute while continuous research runs and on private admin status reads: queued/leased/failed counts, Python input-service RSS, host MemAvailable, and private input SQLite file + WAL + SHM size. Samples are retained for seven days and **are not evidence**; pruning their history never modifies immutable claims, job audit events, source records or research drafts. The dashboard shows up to 60 samples and queue-count delta. The RSS metric does not cover independent llama.cpp processes. Pass inference latency excludes queue delays and GPU contention.
+
+**Source freshness:** Within an administrator priority tier, new or revised sections are preferred over already completed unchanged revisions. Operator-assigned higher priority still takes precedence; full coverage cycles continue revisiting previously analyzed original sources after the configured interval.
+
+**Optional private input database ceiling:** Administrators may set `max_database_mib` (0 disables). Before new background scheduling, the controller measures private input SQLite, WAL and SHM bytes. At the threshold, or if size is unavailable, it refuses **new autonomous research leases** without deleting history or blocking regular chat. This is an admission gate, not guaranteed disk quota: active inference or other chat writes can still grow storage.
+
+**Verified offline archive utility:** `sirus-ai-dual-tunnel/gentoo/research_archive.py` creates a complete SQLite backup using the SQLite backup API into an explicit private mode-0700 directory and publishes mode-0600 archives plus SHA-256, integrity check and row-count manifests. It can verify or restore to a **new private file**, never overwrite a live database. This is a manual local operator CLI, not a public CMS API. Snapshots include the full private input SQLite database, including chats and unreviewed draft outputs, but **do not** include the separate PDF-ingest database or Ubuntu CMS. The source is not pruned. Synthetic tests include WAL consistency, hash tampering, symlink/permission denial and no-overwrite restoration.
+
+**Still open:** Complete archival retention requires selective provenance-preserving offload, restore/rollback, reliable query across old archives, bounded total archive storage, separately secured source PDF backups and real server acceptance. Snapshots are copies, not compaction.
 ## Phase E: Training — intentionally separate
 
 No autonomous LoRA or model-weight changes. Future training requires curated **human-reviewed** references, duplicate filtering, independent evaluation, explicit model checkpoint control, an offline run and rollback. Disabled until separately approved.
@@ -350,6 +361,7 @@ No autonomous LoRA or model-weight changes. Future training requires curated **h
 - CI: .github/workflows/sirus-ai-dual-tunnel.yml and .github/workflows/php-framework.yml, including Python syntax, PHP lint, serious undefined-name and shell analysis
 - Source tests also cover application-scope change auditing, human-approval supersession, stale review-form rejection, old claim-history migration, AMD/NVIDIA telemetry parsing, unknown/invalid counters, fail-closed admission, and legacy GPU config migration.
 - Source tests now additionally cover scoped single-job cancellation and actor attribution, future-cycle eligibility, immutable cancellation/audit rows, retries and terminal failure audit, source-isolated history pagination, and current human-supported quote filtering.
+- Source tests additionally cover WAL-consistent private archives and new-file recovery, tamper/permission failures, fail-closed SQLite growth admission, bounded queue/RSS telemetry, and new-revision priority with administrator override.
 - Source tests cover inventory completeness, long-section coverage, additive migration preservation, content changes, duplicate prevention, leases/fencing, retries, cycle eligibility, pauses, source exclusion, chat admission, RAM and UTC quiet-hours gates, deterministic evidence indexing, scope-limited contradiction candidates, stale original rejection, append-only human review/reversal, HMAC/nonce validation and real unsigned-localhost route rejection.
 
 **Safe installation plan:** docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md. Pin and review a green main SHA; use existing backup-backed in-place upgrade scripts, not the old full installers. No Ubuntu/Gentoo apply, service restart, model change, or destructive storage operation has been done during this implementation.
