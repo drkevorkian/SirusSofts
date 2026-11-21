@@ -771,7 +771,13 @@ class ContinuousResearch:
                 AND s.revision=j.revision JOIN cr_sources d ON d.id=s.source_id
                 WHERE j.state='queued' AND j.retry_at<=? AND s.current=1
                 AND d.present=1 AND d.eligible=1 AND d.excluded=0
-                ORDER BY d.priority DESC,j.created,j.id LIMIT 1""",(now,)).fetchone()
+                ORDER BY d.priority DESC,
+                CASE WHEN EXISTS (
+                    SELECT 1 FROM cr_jobs previous
+                    WHERE previous.slot=j.slot AND previous.revision=j.revision
+                    AND previous.cycle<j.cycle AND previous.state='completed'
+                ) THEN 1 ELSE 0 END ASC,
+                j.created,j.id LIMIT 1""",(now,)).fetchone()
             if not row:
                 return None
             token=uuid.uuid4().hex
