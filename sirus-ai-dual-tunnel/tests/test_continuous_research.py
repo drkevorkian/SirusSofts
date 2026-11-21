@@ -1,6 +1,7 @@
 """Regression tests for private continuous research inventory and scheduling."""
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 from pathlib import Path
 import sqlite3
 import sys
@@ -12,7 +13,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"gentoo"))
 import input_server as ai
 from continuous_research import (ContinuousResearch, connect, digest,
                                  init_schema, admission_reasons,
-                                 gpu_memory_snapshot)
+                                 gpu_memory_snapshot, database_size_bytes)
 
 
 SHA="a"*64
@@ -834,6 +835,53 @@ class ContinuousResearchTests(unittest.TestCase):
                 FROM cr_config""").fetchone()[0],8000)
             self.assertEqual(db.execute("SELECT mode FROM cr_config").fetchone()[0],
                              "paused")
+
+    def test_database_size_includes_wal_and_shm_and_unknown_fails_closed(self):
+        standalone=self.base/"physical-size.sqlite3"
+        standalone.write_bytes(b"main" * 32)
+        wal=Path(str(standalone)+"-wal")
+        wal.write_bytes(b"wal" * 300)
+        shm=Path(str(standalone)+"-shm")
+        shm.write_bytes(b"shm" * 80)
+        self.assertEqual(database_size_bytes(standalone),
+                         standalone.stat().st_size+wal.stat().st_size+
+                         shm.stat().st_size)
+        wal.unlink()
+        self.assertEqual(database_size_bytes(standalone),
+                         standalone.stat().st_size+shm.stat().st_size)
+        standalone.unlink()
+        self.assertIsNone(database_size_bytes(standalone))
+
+    def test_private_db_budget_stops_new_work_without_erasing_history(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("enable")
+        self.research.control("configure",value={"max_database_mib":10})
+        with patch("continuous_research.database_size_bytes",
+                   return_value=11*1048576):
+            self.assertIsNone(self.research.claim())
+            status=self.research.status()
+            self.assertEqual(status["database_bytes"],11*1048576)
+            self.assertIn("database-size-limit",status["admission_blocks"])
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM cr_jobs").fetchone()[0],0)
+        with patch("continuous_research.database_size_bytes",
+                   return_value=9*1048576):
+            lease=self.research.claim()
+            self.assertIsNotNone(lease)
+            self.assertTrue(self.research.finish(lease,"Private draft remains intact"))
+        with patch("continuous_research.database_size_bytes",return_value=None):
+            status=self.research.status()
+            self.assertIn("database-size-unavailable",status["admission_blocks"])
+            self.assertIsNone(self.research.claim())
+        self.research.control("configure",value={"max_database_mib":0})
+        with patch("continuous_research.process_resident_mib",return_value=49):
+            self.assertEqual(self.research.status()["process_rss_mib"],49)
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM cr_results").fetchone()[0],1)
+        for bad in (-1,1048577,"1024",True):
+            with self.assertRaises(ValueError):
+                self.research.control("configure",value={"max_database_mib":bad})
 
     def test_resource_policy_wraparound_and_conservative_memory_gate(self):
         self.add_doc()
