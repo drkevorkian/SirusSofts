@@ -464,6 +464,8 @@ class Engine:
                     enabled=con.execute("SELECT mode FROM cr_config WHERE id=1").fetchone()[0]=="running"
                     interactive=con.execute("""SELECT 1 FROM jobs WHERE state IN
                         ('queued','running') LIMIT 1""").fetchone() is not None
+                if enabled:
+                    self.continuous.sample_resources()
                 if enabled and not interactive:
                     self.evidence.index_batch(32)
                     self.evidence.compare_batch(64)

@@ -205,6 +205,8 @@ function cms_ai_continuous_panel(PDO $db):void {
     $cycle=is_array($info['cycle']??null)?$info['cycle']:[];
     $progress=is_array($info['cycle_progress']??null)?$info['cycle_progress']:[];
     $throughput=is_array($info['throughput']??null)?$info['throughput']:[];
+    $resourceHistory=is_array($info['resource_history']??null)?
+        array_slice($info['resource_history'],-60):[];
     $active=is_array($info['active']??null)?$info['active']:[];
     $sourceRows=is_array($info['sources']??null)?$info['sources']:[];
     $recentJobs=is_array($info['recent_jobs']??null)?
@@ -275,6 +277,32 @@ function cms_ai_continuous_panel(PDO $db):void {
         <?=cms_esc(isset($throughput['estimated_passes_per_hour'])?
             (string)$throughput['estimated_passes_per_hour'].' passes/hour':'not yet measured')?>.
         This estimate excludes queue delays, source reads, retries and GPU contention.</p>
+      <p>Queued research growth across available recent samples:
+        <?=cms_esc((string)($info['queued_growth_last_samples']??0))?> jobs
+        (positive means the queue grew). The latest 60 one-minute operational
+        samples retain process RSS, host RAM, private DB size and queued,
+        leased and failed counts; data is retained for seven days.
+        This records the input service's memory, not the separate llama.cpp
+        processes or their GPU allocations.</p>
+      <details><summary>Recent resource history (up to 60 samples)</summary>
+        <div class="table-scroll"><table><thead><tr>
+          <th>Unix minute (UTC)</th><th>Queued</th><th>Leased</th><th>Failed</th>
+          <th>Input RSS (MiB)</th><th>Host free RAM (MiB)</th>
+          <th>Database (MiB)</th></tr></thead><tbody>
+          <?php foreach($resourceHistory as $sample):if(!is_array($sample))continue;?>
+          <tr><td><?=cms_esc((string)($sample['minute']??''))?></td>
+            <td><?=cms_esc((string)($sample['queued']??0))?></td>
+            <td><?=cms_esc((string)($sample['leased']??0))?></td>
+            <td><?=cms_esc((string)($sample['failed']??0))?></td>
+            <td><?=cms_esc((string)($sample['process_rss_mib']??-1))?></td>
+            <td><?=cms_esc((string)($sample['host_free_ram_mib']??-1))?></td>
+            <td><?=cms_esc(isset($sample['database_bytes']) &&
+                (int)$sample['database_bytes']>=0?
+                (string)round((int)$sample['database_bytes']/1048576,2):'unknown')?></td>
+          </tr>
+          <?php endforeach;?></tbody></table></div>
+          <p>-1 means a memory reading was unavailable, never zero consumption.</p>
+      </details>
       <p>Admission status: <?=cms_esc(implode(', ',is_array($info['admission_blocks']??null)?
            $info['admission_blocks']:[])?:'Eligible for new background work')?></p>
       <?php if($active): ?>
