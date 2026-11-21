@@ -31,7 +31,10 @@ def _private_dir(directory, *, create=False):
         raise ValueError("A private, absolute, nonsymlink directory is required")
     if create:
         directory.mkdir(mode=0o700, exist_ok=True)
-    info = directory.lstat()
+    try:
+        info=directory.lstat()
+    except OSError as exc:
+        raise ValueError("Private archive directory unavailable") from exc
     if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o077:
         raise ValueError("Archive directory must be mode 0700 or more restrictive")
     return directory
@@ -41,7 +44,10 @@ def _regular_file(path, *, private=False):
     path = Path(path)
     if not path.is_absolute() or path.is_symlink():
         raise ValueError("Regular absolute file required")
-    info = path.lstat()
+    try:
+        info=path.lstat()
+    except OSError as exc:
+        raise ValueError("Private source or snapshot unavailable") from exc
     if not stat.S_ISREG(info.st_mode):
         raise ValueError("Regular file required")
     if private and info.st_mode & 0o077:
@@ -130,8 +136,11 @@ def archive_snapshot(source, archive_directory, *, now=None):
         # an unverified orphan rather than a manifest for unverified bytes.
         if final.exists() or manifest.exists():
             raise ValueError("Refusing to overwrite archived history")
-        os.rename(temporary,final)
-        os.rename(temp_manifest,manifest)
+        # Hard-linking a validated, same-directory temp file atomically fails
+        # if its final name already exists. Unlike rename this never replaces
+        # an existing private snapshot even under concurrent invocations.
+        os.link(temporary,final,follow_symlinks=False)
+        os.link(temp_manifest,manifest,follow_symlinks=False)
         _sync_dir(directory)
         return verify_snapshot(final)
     finally:
