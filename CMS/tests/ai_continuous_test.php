@@ -48,6 +48,16 @@ $history=cms_ai_continuous_history_payload($source,'8');
 continuous_check($history['source_id']===$source&&$history['offset']===8,
     'Authenticated history source and offset normalized');
 continuous_check($history['local_only']===true,'Private history stays local');
+continuous_check($history['audit_offset']===0,'Audit page defaults to zero');
+$historyPaged=cms_ai_continuous_history_payload($source,'8','20');
+continuous_check($historyPaged['offset']===8&&
+    $historyPaged['audit_offset']===20,'Independent bounded audit offset');
+foreach(['-1','1000001','unknown'] as $badAudit){
+    try{
+        cms_ai_continuous_history_payload($source,'0',$badAudit);
+        throw new LogicException('Invalid audit offset accepted');
+    }catch(InvalidArgumentException $e){}
+}
 foreach([
     [$source,'-1'],
     [$source,'1000001'],
@@ -97,7 +107,9 @@ $reportReply=[
     'source'=>['id'=>$source,'title'=>'Approved manual metadata',
                'revision'=>str_repeat('b',64),'extraction_status'=>'approved'],
     'pass_results_total'=>1,
-    'offset'=>0,
+    'offset'=>0,'audit_offset'=>0,'audit_total'=>1,
+    'audit_events'=>[['id'=>1,'happened'=>123,'kind'=>'job-complete',
+                       'subject'=>str_repeat('c',32),'detail'=>'']],
     'passes'=>[[
         'job_id'=>str_repeat('c',32),'cycle'=>1,'page'=>5,'part'=>1,
         'pass_number'=>2,'revision'=>str_repeat('d',64),
@@ -111,7 +123,8 @@ $reportReply=[
 $report=cms_ai_continuous_report_data($sourceRequest,$reportReply);
 continuous_check($report['training_export']===false&&
     $report['verified_knowledge']===false&&
-    $report['contains_private_unreviewed_drafts']===true,
+    $report['contains_private_unreviewed_drafts']===true&&
+    $report['audit_total']===1&&count($report['audit_events'])===1,
     'Report may not masquerade as verified knowledge or training');
 continuous_check($report['passes'][0]['page']===5&&
     $report['passes'][0]['draft_notes']==='Private source draft <not verified>',
@@ -119,6 +132,9 @@ continuous_check($report['passes'][0]['page']===5&&
 foreach([
     array_replace($reportReply,['source'=>['id'=>'pdf:'.str_repeat('1',64)]]),
     array_replace($reportReply,['offset'=>10]),
+    array_replace($reportReply,['audit_offset'=>10]),
+    array_replace($reportReply,['audit_events'=>array_fill(0,21,[
+        'id'=>1,'happened'=>1,'kind'=>'job-complete','subject'=>'x','detail'=>''])]),
     array_replace($reportReply,['passes'=>[
         array_replace($reportReply['passes'][0],['review_state'=>'supported'])]]),
     array_replace($reportReply,['passes'=>[

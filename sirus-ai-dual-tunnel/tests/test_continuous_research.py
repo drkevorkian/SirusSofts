@@ -616,6 +616,69 @@ class ContinuousResearchTests(unittest.TestCase):
         self.assertEqual(self.research.status()["recent_jobs"][0]["cancelled_by"],
                          "cms-admin:1")
 
+    def test_audit_is_append_only_and_source_scoped_with_pagination(self):
+        self.add_doc()
+        other="b"*64
+        self.add_doc(other,text="Different original source.")
+        self.research.inventory()
+        self.research.control("configure",value={"passes":12})
+        self.research.control("enable")
+        lease=self.research.claim()
+        sid=lease["source_id"]
+        for pass_no in range(12):
+            self.assertTrue(self.research.finish(lease,f"Draft #{pass_no}"))
+            if pass_no<11:
+                lease=self.research.claim()
+        audit=self.research.history(sid,audit_offset=0)
+        self.assertEqual(audit["audit_offset"],0)
+        self.assertEqual(len(audit["audit_events"]),20)
+        self.assertTrue(audit["audit_has_more"])
+        self.assertGreater(audit["audit_total"],20)
+        self.assertEqual(audit["audit_events"][0]["kind"],"job-complete")
+        last=self.research.history(sid,audit_offset=20)
+        self.assertGreater(len(last["audit_events"]),0)
+        self.assertFalse(last["audit_has_more"])
+        self.assertEqual(last["audit_total"],audit["audit_total"])
+        from_db=ContinuousResearch(self.db,self.pdf,self.base/"index.sqlite3")
+        self.assertEqual(from_db.history(sid)["audit_total"],audit["audit_total"])
+        # An unrelated document must never inherit this job's audit records.
+        other_sid="pdf:"+other if sid!="pdf:"+other else "pdf:"+SHA
+        unrelated=from_db.history(other_sid)
+        self.assertEqual(unrelated["pass_results_total"],0)
+        self.assertFalse(any(e["subject"]==lease["id"]
+                             for e in unrelated["audit_events"]))
+        with connect(self.db) as db:
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("DELETE FROM cr_events")
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("UPDATE cr_events SET kind='changed'")
+        for offset in (-1,1000001,1.5,"0",True):
+            with self.assertRaises(ValueError):
+                from_db.history(sid,audit_offset=offset)
+
+    def test_terminal_failure_and_recovery_have_audited_transitions(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("enable")
+        lease=self.research.claim()
+        for count in range(5):
+            self.assertTrue(self.research.fail(lease,RuntimeError("secret content")))
+            if count<4:
+                lease=self.research.claim(now=time.time()+4000)
+                self.assertIsNotNone(lease)
+        with connect(self.db) as db:
+            types=[r["kind"] for r in db.execute("""SELECT kind
+                FROM cr_events WHERE subject=? ORDER BY id""",(lease["id"],))]
+            self.assertIn("job-failed",types)
+            self.assertEqual(types.count("job-error"),5)
+            self.assertEqual(types.count("job-leased"),5)
+            self.assertEqual(db.execute("""SELECT state FROM cr_jobs
+                WHERE id=?""",(lease["id"],)).fetchone()[0],"failed")
+        events=self.research.history(lease["source_id"])
+        self.assertEqual(events["audit_events"][0]["kind"],"job-failed")
+        # Error messages are never persisted in events, only exception types.
+        self.assertNotIn("secret content",str(events["audit_events"]))
+
     def test_legacy_schema_supports_additive_cancel_table(self):
         self.add_doc()
         self.research.inventory()
