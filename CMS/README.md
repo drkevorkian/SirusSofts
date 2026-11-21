@@ -399,3 +399,10 @@ Review the pinned commit and [continuous research deployment plan](../docs/CONTI
 ### Source history and reports
 
 The administrator-only Continuous Research panel includes signed, source-scoped paged history browsing, durable cycle progress (completed/planned passes), measured inference latency and estimated inference-only pass throughput. The operator may explicitly download the currently selected eight-result page as a private JSON research report. The report includes original-source provenance and unreviewed model notes; it is **not** a reviewed reference, training dataset, sanitized public document or automatic model update. Source IDs and page offsets are strictly validated and all report retrieval uses the signed private bridge and existing administrator/CSRF/rate-limiting controls. Do not publish the downloaded JSON or assume model text is secret-free.
+
+
+### Evidence scope reapproval and GPU status
+
+Changing an original PDF's explicit application scope now requires a signed authenticated administrator action; the private claim ledger immediately supersedes older supported reviews, retaining original scope values and immutable reviewer history. The CMS panel exposes the latest scope audit and binds each review form to the applicability visible when the form opened. A stale page cannot silently reapprove a claim for another model or engine.
+
+The Continuous Research panel displays Gentoo's read-only AMD/NVIDIA VRAM status where supported by installed driver counters, alongside host CPU/RAM. Administrators may set a minimum free GPU VRAM threshold for a specific AMD or NVIDIA background target; absent GPU counters fail closed. Threshold 0 disables the gate. This is an admission limit, not a hardware reservation or guarantee of chatbot latency.

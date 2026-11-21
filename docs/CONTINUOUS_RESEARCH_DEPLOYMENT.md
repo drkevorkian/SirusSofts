@@ -8,8 +8,9 @@ This document is a **future operator runbook**. A GitHub commit and green CI are
 2. Review the additive private SQLite schema and tests, CMS/app/ai_continuous.php, sirus-ai-dual-tunnel/gentoo/continuous_research.py, sirus-ai-dual-tunnel/gentoo/research_evidence.py and all in-place upgrade changes. Confirm the claims and evidence tables are backed up with input.sqlite3. The root README's main-only policy supersedes old feature-branch notes.
 3. On Gentoo, inspect the dedicated /srv/sirussofts/storage SSD mount, private pdf_ingest.sqlite3 (including WAL), the sirusai account's read permission and running local llama.cpp models. Do not fall back to a different disk without operator approval.
 4. Run Python tests including test_research_evidence.py, php CMS/tests/ai_continuous_test.php, php CMS/tests/ai_evidence_test.php, full CMS tests, PHP lint, Python compileall, shellcheck and the two Actions workflows.
-5. Verify capacity for growth of unreviewed drafts before enabling more than one small PDF.
-6. Stage the **separate private administrative bridge key** described below before relying on any controller panel or claim review. Without it, private research GET/POST endpoints intentionally reject requests while existing chat and one-off research remain available.
+5. Verify capacity for growth of unreviewed drafts before enabling more than one small PDF. On Gentoo, inspect whether the actual GPU drivers expose `/sys/class/drm/card*/device/mem_info_vram_total` and `mem_info_vram_used` (AMD) or `/usr/bin/nvidia-smi` (NVIDIA). Missing readings are not free VRAM. Enable minimum free GPU VRAM only with a pinned AMD/NVIDIA research target and verified worker-device mapping; the threshold does not reserve memory.
+6. Confirm application-scope changes append immutable audit records and immediately supersede supported claims. A stale review form must be rejected, not silently approved. Back up `cr_scope_versions` and the additive claim applicability column with the private Gentoo SQLite database.
+7. Stage the **separate private administrative bridge key** described below before relying on any controller panel or claim review. Without it, private research GET/POST endpoints intentionally reject requests while existing chat and one-off research remain available.
 
 ## Privileged CMS-to-Gentoo bridge: mandatory key provisioning
 

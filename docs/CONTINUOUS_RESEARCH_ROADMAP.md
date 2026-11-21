@@ -2,7 +2,7 @@
 
 **Status:** Approved roadmap — source implementation underway; production deployment and acceptance pending  
 **Priority:** High  
-**Tracking baseline:** 0d7f2ed3e3b1 (source changes checked with CI; production acceptance pending, 2026-11-19)  
+**Tracking baseline:** 86f0a3f7ef51 (source features tested in GitHub; production acceptance pending, 2026-11-20)  
 **Platform:** Gentoo local AI workers + Ubuntu public CMS gateway  
 **Objective:** Enable the local LLM to continuously revisit, analyze, cross-reference, and improve its understanding of the entire available knowledge library without requiring a user to initiate each research session.
 
@@ -14,7 +14,7 @@
 - **No source or checklist update deploys servers.** In particular, the 32-byte private signed administrative bridge key still needs secure provisioning in an approved maintenance window. Model-weight training remains disabled.
 - **Git workflow:** The repository root README specifies `main` only; the original dedicated-development-branch requirement is superseded rather than performed. Keep history and rollbacks through normal reviewed commits.
 
-**Overall source checklist: 65 / 138 checked (47.1%).** This is development progress, **not production readiness**.
+**Overall source checklist: 67 / 138 checked (48.6%).** This is development progress, **not production readiness**.
 
 | Section | Source-complete | Still open |
 |---|---:|---:|
@@ -24,8 +24,8 @@
 | 4. Multi-pass reasoning | 4/12 | 8 |
 | 5. Verification and memory | 9/12 | 3 |
 | 6. Cross-document intelligence | 1/9 | 8 |
-| 7. Resource management | 2/11 | 9 |
-| 8. Administrator dashboard | 13/15 | 2 |
+| 7. Resource management | 3/11 | 8 |
+| 8. Administrator dashboard | 14/15 | 1 |
 | 9. Safety and reliability | 7/12 | 5 |
 | 10. Optional model training | 1/9 | 8 |
 | 11. Acceptance tests | 0/12 | 12 |
@@ -104,7 +104,7 @@ For each selected document or document section:
 - [x] Assign verification states: unreviewed, supported, disputed, rejected, and superseded.
 - [x] Require source-backed evidence before promoting new factual knowledge.
 - [x] Maintain historical versions and reversal capability.
-- [ ] Preserve human review controls for safety-critical technical procedures. **Partial (source):** All support actions are admin-only and require original-source confirmation; procedure-specific review rules remain.
+- [ ] Preserve human review controls for safety-critical technical procedures. **Partial (source):** Admin-only original-source confirmation now binds the selected application scope and invalidates human approvals when that scope changes; procedure-specific safety rules and second-reviewer policy are still missing.
 - [ ] Make verified knowledge available through the existing retrieval system.
 - [x] Avoid overwriting original documents or extracted source material.
 - [ ] Detect circular references and unsupported generated claims. **Partial (source):** Model-generated drafts cannot become evidence; cross-source circularity and independent-authorship detection remain.
@@ -126,16 +126,16 @@ For each selected document or document section:
 
 ## 7. Resource and Performance Management
 
-- [ ] Detect available CPU, RAM, GPU, and VRAM resources. **Partial (source):** Host CPU-load and available-RAM signals exist; GPU/VRAM admission is missing.
+- [x] Detect available CPU, RAM, GPU, and VRAM resources. **Source implementation:** Linux logical CPU count, host MemAvailable and CPU load, AMD amdgpu sysfs and local NVIDIA nvidia-smi VRAM snapshots are available; missing/unsupported GPU counters are reported as unknown. Live GPU-driver acceptance is pending.
 - [x] Respect the existing Gentoo inference worker configuration.
-- [ ] Reserve resources for interactive chat and existing system services. **Partial (source):** New background work defers to chat; it cannot reserve resources or preempt a running model call.
+- [ ] Reserve resources for interactive chat and existing system services. **Partial (source):** New background work defers to chat and can require a minimum free VRAM threshold at admission for explicit AMD/NVIDIA targets. This is not a GPU allocation/reservation; it cannot preempt or isolate in-flight inference.
 - [ ] Allow configurable background inference concurrency.
 - [x] Throttle research when resource utilization exceeds configured limits.
 - [ ] Monitor memory consumption, inference latency, and queue growth. **Partial (source):** Host available RAM, CPU/queue counts and per-pass inference latency are available; process-specific memory utilization and historical queue-growth trends are not.
 - [ ] Track tokens processed per second and per research job.
 - [ ] Prevent uncontrolled database growth through configurable retention and archival.
 - [ ] Avoid continuously reprocessing unchanged material at unnecessarily high priority.
-- [ ] Support quiet hours, power-management policies, and operator overrides. **Partial (source):** UTC quiet hours and admin overrides exist; power-management policy is missing.
+- [ ] Support quiet hours, power-management policies, and operator overrides. **Partial (source):** UTC quiet hours, CPU/RAM/VRAM admission settings and admin overrides exist; power-management policy and energy budgets are missing.
 - [ ] Track resource consumption and estimated energy costs.
 
 ## 8. Administrator Dashboard
@@ -150,7 +150,7 @@ Add a **Continuous Research** section to the existing SirusSofts AI administrati
 - [x] Total indexed documents and sections.
 - [x] Processed, pending, failed, and excluded counts.
 - [x] Estimated processing throughput. **Source implementation:** Measured inference durations and completed passes feed a labeled inference-only estimate; queue delays/GPU contention are excluded.
-- [ ] Resource utilization and active worker status. **Partial (source):** CPU load, RAM headroom and active worker appear; GPU/VRAM utilization is absent.
+- [x] Resource utilization and active worker status. **Source implementation:** Admin status shows the active worker, CPU load, host RAM headroom and supported AMD/NVIDIA VRAM total/used/free snapshots, with missing counters clearly unknown. Hardware acceptance remains outstanding.
 - [ ] Recently verified findings. **Partial (source):** Latest human claim revisions are listed; a dedicated filtered verified-findings feed is missing.
 - [x] Outstanding contradictions and review requests.
 - [x] Source-specific research histories. **Source implementation:** Admin-only signed source history lists recent jobs and pages through all stored pass results, including superseded revisions and failures.
@@ -313,11 +313,19 @@ An administrator can assign an explicit applicability key such as `brp/defender/
 
 **Measurable acceptance:** The new PHP/Python tests enforce administrator-only actions, explicit review confirmation, exact SHA/page/part provenance, rejection of stale or unapproved originals, immutable review history, reversible human decisions and automatic source-revision supersession. A controlled source update and restoration test is required against the real private library.
 
+## Subsequent integrity guard: application-scope reapproval (source only)
+
+A manual's model/year/engine/application scope is part of the provenance of a human-supported statement. Changing its scope now requires an authenticated CMS administrator identity and creates a new immutable `cr_scope_versions` entry with old/new scope and actor. Before changing any indexed measurement applicability, the operation atomically moves existing reviewed claims to **superseded** with a `system:scope-change` attribution, retaining all prior claim versions and their original applicability. A repeated same-scope request is a no-op.
+
+Review forms now bind an explicit `expected_scope` alongside the source excerpt hash/revision; saving a stale browser form after another administrator changes scope is rejected. The private CMS evidence panel displays the latest scope change history. Legacy claim history gains an additive applicability field with unknown/blank historical defaults, and further old/new scope comparisons conservatively invalidate mismatches.
+
+**Still open:** Independent-authorship/cross-manual corroboration, procedure-specific dual control, live privacy/security validation, and approval-to-RAG transfer. Supported continues to mean that a human located the literal statement in an already approved original PDF, **not** that it is safe to use in every application.
+
 ## Phase D: Unattended resource management — partial
 
-A persistent, opt-in Gentoo background thread executes one research pass at a time and defers new work if active/queued chat or manually requested research is present. Optional one-minute CPU load cap, minimum available RAM and UTC quiet-hours admission limits apply. Bounded deterministic evidence indexing/comparison runs in smaller batches when no chat is active. Queue, cycle, lease, errors, worker, CPU load and RAM headroom are observable.
+A persistent, opt-in Gentoo background thread executes one research pass at a time and defers new work if active/queued chat or manually requested research is present. Optional one-minute CPU load cap, minimum available RAM, explicit GPU VRAM threshold and UTC quiet-hours admission limits apply. Bounded deterministic evidence indexing/comparison runs in smaller batches when no chat is active. Queue, cycle, lease, errors, worker, CPU load and RAM headroom are observable.
 
-**Remaining:** Explicit GPU/VRAM telemetry and process-specific admission, power limits, source retention/archival, multi-node coordination, chat preemption and real benchmark-backed latency SLAs. Minimum free RAM uses the Linux MemAvailable host metric and is not equivalent to reserving a model's VRAM. Quiet hours are in UTC, not inferred local time. The current gate protects **admission of new work**, not necessarily a chat request that arrives during an already-running inference.
+**Remaining:** Process-specific GPU/VRAM allocation or reservation, power limits, source retention/archival, multi-node coordination, chat preemption and real benchmark-backed latency SLAs. Minimum free RAM uses the Linux MemAvailable host metric and is not equivalent to reserving a model's VRAM. The VRAM guard is disabled by default; when enabled it requires an explicit AMD or NVIDIA worker, denies auto/CPU targeting, and fails closed for unavailable or low GPU counters. It reads local AMD sysfs metrics or a timeout-bounded, fixed-path NVIDIA command, but cannot reserve VRAM or ensure the worker stays on the same GPU. Quiet hours are in UTC, not inferred local time. The current gate protects **admission of new work**, not necessarily a chat request that arrives during an already-running inference.
 
 **Measurable gate:** Two long cycles and peak interactive load without OOM, data loss, unacceptable latency, or unbounded storage growth.
 
@@ -330,6 +338,7 @@ No autonomous LoRA or model-weight changes. Future training requires curated **h
 - Python: python3 -m unittest discover -s sirus-ai-dual-tunnel/tests -p 'test_*.py' -v (including test_continuous_research.py and test_research_evidence.py)
 - PHP: php CMS/tests/ai_continuous_test.php, php CMS/tests/ai_evidence_test.php, php CMS/tests/ai_research_test.php and the full existing CMS suite
 - CI: .github/workflows/sirus-ai-dual-tunnel.yml and .github/workflows/php-framework.yml, including Python syntax, PHP lint, serious undefined-name and shell analysis
+- Source tests also cover application-scope change auditing, human-approval supersession, stale review-form rejection, old claim-history migration, AMD/NVIDIA telemetry parsing, unknown/invalid counters, fail-closed admission, and legacy GPU config migration.
 - Source tests cover inventory completeness, long-section coverage, additive migration preservation, content changes, duplicate prevention, leases/fencing, retries, cycle eligibility, pauses, source exclusion, chat admission, RAM and UTC quiet-hours gates, deterministic evidence indexing, scope-limited contradiction candidates, stale original rejection, append-only human review/reversal, HMAC/nonce validation and real unsigned-localhost route rejection.
 
 **Safe installation plan:** docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md. Pin and review a green main SHA; use existing backup-backed in-place upgrade scripts, not the old full installers. No Ubuntu/Gentoo apply, service restart, model change, or destructive storage operation has been done during this implementation.
