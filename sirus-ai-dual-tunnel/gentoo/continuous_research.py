@@ -127,6 +127,19 @@ def init_schema(path):
           id INTEGER PRIMARY KEY AUTOINCREMENT, happened REAL NOT NULL,
           kind TEXT NOT NULL, subject TEXT NOT NULL, detail TEXT NOT NULL DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS cr_job_cancellations (
+          job_id TEXT PRIMARY KEY, actor TEXT NOT NULL, happened REAL NOT NULL,
+          source_id TEXT NOT NULL, cycle INTEGER NOT NULL,
+          pass_completed INTEGER NOT NULL
+        );
+        CREATE TRIGGER IF NOT EXISTS cr_job_cancellations_no_update
+          BEFORE UPDATE ON cr_job_cancellations BEGIN
+            SELECT RAISE(ABORT,'Cancellation history is append-only');
+          END;
+        CREATE TRIGGER IF NOT EXISTS cr_job_cancellations_no_delete
+          BEFORE DELETE ON cr_job_cancellations BEGIN
+            SELECT RAISE(ABORT,'Cancellation history cannot be deleted');
+          END;
         """)
         # Compatible with v1 private databases; never rebuild existing tables.
         cols={row[1] for row in db.execute("PRAGMA table_info(cr_config)")}
@@ -416,14 +429,43 @@ class ContinuousResearch:
              AND s.current=1 AND d.eligible=1 AND d.present=1 AND d.excluded=0)""",
                    (time.time(),))
 
-    def control(self, action, *, source_id="", value=None):
+    def control(self, action, *, source_id="", value=None, job_id="", actor=""):
         if action not in ("enable", "pause", "resume", "stop", "disable",
-                          "include", "exclude", "priority", "configure", "scan"):
+                          "include", "exclude", "priority", "configure", "scan",
+                          "cancel"):
             raise ValueError("Invalid control action")
+        if action=="cancel":
+            if (not isinstance(job_id,str) or
+                not re.fullmatch(r"[0-9a-f]{32}",job_id) or
+                not isinstance(actor,str) or
+                not re.fullmatch(r"cms-admin:[1-9][0-9]{0,12}",actor)):
+                raise ValueError("Valid job ID and authenticated administrator required")
         with connect(self.db_path) as db:
             db.execute("BEGIN IMMEDIATE")
             now = time.time()
-            if action in ("include", "exclude", "priority"):
+            if action=="cancel":
+                # An existing SQLite stopped state is used to avoid rebuilding
+                # the legacy cr_jobs CHECK constraint during an in-place upgrade.
+                # The immutable marker makes it distinct from a global stop.
+                job=db.execute("""SELECT j.id,j.cycle,j.pass_completed,j.state,
+                    s.source_id FROM cr_jobs j JOIN cr_sections s
+                    ON s.slot=j.slot AND s.revision=j.revision
+                    WHERE j.id=?""",(job_id,)).fetchone()
+                if not job or job["state"] not in ("queued","leased","stopped"):
+                    raise ValueError("Job missing or already terminal")
+                if db.execute("""SELECT 1 FROM cr_job_cancellations
+                    WHERE job_id=?""",(job_id,)).fetchone():
+                    raise ValueError("Job already cancelled")
+                db.execute("""INSERT INTO cr_job_cancellations(
+                    job_id,actor,happened,source_id,cycle,pass_completed)
+                    VALUES(?,?,?,?,?,?)""",(job_id,actor,now,job["source_id"],
+                                              job["cycle"],job["pass_completed"]))
+                db.execute("""UPDATE cr_jobs SET state='stopped',token='',
+                    lease_until=0,retry_at=0,error='Cancelled by administrator',
+                    updated=? WHERE id=?""",(now,job_id))
+                self._event(db,"job-cancelled",job_id,actor)
+                self._schedule(db,now)
+            elif action in ("include", "exclude", "priority"):
                 if not isinstance(source_id, str) or not (
                     (source_id.startswith("pdf:") and len(source_id)==68 and
                      all(c in "0123456789abcdef" for c in source_id[4:])) or
@@ -511,7 +553,9 @@ class ContinuousResearch:
                                (now,))
                 if action in ("enable","resume"):
                     db.execute("""UPDATE cr_jobs SET state='queued',retry_at=0
-                        WHERE state='stopped'""")
+                        WHERE state='stopped' AND NOT EXISTS (
+                          SELECT 1 FROM cr_job_cancellations c
+                          WHERE c.job_id=cr_jobs.id)""")
                 self._event(db,action,"research")
         return self.status()
 
@@ -548,7 +592,10 @@ class ContinuousResearch:
         # a targeted cycle to include already-completed unchanged sections.
         uncovered="""AND NOT EXISTS (SELECT 1 FROM cr_jobs previous
             WHERE previous.slot=s.slot AND previous.revision=s.revision
-            AND previous.state IN ('completed','failed'))"""
+            AND (previous.state IN ('completed','failed') OR
+                (previous.state='stopped' AND EXISTS (
+                  SELECT 1 FROM cr_job_cancellations c
+                  WHERE c.job_id=previous.id))))"""
         targeted=False
         if not active:
             targeted=now-conf["last_completed"]<conf["revisit_seconds"]
@@ -640,6 +687,8 @@ class ContinuousResearch:
             db.execute("""UPDATE cr_jobs SET state='leased',token=?,lease_until=?,
                 attempts=attempts+1,updated=? WHERE id=? AND state='queued'""",
                        (token,now+LEASE_SECONDS,now,row["id"]))
+            self._event(db,"job-leased",row["id"],
+                        "pass="+str(row["pass_completed"]+1))
             return dict(row) | {"token":token,"target":conf["target"],
                                 "model_id":conf["model_id"]}
 
@@ -703,6 +752,7 @@ class ContinuousResearch:
             db.execute("""UPDATE cr_jobs SET pass_completed=?,state=?,token='',
                 lease_until=0,retry_at=0,attempts=0,worker=?,error='',updated=?
                 WHERE id=?""",(pass_no,state,worker[:24],now,lease["id"]))
+            self._event(db,"pass-checkpoint",lease["id"],str(pass_no))
             if state=="completed":
                 self._event(db,"job-complete",lease["id"])
                 # Close a fully completed coverage cycle in this same
@@ -807,8 +857,12 @@ class ContinuousResearch:
                 WHERE s.source_id=?""",(source_id,)).fetchone()[0]
             jobs=db.execute("""SELECT j.id,j.cycle,j.state,j.pass_completed,
                 j.passes,j.attempts,j.worker,j.error,j.created,j.updated,
-                s.page,s.part,s.revision,s.source_revision
-                """+scope+""" ORDER BY j.created DESC,j.id DESC LIMIT 12""",
+                s.page,s.part,s.revision,s.source_revision,
+                c.actor cancelled_by,c.happened cancelled_at
+                FROM cr_jobs j JOIN cr_sections s
+                  ON s.slot=j.slot AND s.revision=j.revision
+                LEFT JOIN cr_job_cancellations c ON c.job_id=j.id
+                WHERE s.source_id=? ORDER BY j.created DESC,j.id DESC LIMIT 12""",
                 (source_id,)).fetchall()
             rows=db.execute("""SELECT r.job_id,r.pass_number,r.notes,r.sha256,
                 r.review_state,r.created,r.duration_ms,r.output_chars,
@@ -849,6 +903,16 @@ class ContinuousResearch:
                 s.source_id,s.page,s.part,j.worker,j.attempts,j.error,j.lease_until
                 FROM cr_jobs j JOIN cr_sections s ON s.slot=j.slot
                 AND s.revision=j.revision WHERE j.state='leased' LIMIT 1""").fetchone()
+            recent_jobs=db.execute("""SELECT j.id,j.cycle,j.state,
+                j.pass_completed,j.passes,j.attempts,j.error,s.source_id,
+                s.page,s.part,d.title,c.actor cancelled_by
+                FROM cr_jobs j JOIN cr_sections s
+                  ON s.slot=j.slot AND s.revision=j.revision
+                JOIN cr_sources d ON d.id=s.source_id
+                LEFT JOIN cr_job_cancellations c ON c.job_id=j.id
+                WHERE j.state IN ('queued','leased','failed','stopped')
+                ORDER BY CASE j.state WHEN 'leased' THEN 0 WHEN 'queued' THEN 1
+                  ELSE 2 END,j.updated DESC,j.id DESC LIMIT 24""").fetchall()
             chat=db.execute("""SELECT count(*) FROM jobs WHERE state IN
                 ('queued','running')""").fetchone()[0]
             if cycle:
@@ -898,4 +962,5 @@ class ContinuousResearch:
                 "free_ram_mib":free_mib,"cpu_logical":os.cpu_count(),
                 "gpu_devices":gpu_devices,"admission_blocks":blocked,
                 "sources":[dict(r) for r in recent],
+                "recent_jobs":[dict(r) for r in recent_jobs],
                 "draft_only":True,"weight_training":False}
