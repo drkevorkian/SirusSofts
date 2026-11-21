@@ -64,6 +64,20 @@ def init_schema(path):
           source_id TEXT PRIMARY KEY, applicability TEXT NOT NULL DEFAULT '',
           updated REAL NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS cr_scope_versions (
+          source_id TEXT NOT NULL, version INTEGER NOT NULL,
+          previous_scope TEXT NOT NULL, new_scope TEXT NOT NULL,
+          reviewed_by TEXT NOT NULL, created REAL NOT NULL,
+          PRIMARY KEY(source_id,version)
+        );
+        CREATE TRIGGER IF NOT EXISTS cr_scope_versions_no_update
+          BEFORE UPDATE ON cr_scope_versions BEGIN
+            SELECT RAISE(ABORT,'Scope history is append-only');
+          END;
+        CREATE TRIGGER IF NOT EXISTS cr_scope_versions_no_delete
+          BEFORE DELETE ON cr_scope_versions BEGIN
+            SELECT RAISE(ABORT,'Scope history cannot be deleted');
+          END;
         CREATE TABLE IF NOT EXISTS cr_evidence_indexed (
           slot TEXT NOT NULL, revision TEXT NOT NULL,
           indexed REAL NOT NULL, PRIMARY KEY(slot,revision)
@@ -100,7 +114,8 @@ def init_schema(path):
           state TEXT NOT NULL CHECK(state IN
             ('unreviewed','supported','disputed','rejected','superseded')),
           statement TEXT NOT NULL, quote_sha TEXT NOT NULL,
-          source_revision TEXT NOT NULL, reviewed_by TEXT NOT NULL,
+          source_revision TEXT NOT NULL, applicability TEXT NOT NULL DEFAULT '',
+          reviewed_by TEXT NOT NULL,
           reason TEXT NOT NULL DEFAULT '', created REAL NOT NULL,
           PRIMARY KEY(claim_id,version)
         );
@@ -119,6 +134,12 @@ def init_schema(path):
         );
         INSERT OR IGNORE INTO cr_evidence_settings(id) VALUES(1);
         """)
+        # Preserve all historical reviews; old rows have unknown original
+        # applicability, not an invented current application.
+        columns={row[1] for row in db.execute("PRAGMA table_info(cr_claim_versions)")}
+        if "applicability" not in columns:
+            db.execute("""ALTER TABLE cr_claim_versions ADD COLUMN applicability
+                TEXT NOT NULL DEFAULT ''""")
 
 
 class EvidenceLedger:
@@ -146,18 +167,19 @@ class EvidenceLedger:
                        (claim_id,evidence["id"],now))
             version=1
             db.execute("""INSERT INTO cr_claim_versions(claim_id,version,state,
-                 statement,quote_sha,source_revision,reviewed_by,created)
-                 VALUES(?,1,'unreviewed',?,?,?,'system:index',?)""",
+                 statement,quote_sha,source_revision,applicability,reviewed_by,created)
+                 VALUES(?,1,'unreviewed',?,?,?,?,'system:index',?)""",
                        (claim_id,evidence["quote"],evidence["quote_sha"],
-                        evidence["source_revision"],now))
+                        evidence["source_revision"],evidence["applicability"],now))
         else:
             version=claim["version"]
         version+=1
         db.execute("""INSERT INTO cr_claim_versions(claim_id,version,state,
-            statement,quote_sha,source_revision,reviewed_by,reason,created)
-            VALUES(?,?,?,?,?,?,?,?,?)""",
+            statement,quote_sha,source_revision,applicability,reviewed_by,reason,created)
+            VALUES(?,?,?,?,?,?,?,?,?,?)""",
             (claim_id,version,state,evidence["quote"],evidence["quote_sha"],
-             evidence["source_revision"],reviewer,reason[:200],now))
+             evidence["source_revision"],evidence["applicability"],reviewer,
+             reason[:200],now))
         db.execute("UPDATE cr_claims SET version=?,state=?,updated=? WHERE id=?",
                    (version,state,now,claim_id))
 
@@ -168,7 +190,11 @@ class EvidenceLedger:
             revoked=db.execute("""SELECT e.* FROM cr_claims c
                 JOIN cr_evidence e ON e.id=c.evidence_id
                 WHERE c.state NOT IN ('superseded','rejected') AND NOT """
-                +self._current_clause("e")).fetchall()
+                +self._current_clause("e") + """ OR (
+                    c.state NOT IN ('superseded','rejected')
+                    AND COALESCE((SELECT v.applicability FROM cr_claim_versions v
+                        WHERE v.claim_id=c.id ORDER BY v.version DESC LIMIT 1),'')
+                        <>e.applicability)""").fetchall()
             for evidence in revoked:
                 self._append_review(db,evidence,"superseded","system:source-revision")
             db.execute("""UPDATE cr_conflicts SET state='superseded'
@@ -245,7 +271,7 @@ class EvidenceLedger:
         self.reconcile()
         return {"indexed_sections":finished,"parsed_candidates":discovered}
 
-    def set_scope(self, source_id, scope):
+    def set_scope(self, source_id, scope, reviewer):
         """Admin-provided applicability key, never inferred from titles/LLM.
 
         Format: make/model/year[/engine[/assembly[/revision]]], lowercase.
@@ -255,12 +281,37 @@ class EvidenceLedger:
             raise ValueError("Only inventoried original PDFs support comparison")
         if not isinstance(scope,str) or (scope and not SCOPE.fullmatch(scope)):
             raise ValueError("Scope must be make/model/year[/engine/assembly/revision]")
+        if not isinstance(reviewer,str) or not ACTOR.fullmatch(reviewer):
+            raise ValueError("Authenticated CMS administrator required to change scope")
         with connect(self.db_path) as db:
             db.execute("BEGIN IMMEDIATE")
             if not db.execute("""SELECT 1 FROM cr_sources WHERE id=? AND kind='pdf'
                 AND present=1""",(source_id,)).fetchone():
                 raise ValueError("PDF is not in current private inventory")
+            previous=db.execute("""SELECT applicability FROM cr_evidence_scopes
+                WHERE source_id=?""",(source_id,)).fetchone()
+            previous=previous["applicability"] if previous else ""
+            if previous==scope:
+                return {"source_id":source_id,"applicability":scope,"changed":False,
+                        "invalidated_claims":0}
             now=time.time()
+            # A prior human approval is for a specific application. Revoke it
+            # BEFORE changing the candidate scope, preserving old applicability
+            # in the immutable historical claim entry. Re-review is mandatory.
+            current=db.execute("""SELECT e.* FROM cr_claims c
+                JOIN cr_evidence e ON e.id=c.evidence_id
+                WHERE e.source_id=? AND c.state NOT IN ('superseded','rejected')""",
+                (source_id,)).fetchall()
+            for evidence in current:
+                self._append_review(db,evidence,"superseded",
+                                    "system:scope-change",
+                                    "Application scope changed; manual re-review required")
+            version=db.execute("""SELECT COALESCE(MAX(version),0)+1
+                FROM cr_scope_versions WHERE source_id=?""",
+                (source_id,)).fetchone()[0]
+            db.execute("""INSERT INTO cr_scope_versions(
+                source_id,version,previous_scope,new_scope,reviewed_by,created)
+                VALUES(?,?,?,?,?,?)""",(source_id,version,previous,scope,reviewer,now))
             db.execute("""INSERT INTO cr_evidence_scopes(source_id,applicability,updated)
                 VALUES(?,?,?) ON CONFLICT(source_id)
                 DO UPDATE SET applicability=excluded.applicability,
@@ -276,7 +327,8 @@ class EvidenceLedger:
                      AND (a.applicability<>b.applicability
                           OR a.applicability<>cr_conflicts.applicability))""")
             db.execute("UPDATE cr_evidence_settings SET compare_cursor='' WHERE id=1")
-        return {"source_id":source_id,"applicability":scope}
+        return {"source_id":source_id,"applicability":scope,"changed":True,
+                "invalidated_claims":len(current)}
 
     def compare_batch(self, limit=64):
         """Complete paged comparison of identically scoped original documents.
@@ -317,14 +369,17 @@ class EvidenceLedger:
             return {"compared_pairs":len(matches),"new_conflicts":added,
                     "wrapped":False}
 
-    def review(self, evidence_id, quote_sha, revision, reviewer, action, reason=""):
+    def review(self, evidence_id, quote_sha, revision, reviewer, action, reason="",
+               *, expected_scope=None):
         """Human-only review. No AI worker calls this; CMS guards the route."""
         if (not isinstance(evidence_id,str) or not ID.fullmatch(evidence_id)
             or not isinstance(quote_sha,str) or not ID.fullmatch(quote_sha)
             or not isinstance(revision,str) or not ID.fullmatch(revision)
             or not isinstance(reviewer,str) or not ACTOR.fullmatch(reviewer)
             or action not in ("support","dispute","reject","supersede")
-            or not isinstance(reason,str) or len(reason)>200):
+            or not isinstance(reason,str) or len(reason)>200
+            or not isinstance(expected_scope,str)
+            or (expected_scope and not SCOPE.fullmatch(expected_scope))):
             raise ValueError("Invalid human review request")
         state={"support":"supported","dispute":"disputed",
                "reject":"rejected","supersede":"superseded"}[action]
@@ -332,13 +387,17 @@ class EvidenceLedger:
             row=db.execute("SELECT * FROM cr_evidence WHERE id=?",
                            (evidence_id,)).fetchone()
             current=db.execute("""SELECT d.reviewed,d.extraction_status,
-                d.present FROM cr_evidence e JOIN cr_sections s
+                d.present,COALESCE(sc.applicability,'') actual_scope
+                FROM cr_evidence e JOIN cr_sections s
                 ON s.slot=e.slot AND s.revision=e.revision
                 JOIN cr_sources d ON d.id=e.source_id
+                LEFT JOIN cr_evidence_scopes sc ON sc.source_id=e.source_id
                 WHERE e.id=? AND s.current=1 AND d.eligible=1 AND d.excluded=0
                 AND d.present=1""",(evidence_id,)).fetchone()
         if not row or not current or row["quote_sha"]!=quote_sha or row["revision"]!=revision:
             raise ValueError("Evidence revision is missing, stale or excluded")
+        if row["applicability"]!=expected_scope or current["actual_scope"]!=expected_scope:
+            raise ValueError("Application scope changed; refresh the source review form")
         if row["source_id"].startswith("research:"):
             raise ValueError("Pasted text and model snapshots cannot verify claims")
         # A human can dispute/reject an unreviewed extract. Support requires
@@ -363,9 +422,14 @@ class EvidenceLedger:
             raise ValueError("Quote no longer matches the original source")
         with connect(self.db_path) as db:
             db.execute("BEGIN IMMEDIATE")
-            if not db.execute("SELECT 1 FROM cr_evidence e WHERE id=? AND "+
-                              self._current_clause("e"),(evidence_id,)).fetchone():
-                raise ValueError("Evidence became stale during review")
+            updated=db.execute("""SELECT e.applicability,
+                COALESCE(sc.applicability,'') expected
+                FROM cr_evidence e LEFT JOIN cr_evidence_scopes sc
+                ON sc.source_id=e.source_id WHERE e.id=? AND """
+                +self._current_clause("e"),(evidence_id,)).fetchone()
+            if (not updated or updated["applicability"]!=expected_scope or
+                updated["expected"]!=expected_scope):
+                raise ValueError("Evidence or application scope changed during review")
             # Source revision and its independent approval must remain valid.
             self._append_review(db,row,state,reviewer,reason)
         return {"id":evidence_id,"state":state,"human_review":True,
