@@ -90,14 +90,20 @@ function cms_ai_continuous_post(PDO $db,array $post):never {
 }
 
 /** Strictly bounded, side-effect-free input for an HMAC-authenticated history read. */
-function cms_ai_continuous_history_payload(mixed $source,mixed $offset):array {
+function cms_ai_continuous_history_payload(mixed $source,mixed $offset,
+                                           mixed $auditOffset='0'):array {
     if(!is_string($source) || !preg_match(
         '/^(?:pdf:[a-f0-9]{64}|research:[a-f0-9]{32})$/D',$source))
         throw new InvalidArgumentException('Select a valid inventoried source ID.');
     if(!is_string($offset)||!preg_match('/^(?:0|[1-9][0-9]{0,6})$/D',$offset)
         || (int)$offset>1000000)
         throw new InvalidArgumentException('Invalid source history page.');
-    return ['source_id'=>$source,'offset'=>(int)$offset,'local_only'=>true];
+    if(!is_string($auditOffset)||!preg_match(
+        '/^(?:0|[1-9][0-9]{0,6})$/D',$auditOffset)||
+       (int)$auditOffset>1000000)
+        throw new InvalidArgumentException('Invalid private research audit page.');
+    return ['source_id'=>$source,'offset'=>(int)$offset,
+            'audit_offset'=>(int)$auditOffset,'local_only'=>true];
 }
 
 /** Build a bounded private report, never a knowledge/training export. */
@@ -109,6 +115,10 @@ function cms_ai_continuous_report_data(array $request,array $reply):array {
        $reply['offset']!==$request['offset'])
         throw new RuntimeException('Private source report response mismatch.');
     $records=[];
+    if(!is_array($reply['audit_events']??null)||
+       count($reply['audit_events'])>20||
+       ($reply['audit_offset']??null)!==$request['audit_offset'])
+        throw new RuntimeException('Private research audit response mismatch.');
     foreach($reply['passes'] as $pass){
         if(!is_array($pass)||!is_string($pass['notes']??null)||
            !is_string($pass['sha256']??null)||
@@ -142,6 +152,9 @@ function cms_ai_continuous_report_data(array $request,array $reply):array {
         'verified_knowledge'=>false,
         'training_export'=>false,
         'no_public_distribution'=>true,
+        'audit_offset'=>$request['audit_offset'],
+        'audit_total'=>(int)($reply['audit_total']??0),
+        'audit_events'=>$reply['audit_events'],
         'passes'=>$records
     ];
 }
@@ -151,7 +164,8 @@ function cms_ai_continuous_export(PDO $db,array $post):never {
     require_once __DIR__.'/ai_api.php';
     cms_need_admin(); // The existing admin router verifies POST CSRF.
     $request=cms_ai_continuous_history_payload(
-        $post['source_id']??null,$post['offset']??null);
+        $post['source_id']??null,$post['offset']??null,
+        $post['audit_offset']??'0');
     cms_ai_api_rate($db,'continuous-report:'.hash('sha256',session_id()),'admin');
     $reply=cms_ai_api_upstream('input',
         '/api/in/research/continuous/history',$request);
@@ -425,18 +439,25 @@ function cms_ai_continuous_panel(PDO $db):void {
       <?php if(isset($_GET['cr_source'])):
           try{
               $request=cms_ai_continuous_history_payload(
-                  $_GET['cr_source'],$_GET['cr_offset']??'0');
+                  $_GET['cr_source'],$_GET['cr_offset']??'0',
+                  $_GET['cr_audit_offset']??'0');
               $history=cms_ai_api_upstream('input',
                   '/api/in/research/continuous/history',$request);
               if(!isset($history['source'])||!is_array($history['source'])||
                  ($history['source']['id']??null)!==$request['source_id']||
-                 !is_array($history['passes']??null)||count($history['passes'])>8)
+                 !is_array($history['passes']??null)||count($history['passes'])>8||
+                 !is_array($history['audit_events']??null)||
+                 count($history['audit_events'])>20||
+                 ($history['audit_offset']??null)!==$request['audit_offset'])
                   throw new RuntimeException('Invalid private history response.');
               $histSource=$history['source'];
               $histPasses=$history['passes'];
               $histJobs=is_array($history['jobs']??null)?$history['jobs']:[];
               $histOffset=$request['offset'];
               $histTotal=(int)($history['pass_results_total']??0);
+              $histAudits=$history['audit_events'];
+              $histAuditOffset=$request['audit_offset'];
+              $histAuditTotal=(int)($history['audit_total']??0);
           }catch(Throwable $error){
               $history=null;
               echo '<p>Source history unavailable or invalid. No changes were made.</p>';
@@ -472,6 +493,8 @@ function cms_ai_continuous_panel(PDO $db):void {
         <input type="hidden" name="source_id"
           value="<?=cms_esc($request['source_id'])?>">
         <input type="hidden" name="offset" value="<?=cms_esc((string)$histOffset)?>">
+        <input type="hidden" name="audit_offset"
+          value="<?=cms_esc((string)$histAuditOffset)?>">
         <button type="submit" class="btn small">Download this page's private research report (JSON)</button>
       </form>
       <?php foreach($histPasses as $result):if(!is_array($result))continue;?>
@@ -492,11 +515,34 @@ function cms_ai_continuous_panel(PDO $db):void {
       <?php endforeach; ?>
       <p>
       <?php if($histOffset>0): ?>
-        <a href="/admin/ai?cr_source=<?=rawurlencode($request['source_id'])?>&amp;cr_offset=<?=max(0,$histOffset-8)?>">Previous 8 passes</a>
+        <a href="/admin/ai?cr_source=<?=rawurlencode($request['source_id'])?>&amp;cr_offset=<?=max(0,$histOffset-8)?>&amp;cr_audit_offset=<?=$histAuditOffset?>">Previous 8 passes</a>
       <?php endif; ?>
       <?php if(!empty($history['has_more'])): ?>
-        <a href="/admin/ai?cr_source=<?=rawurlencode($request['source_id'])?>&amp;cr_offset=<?=($histOffset+8)?>">Next 8 passes</a>
+        <a href="/admin/ai?cr_source=<?=rawurlencode($request['source_id'])?>&amp;cr_offset=<?=($histOffset+8)?>&amp;cr_audit_offset=<?=$histAuditOffset?>">Next 8 passes</a>
       <?php endif; ?>
+      </p>
+      <h4>Append-only lifecycle events</h4>
+      <p><?=cms_esc((string)$histAuditTotal)?> events associated with this source,
+      including original-source changes, leases, passes, errors, retries,
+      cancellations and cycle outcomes. Events recorded before this
+      implementation may not contain every lifecycle transition.</p>
+      <div class="table-scroll"><table><thead><tr>
+        <th>Event ID</th><th>When (UTC epoch)</th><th>Kind</th>
+        <th>Subject</th><th>Metadata</th></tr></thead><tbody>
+      <?php foreach($histAudits as $audit):if(!is_array($audit))continue;?>
+      <tr><td><?=cms_esc((string)($audit['id']??''))?></td>
+        <td><?=cms_esc((string)($audit['happened']??''))?></td>
+        <td><?=cms_esc((string)($audit['kind']??''))?></td>
+        <td><?=cms_esc((string)($audit['subject']??''))?></td>
+        <td><?=cms_esc((string)($audit['detail']??''))?></td></tr>
+      <?php endforeach;?></tbody></table></div>
+      <p>
+      <?php if($histAuditOffset>0):?>
+        <a href="/admin/ai?cr_source=<?=rawurlencode($request['source_id'])?>&amp;cr_offset=<?=$histOffset?>&amp;cr_audit_offset=<?=max(0,$histAuditOffset-20)?>">Previous 20 events</a>
+      <?php endif;?>
+      <?php if(!empty($history['audit_has_more'])):?>
+        <a href="/admin/ai?cr_source=<?=rawurlencode($request['source_id'])?>&amp;cr_offset=<?=$histOffset?>&amp;cr_audit_offset=<?=($histAuditOffset+20)?>">Next 20 events</a>
+      <?php endif;?>
       </p>
       <?php endif; endif; ?>
     </section>

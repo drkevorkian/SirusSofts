@@ -648,7 +648,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if data.get('local_only') is not True:
                     raise ValueError('Local-only research history required')
                 self.respond(200,self.server.engine.continuous.history(
-                    data.get('source_id'),data.get('offset',0)))
+                    data.get('source_id'),data.get('offset',0),
+                    audit_offset=data.get('audit_offset',0)))
                 return
             if evidence_control:
                 if data.get('local_only') is not True:
