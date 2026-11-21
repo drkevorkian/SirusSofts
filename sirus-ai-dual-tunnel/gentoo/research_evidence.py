@@ -479,6 +479,10 @@ class EvidenceLedger:
                 e.page,e.part,e.quote,e.quote_sha,e.revision
                 FROM cr_claims c JOIN cr_evidence e ON e.id=c.evidence_id
                 ORDER BY c.updated DESC LIMIT ?""",(limit,)).fetchall()
+            scope_history=db.execute("""SELECT source_id,version,previous_scope,
+                new_scope,reviewed_by,created FROM cr_scope_versions
+                ORDER BY created DESC,source_id DESC,version DESC LIMIT ?""",
+                (limit,)).fetchall()
             scope_rows=db.execute("""SELECT d.id,d.title,
                 COALESCE(s.applicability,'') applicability
                 FROM cr_sources d LEFT JOIN cr_evidence_scopes s
@@ -494,5 +498,6 @@ class EvidenceLedger:
                     "conflicts":[dict(r) for r in conflicts],
                     "claims":[dict(r) for r in reviewed],
                     "scopes":[dict(r) for r in scope_rows],
+                    "scope_history":[dict(r) for r in scope_history],
                     "draft_only":False,"automatic_promotion":False,
                     "source_grounded":True,"weight_training":False}

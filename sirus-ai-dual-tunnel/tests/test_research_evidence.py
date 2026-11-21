@@ -237,6 +237,7 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual([(r["previous_scope"],r["new_scope"]) for r in changes],
                              [("",SCOPE),(SCOPE,new_scope)])
             self.assertTrue(all(r["reviewed_by"]==ACTOR for r in changes))
+            self.assertEqual(self.ledger.status()["scope_history"][0]["version"],2)
             with self.assertRaises(sqlite3.IntegrityError):
                 db.execute("DELETE FROM cr_scope_versions")
         with self.assertRaises(ValueError):

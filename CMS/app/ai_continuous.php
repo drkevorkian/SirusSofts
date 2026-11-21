@@ -542,6 +542,8 @@ function cms_ai_evidence_panel(PDO $db):void {
     $conflicts=is_array($data['conflicts']??null)?$data['conflicts']:[];
     $claims=is_array($data['claims']??null)?$data['claims']:[];
     $scopes=is_array($data['scopes']??null)?$data['scopes']:[];
+    $scopeHistory=is_array($data['scope_history']??null)?
+        array_slice($data['scope_history'],0,20):[];
     ?>
     <section class="admin-panel">
       <h2>Original-source evidence and claim review</h2>
@@ -582,6 +584,21 @@ function cms_ai_evidence_panel(PDO $db):void {
         <button class="btn small" type="submit">Save scope</button>
       </form></td></tr>
       <?php endforeach;?></tbody></table></div>
+      <h3>Application scope audit (latest 20)</h3>
+      <p>Changing an original document's scope records the administrator,
+      previous scope and new scope. Earlier human-supported claims are
+      superseded immediately and require an explicit new review.</p>
+      <div class="table-scroll"><table><thead><tr>
+        <th>Source</th><th>Previous scope</th><th>New scope</th>
+        <th>Administrator</th><th>Version</th>
+      </tr></thead><tbody>
+      <?php foreach($scopeHistory as $change):if(!is_array($change))continue;?>
+      <tr><td><?=cms_esc((string)($change['source_id']??''))?></td>
+        <td><?=cms_esc((string)($change['previous_scope']??''))?></td>
+        <td><?=cms_esc((string)($change['new_scope']??''))?></td>
+        <td><?=cms_esc((string)($change['reviewed_by']??''))?></td>
+        <td><?=cms_esc((string)($change['version']??0))?></td></tr>
+      <?php endforeach; ?></tbody></table></div>
     </section>
     <section class="admin-panel table-scroll">
       <h2>Unreviewed original-source measurements (latest 20)</h2>
