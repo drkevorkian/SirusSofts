@@ -415,3 +415,8 @@ The Continuous Research panel now lists recent pending and failed jobs and provi
 The source-history panel now pages separately through draft passes and append-only lifecycle events; the private JSON report includes the currently selected event page. Because downloads contain original source metadata and unreviewed draft text, treat the reports as private; they are not validated repair instructions or training datasets.
 
 The Evidence panel has a dedicated recent human-supported original-quotation feed showing original source, page/part, reviewer and application scope. Disputed, rejected and superseded entries are excluded. This status validates the presence of the quoted source line, **not** the safety or correctness of service procedures.
+
+
+### Private database capacity and recent resource history
+
+The Continuous Research admin panel includes an optional private input SQLite footprint budget (`max_database_mib`, default 0) and reports actual SQLite/WAL/SHM usage, Python input-service resident memory and up to 60 recent minute-level queue/resource snapshots. Diagnostic samples are retained seven days, not included in factual model evidence, and do not delete immutable claim histories or unreviewed research results. A budget exceedance blocks new autonomous research scheduling, **not** normal chat or active inference. This is an admission guard, not an automatic archive, and it cannot guarantee available physical disk capacity. A separate trusted-operator private snapshot/verification/new-file restore utility is documented in `docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md`; it is not exposed through the public CMS and remains manual.

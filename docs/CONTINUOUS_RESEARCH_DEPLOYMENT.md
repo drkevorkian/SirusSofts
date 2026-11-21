@@ -54,6 +54,33 @@ Check actual usage and read each plan. Do **not** use the original Gentoo/Ubuntu
 7. In the administrator evidence panel, index a small original PDF, set two deliberately matching applicability scopes, review a known measurement discrepancy, and verify that a human-supported claim requires an approved original and explicit confirmation. Revise one original and confirm claim supersession while preserving history. Do not sync supported claims into existing CMS RAG or training exports.
 8. Only during the planned test, simulate a worker stop/restart and verify safe checkpoint resume and lease fencing. Then run a 100-pass test with interruption and repeat a full coverage cycle under monitored CPU/GPU/RAM/disk load.
 
+## Private database growth and non-destructive recovery (NOT deployed)
+
+The optional private Gentoo database growth ceiling covers the active `input.sqlite3` main file, its WAL and shared-memory sidecar bytes. The administrator can set `max_database_mib=0` to disable the gate, or a measured limit suitable for the actual storage volume. At the limit, no new autonomous research job is scheduled. Existing interactive chat and already-running requests are not forcibly terminated, and writes can still grow the files. This is **not** a replacement for disk free-space alarms or proper space reservations.
+
+Operational samples record input-service RSS, host RAM, queued/leased/failed counts and private database footprint every minute while the controller is enabled and on a private status read. The diagnostic sample table alone is bounded to seven days. **Do not prune** the immutable `cr_events`, `cr_job_cancellations`, verified human review history, original citations or private research drafts as an automatic retention shortcut.
+
+### Explicit private archive utility
+
+With operator-approved private storage (never a web root or public download directory), create a new mode-0700 directory on the intended volume. Run the following from a pinned reviewed SirusSofts repository checkout using an account that can read the actual Gentoo input SQLite database and write the private archive destination. Replace the placeholder with a verified absolute private path; do not paste private keys into commands.
+
+```sh
+python3 -B sirus-ai-dual-tunnel/gentoo/research_archive.py create --source /var/lib/sirus-ai-dual/input.sqlite3 --directory /reviewed/private/archive
+python3 -B sirus-ai-dual-tunnel/gentoo/research_archive.py verify --archive /reviewed/private/archive/research-YYYYMMDDHHMMSS-XXXXXXXXXXXXXXXX.sqlite3
+python3 -B sirus-ai-dual-tunnel/gentoo/research_archive.py restore-copy --archive /reviewed/private/archive/research-YYYYMMDDHHMMSS-XXXXXXXXXXXXXXXX.sqlite3 --destination /reviewed/private/recovery/restored-input.sqlite3
+```
+
+The archive writes a consistent SQLite snapshot through Python's `sqlite3.backup()` (including already committed WAL contents), verifies `PRAGMA integrity_check`, hashes the file and publishes an accompanying private JSON manifest with table row counts. Restore copies only to **new** files under an existing mode-0700 private directory; the utility refuses to overwrite the live input database. It never restarts a service, deletes history, prunes retained source material, trains a model, downloads files or sends data over the network.
+
+Archive contents include the **entire** Gentoo input SQLite database: chat queue contents, source metadata, model drafts, immutable audits, human-reviewed quote history and private research records. Source PDF bytes and the separate `pdf_ingest.sqlite3`, Ubuntu CMS database, and private signing keys are **not** included. Secure and back up those separately through their existing procedures. Snapshots are mode-0600 but **not encrypted**; keep archive directories access-controlled and protected through the approved backup/encryption process. Never put archives in the Git repository, CMS web root, or user-visible reports.
+
+Before promoting any restored copy, stop affected services in a planned window, validate the source database and backup/WAL state, verify hashes and table counts, check the separately backed-up PDF-ingest/Ubuntu sources, and test the recovery copy in isolation. **Do not** overwrite the running database based on an untested copy. Perform a rehearsal restore with a throwaway dataset before production approval.
+
+**Retention remains incomplete.** Snapshots preserve data and therefore increase total disk usage. Automated provenance-aware selective archival, bounded primary+archive storage, retrieval of historic references across archives and rollback of pruned histories still require separate design and tests; leave the original roadmap retention item unchecked.
+
+### Scheduler fairness and resource trends
+
+Previously completed unchanged source revisions enter later full coverage cycles at a lower priority than new/revised sections with the *same* admin-assigned source priority. An explicitly higher administrator priority still wins, and normal full-cycle repeat coverage is preserved. The admin dashboard exposes a bounded latest-60 resource sample history and sampled queued-count delta, plus measured per-pass inference latency. This does not measure the resident memory of external llama.cpp processes or ensure GPU availability; continue live benchmarking and resource monitoring.
 ## Stage 3: Rollback and gates
 
 Disable the new controller before any rollback. Use private release backups to restore prior input router/CMS code; never drop any cr_ tables or erase legacy research, knowledge or PDF data as a rollback shortcut. An older router should ignore additive tables. Restore the consistent private SQLite snapshot only after reconciling newer job history and in-flight writes; avoid silently discarding data created since the backup.
