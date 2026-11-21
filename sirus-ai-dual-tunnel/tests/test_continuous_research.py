@@ -883,6 +883,50 @@ class ContinuousResearchTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.research.control("configure",value={"max_database_mib":bad})
 
+    def test_operational_telemetry_is_bounded_durable_and_not_evidence(self):
+        t=int(time.time()//60)*60+600
+        self.assertTrue(self.research.sample_resources(
+            now=t-8*86400,resident=21,available=8000,size_bytes=1024))
+        self.assertTrue(self.research.sample_resources(
+            now=t-600,resident=25,available=7000,size_bytes=2048))
+        self.assertFalse(self.research.sample_resources(
+            now=t-600,resident=30,available=5000,size_bytes=4096))
+        self.add_doc()
+        self.add_doc("b"*64,text="Second source.")
+        self.research.inventory()
+        self.research.control("enable")
+        lease=self.research.claim()
+        self.assertIsNotNone(lease)
+        self.assertTrue(self.research.sample_resources(
+            now=t,resident=29,available=6000,size_bytes=8192))
+        with connect(self.db) as db:
+            samples=db.execute("""SELECT minute,queued,leased,process_rss_mib,
+                database_bytes FROM cr_resource_samples ORDER BY minute""").fetchall()
+            self.assertFalse(any(r["minute"]==t-8*86400 for r in samples))
+            self.assertEqual(samples[-1]["queued"],1)
+            self.assertEqual(samples[-1]["leased"],1)
+            self.assertEqual(samples[-1]["process_rss_mib"],29)
+            self.assertEqual(samples[-1]["database_bytes"],8192)
+            # Diagnostic retention is allowed; original-source/audit history
+            # is preserved even when a telemetry bucket expires.
+            self.assertGreater(db.execute("SELECT count(*) FROM cr_events").
+                               fetchone()[0],0)
+        status=self.research.status()
+        self.assertGreaterEqual(status["queued_growth_last_samples"],1)
+        self.assertTrue(any(v["minute"]==t for v in status["resource_history"]))
+        self.assertTrue(all(set(v)>={"minute","queued","process_rss_mib",
+                                    "database_bytes"} for v in status["resource_history"]))
+        restored=ContinuousResearch(self.db,self.pdf,self.base/"index.sqlite3")
+        self.assertTrue(any(v["minute"]==t for v in
+                            restored.status()["resource_history"]))
+        for invalid in (-1,"now",True,1e20):
+            with self.assertRaises(ValueError):
+                self.research.sample_resources(now=invalid,
+                                               resident=1,available=1,size_bytes=1)
+        with self.assertRaises(ValueError):
+            self.research.sample_resources(now=t+60,resident=-2,
+                                           available=1,size_bytes=1)
+
     def test_resource_policy_wraparound_and_conservative_memory_gate(self):
         self.add_doc()
         self.research.inventory()
