@@ -154,7 +154,7 @@ class ProcedureDependenciesTests(unittest.TestCase):
 
     def test_unsupported_prose_does_not_infer_dependencies(self):
         with sqlite3.connect(self.source) as db:
-            db.execute("UPDATE excerpts SET text=? WHERE sha256=?", (B, NEUTRAL))
+            db.execute("UPDATE excerpts SET text=? WHERE sha256=?", (NEUTRAL, B))
         report = self.inspect()
         self.assertTrue(report["complete"])
         self.assertEqual(report["windows"][1]["explicit_relations"], [])
