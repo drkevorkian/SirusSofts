@@ -163,3 +163,9 @@ proposal and decision tables are additive to the private procedure queue and
 first created by explicit proposal. In a future authorized acceptance run,
 verify separate CMS identities, original citation rendering, scope version
 changes and revoked PDF handling before relying on current evidence status.
+
+Procedure evidence votes use the same signed control route and private queue.
+Include its WAL-consistent backup in any authorized upgrade. Acceptance should
+cover two separate accounts, a rejected packet, concurrent votes, restored
+scope text under a newer revision and a revoked peer manual. Operators must
+verify identity independence and real corpus coverage on their systems.

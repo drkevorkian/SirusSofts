@@ -59,6 +59,13 @@ class ResearchBridgeTests(unittest.TestCase):
                                key_path=self.key,now=self.now))
         self.assertEqual(len(ADMIN_ROUTES),7)
 
+    def test_scope_review_route_binds_vote_and_consumes_nonce(self):
+        path="/api/in/research/procedures/control"
+        raw=b'{"action":"vote_procedure","decision":"reject","local_only":true}'
+        headers=self.headers(path=path,body=raw)
+        for body,allowed in ((raw.replace(b"reject",b"support"),False),(raw,True),(raw,False)):
+            self.assertEqual(verify(headers,path,body,self.db,key_path=self.key,now=self.now),allowed)
+
     def test_tampered_payload_wrong_path_and_missing_auth_rejected(self):
         hdr=self.headers()
         self.assertFalse(verify(hdr,self.path,b"tampered",self.db,

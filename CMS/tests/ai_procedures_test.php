@@ -45,7 +45,13 @@ procedure_check($proposal['page']===3&&$proposal['actor']===$actor,'Scope citati
 $vote=cms_ai_procedures_payload(['operation'=>'review_scope','id'=>$id,'decision'=>'support',
     'reason'=>'Reviewed source context','confirmation'=>'SUPPORT SCOPE'],$actor);
 procedure_check($vote['actor']===$actor&&$vote['id']===$id,'Vote bound to evidence identifier');
+$packet=cms_ai_procedures_payload(['operation'=>'vote_procedure','id'=>$id,
+    'left_scope'=>$seed,'right_scope'=>$hash,'expected_hash'=>$hash,'decision'=>'reject',
+    'reason'=>'Originals disagree','confirmation'=>'REJECT PRINTED EVIDENCE'],$actor);
+procedure_check($packet['left_scope']===$seed&&$packet['actor']===$actor,'Procedure packet vote');
 $wrong=[
+    [['operation'=>'vote_procedure','id'=>$id,'decision'=>'support',
+      'reason'=>'Reviewed evidence','confirmation'=>'SUPPORT PRINTED EVIDENCE'],$actor],
     [['operation'=>'review_scope','id'=>$id,'decision'=>'support',
       'reason'=>'Reviewed source','confirmation'=>'APPROVE REPAIR'],$actor],
     [['operation'=>'seed','source_id'=>'../../etc/passwd','heading'=>'Removal of primary clutch'],$actor],

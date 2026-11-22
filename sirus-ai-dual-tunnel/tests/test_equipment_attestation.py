@@ -109,6 +109,57 @@ class EquipmentReviewTests(unittest.TestCase):
                 self.dispatch("propose_scope", **(self.proposal|changes))
         self.assertEqual(overview(**self.args)["attestations"],[])
 
+    def prepare_packet(self):
+        left=self.propose()
+        self.vote(left)
+        with sqlite3.connect(self.args["source"]) as db:
+            db.execute("UPDATE excerpts SET text=text||? WHERE sha256=?",
+                       ("\n"+self.quote,fixtures.B))
+        right=self.dispatch("propose_scope",**(self.proposal|{"source_id":"pdf:"+fixtures.B,
+                                                           "page":3}))["id"]
+        self.vote(right)
+        fixtures.scan_once(**self.args,now=10)
+        sid=overview(**self.args)["suggestions"][0]["id"]
+        return dict(id=sid,left_scope=left,right_scope=right)
+
+    def procedure_vote(self, args, digest, actor, decision):
+        return self.dispatch("vote_procedure",**args,expected_hash=digest,actor=actor,
+                             decision=decision,confirmation=decision.upper()+" PRINTED EVIDENCE",
+                             reason="Compared both cited originals")
+
+    def test_two_independent_procedure_votes_and_source_change(self):
+        args=self.prepare_packet()
+        digest=self.dispatch("inspect_procedure",**args)["digest"]
+        with self.assertRaises(ValueError):
+            self.dispatch("inspect_procedure",**(args|{"left_scope":args["right_scope"]}))
+        self.procedure_vote(args,digest,"cms-admin:4","support")
+        with self.assertRaises(ValueError):
+            self.procedure_vote(args,digest,"cms-admin:4","support")
+        self.assertEqual(self.dispatch("inspect_procedure",**args)["state"],"pending")
+        self.procedure_vote(args,digest,"cms-admin:5","support")
+        view=self.dispatch("inspect_procedure",**args)
+        self.assertEqual(view["state"],"supported")
+        self.assertFalse(view["service_use_approved"])
+        with sqlite3.connect(self.args["queue"]) as db:
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("DELETE FROM procedure_evidence_votes")
+            self.assertIn("quote_sha256",db.execute("SELECT original_citations FROM procedure_evidence_votes").fetchone()[0])
+        with sqlite3.connect(self.args["source"]) as db:
+            db.execute("UPDATE documents SET reviewed=0 WHERE sha256=?", (fixtures.B,))
+        with self.assertRaises(ValueError):
+            self.dispatch("inspect_procedure",**args)
+        self.assertEqual(len(overview(**self.args)["votes"]),2)
+
+    def test_procedure_reject_and_stale_form(self):
+        args=self.prepare_packet()
+        digest=self.dispatch("inspect_procedure",**args)["digest"]
+        with self.assertRaises(ValueError):
+            self.procedure_vote(args,"0"*64,"cms-admin:4","support")
+        self.procedure_vote(args,digest,"cms-admin:4","reject")
+        with self.assertRaises(ValueError):
+            self.procedure_vote(args,digest,"cms-admin:5","support")
+        self.assertEqual(self.dispatch("inspect_procedure",**args)["state"],"rejected")
+
     def test_failed_transaction_recovers_without_partial_decision(self):
         key=self.propose()
         with sqlite3.connect(self.args["queue"]) as db:

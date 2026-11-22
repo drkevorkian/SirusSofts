@@ -459,3 +459,19 @@ both private catalogs. Blocked detail suppresses quotations and retains the
 historical decision. The ledger has no service-release, RAG or training action.
 Freshness is evaluated on access across separate databases. A transient change
 restored between checks without a revision change is unobservable.
+
+### Procedure evidence votes
+
+The administrator supplies one candidate and two independently supported
+scope proposal IDs in the candidate's source order. The evidence view shows
+both originals and their scope quotations. Each vote binds those proposal IDs,
+candidate observations, selected source identities, full procedure excerpt
+hashes, and ingest revisions. Two distinct CMS accounts must support the same
+packet. One rejection closes that packet. A transaction serializes concurrent
+votes and retains each reason, identity, timestamp and original citations.
+
+Reopening a historical vote rechecks the current originals and scope ledgers.
+A changed or revoked input blocks the old result. Historical votes are labeled
+as recorded decisions. Queue triage remains available separately. A supported
+packet establishes human agreement on the printed evidence only. Establishing
+which procedure to use on actual equipment remains an open acceptance item.

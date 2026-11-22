@@ -16,7 +16,7 @@ import time
 from procedure_discovery import (_configured, _connect, _validate_suggestion,
                                  _schema as discovery_schema, _report,
                                  register_seed, configure_seed)
-from procedure_review_queue import _json, _sha
+from procedure_review_queue import _json, _sha, _source_signature
 import equipment_attestation as attestation
 from manual_procedure_dependencies import inspect
 
@@ -133,11 +133,17 @@ def overview(*, queue, source, index, research_db):
             evidence_hash,review_id,created FROM procedure_discovery_decisions
             ORDER BY created DESC,suggestion_id LIMIT ?""",
             (MAX_VISIBLE,)).fetchall() if found else [])
+        votes = (db.execute("""SELECT suggestion,left_scope,right_scope,decision,
+            actor,reason,created FROM procedure_evidence_votes ORDER BY rowid DESC LIMIT 10""").fetchall()
+                 if _has_table(db,"procedure_evidence_votes") else [])
+        blocked = db.execute("""SELECT id,last_reason,last_version FROM procedure_review_targets
+            WHERE status='blocked' ORDER BY updated DESC LIMIT 10""").fetchall()
         seeds = db.execute("""SELECT id,source_id,heading,state,last_reason,
             scanned,next_due FROM procedure_discovery_seeds
             ORDER BY created,id LIMIT 10""").fetchall()
     return {"configured":True,"attestations":attestation.recent(queue),"suggestions":visible,"seeds":[dict(x) for x in seeds],
             "decisions":[dict(x) for x in decision_rows],
+            "votes":[dict(x) for x in votes],"blocked":[dict(x) for x in blocked],
             "note":"Candidate metadata only; no proof of fitment, validated conflict or repair"}
 
 
@@ -230,6 +236,8 @@ def control(data, *, queue, source, index, research_db):
     if not isinstance(data,dict) or data.get("local_only") is not True:
         raise ValueError("Private signed administrative request required")
     action=data.get("action")
+    if action in ("inspect_procedure","vote_procedure"):
+        return procedure_packet(data,queue=queue,source=source,index=index,research_db=research_db)
     scope_ops = {
         "scope_detail": (attestation.inspect_scope, {"id"}),
         "propose_scope": (attestation.propose, {"source_id","page","part","quote",
@@ -264,3 +272,92 @@ def control(data, *, queue, source, index, research_db):
                       confirmation=data["confirmation"],reason=data["reason"],
                       source=source,index=index,research_db=research_db)
     raise ValueError("Unsupported private procedure-review operation")
+
+
+def _vote_schema(db):
+    db.executescript("""
+        CREATE TABLE IF NOT EXISTS procedure_evidence_votes(
+            digest TEXT NOT NULL, actor TEXT NOT NULL, suggestion TEXT NOT NULL,
+            left_scope TEXT NOT NULL, right_scope TEXT NOT NULL,
+            decision TEXT NOT NULL CHECK(decision IN ('support','reject')),
+            reason TEXT NOT NULL, created REAL NOT NULL, original_citations TEXT NOT NULL,
+            PRIMARY KEY(digest,actor));
+        CREATE TRIGGER IF NOT EXISTS procedure_votes_no_update
+            BEFORE UPDATE ON procedure_evidence_votes BEGIN
+            SELECT RAISE(ABORT,'Immutable procedure evidence vote'); END;
+        CREATE TRIGGER IF NOT EXISTS procedure_votes_no_delete
+            BEFORE DELETE ON procedure_evidence_votes BEGIN
+            SELECT RAISE(ABORT,'Immutable procedure evidence vote'); END;
+    """)
+
+
+def _has_table(db, name):
+    return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                      (name,)).fetchone() is not None
+
+
+def _procedure_packet(db, id, left_scope, right_scope, source, index, research_db):
+    for value in (id,left_scope,right_scope):
+        _validate_id(value)
+    row = db.execute("SELECT * FROM procedure_discovery_suggestions WHERE id=?", (id,)).fetchone()
+    if row is None:
+        raise ValueError("Unknown procedure candidate")
+    if _has_table(db, "procedure_discovery_decisions") and db.execute(
+            "SELECT 1 FROM procedure_discovery_decisions WHERE suggestion_id=? AND action='rejected'",
+            (id,)).fetchone():
+        raise ValueError("Rejected procedure candidate")
+    fresh = _fresh(row,source=source,index=index,research_db=research_db)
+    if fresh is None:
+        raise ValueError("Procedure source or declared scope changed")
+    request, report = fresh
+    scopes = []
+    for key, selection in zip((left_scope,right_scope),request["selections"]):
+        item = attestation._inspect(db,key,source,research_db)
+        if (item["state"] != "support" or item["source_id"] != selection["source_id"]
+                or item["evidence"]["scope"] != selection["scope"]):
+            raise ValueError("A current supported attestation is required for each selected PDF in order")
+        scopes.append(item)
+    signature = _source_signature(source,index,request,report["windows"])
+    if signature is None:
+        raise ValueError("Procedure source changed during inspection")
+    digest = _sha(_json([id,request,row["evidence_hash"],signature,left_scope,right_scope]))
+    votes = []
+    if _has_table(db,"procedure_evidence_votes"):
+        votes = [dict(v) for v in db.execute("""SELECT actor,decision,reason,created
+            FROM procedure_evidence_votes WHERE digest=? ORDER BY created,actor LIMIT 2""",(digest,))]
+    state = ("rejected" if any(v["decision"]=="reject" for v in votes)
+             else "supported" if len(votes)==2 else "pending")
+    return {"id":id,"digest":digest,"state":state,"votes":votes,"scopes":scopes,
+            "windows":report["windows"],"service_use_approved":False}
+
+
+def procedure_packet(data, *, queue, source, index, research_db):
+    writing = data["action"] == "vote_procedure"
+    keys = {"local_only","id","action","left_scope","right_scope"}
+    if writing:
+        keys.update(("actor","decision","confirmation","reason","expected_hash"))
+    if set(data) != keys:
+        raise ValueError("Invalid procedure evidence fields")
+    with closing(_connect(queue,writable=writing)) as db:
+        if writing:
+            _validate_actor(data["actor"])
+            decision = data["decision"]
+            reason = data["reason"]
+            if (decision not in ("support","reject") or
+                    data["confirmation"] != decision.upper()+" PRINTED EVIDENCE" or
+                    not isinstance(reason,str) or not 3 <= len(reason.strip()) <= len(reason) <= MAX_REASON):
+                raise ValueError("Confirm a printed evidence decision and give a short reason")
+            _vote_schema(db)
+            db.execute("BEGIN IMMEDIATE")
+        packet = _procedure_packet(db,data["id"],data["left_scope"],data["right_scope"],
+                                   source,index,research_db)
+        if not writing:
+            return packet
+        if (data["expected_hash"] != packet["digest"] or packet["state"] != "pending"
+                or any(v["actor"]==data["actor"] for v in packet["votes"])):
+            raise ValueError("Decision stale, final or already reviewed by this account")
+        db.execute("INSERT INTO procedure_evidence_votes VALUES(?,?,?,?,?,?,?,?,?)",
+                   (packet["digest"],data["actor"],data["id"],data["left_scope"],
+                    data["right_scope"],decision,reason.strip(),time.time(),_json(packet["windows"])))
+        db.commit()
+    return {"id":data["id"],"action":"vote_procedure","recorded":True,"service_use_approved":False}
