@@ -126,3 +126,75 @@ not eligible for automatic knowledge promotion or model training.
 Source-only: the private index must be installed through a reviewed in-place
 upgrade before this enrichment is possible on Gentoo. No live deployment or
 corpus validation has occurred.
+
+
+## Explicit cross-manual comparison and numeric-difference candidates (source-only)
+
+The offline `sirus-ai-dual-tunnel/gentoo/manual_relationship_compare.py`
+accepts a **bounded operator-selected request** on standard input. It requires
+2–8 exact approved PDF source IDs with full **operator-declared** manufacturer,
+model, year, engine, revision and application fields, 1–4 exact indexed search
+terms, and optionally up to 12 explicitly paired numeric source quotations.
+It does **not** derive applicability from filenames, model predictions, matching
+parts, or the knowledge index.
+
+For each selected exact term, it searches the incremental index and rechecks
+each original page/part citation. Shared part identifiers, procedure headings,
+system headings and direct document-reference mentions produce
+`shared_mention_requires_application_review` when declared scopes match,
+or `different_declared_scope` when declared model, year, engine, revision
+or another field differs. These are review candidates; **neither result
+establishes actual compatibility or verified source scope**.
+
+For numeric checks, the original approved excerpts are reparsed using the
+existing conservative measurement parser and Decimal unit conversions.
+A numeric disagreement becomes `numeric_difference_candidate` **only**
+when both operator-declared scopes and parsed property labels match, units
+are safely comparable, and values differ. Differing declared scopes,
+property labels, unsupported units, absent/revoked quotes, and equal values
+have separate outcomes. Even a numeric-difference candidate is **not** a
+confirmed contradiction: identical labels may refer to distinct fasteners,
+conditions, variants or revisions.
+
+Searches fail closed when selected documents have stale/partial indexes,
+revoked approval, missing original quotations or more than 64 matching
+mentions for a requested term. A final read-only snapshot gate rechecks
+all selected source metadata and returned citations before releasing
+results. If a selected numeric quote is missing, the report is explicitly
+incomplete. Output includes exact source/page/part/quotation hashes,
+per-source citation counts and explicitly labeled truncated display
+samples (up to three citations per side). No PDF, index, CMS or research
+ledger is written; no network or LLM execution occurs.
+
+Local CLI example (the SHA values below are placeholders, not actual PDFs):
+
+```bash
+python3 sirus-ai-dual-tunnel/gentoo/manual_relationship_compare.py \
+  --source /path/to/private/pdf_ingest.sqlite3 \
+  --index /path/to/private/manual_relationships.sqlite3 <<'JSON'
+{
+  "sources": [
+    {"source_id": "pdf:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "scope": {"manufacturer": "BRP", "model": "Defender",
+               "year": 2026, "engine": "HD10", "revision": "Rev A",
+               "application": "Primary clutch"}},
+    {"source_id": "pdf:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "scope": {"manufacturer": "BRP", "model": "Commander",
+               "year": 2024, "engine": "HD10", "revision": "Rev A",
+               "application": "Primary clutch"}}
+  ],
+  "terms": [{"kind": "part", "term": "420234561"}],
+  "measurements": []
+}
+JSON
+```
+
+The Gentoo **in-place upgrade manifest** now includes both
+`manual_relationship_context.py` (required by the previous prompt
+enrichment increment) and `manual_relationship_compare.py`, with a
+regression test that enforces dependency coverage. This changes source
+only; it does not run the upgrade. The comparison tool has no public
+API or admin-panel route and is **not** automatically used to broaden
+an autonomous research job beyond its selected manual. Authenticated,
+explicit cross-document workflows, full semantic/procedural reasoning,
+real PDF-corpus acceptance and live safety validation remain open.
