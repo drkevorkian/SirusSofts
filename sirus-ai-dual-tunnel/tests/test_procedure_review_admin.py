@@ -8,7 +8,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"gentoo"))
 sys.path.insert(0,str(ROOT/"tests"))
 from test_procedure_discovery import DiscoveryTests
-from procedure_discovery import scan_once
+from procedure_discovery import accept, scan_once, suggestions
 from procedure_review_admin import overview,detail,decide,control
 from procedure_review_queue import list_reviews
 
@@ -74,6 +74,9 @@ class AdminProcedureTests(unittest.TestCase):
         self.assertEqual(result["review_id"],"")
         status=overview(**self.args)
         self.assertEqual(status["suggestions"],[])
+        self.assertEqual(suggestions(**self.args)["suggestions"], [])
+        with self.assertRaises(ValueError):
+            accept(**self.args, suggestion_id=self.suggestion)
         self.assertEqual(status["decisions"][0]["reason"],"Different service conditions")
         with sqlite3.connect(self.args["queue"]) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM procedure_review_targets").fetchone()[0],0)

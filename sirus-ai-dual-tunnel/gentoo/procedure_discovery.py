@@ -341,6 +341,14 @@ def _validate_suggestion(row, *, source, index, research_db):
     return request if fresh == row["evidence_hash"] else None
 
 
+def _undecided_filter(db):
+    """Older queues predate the additive CMS decision ledger."""
+    exists = db.execute("""SELECT 1 FROM sqlite_master WHERE type='table'
+        AND name='procedure_discovery_decisions'""").fetchone()
+    return (""" AND NOT EXISTS (SELECT 1 FROM procedure_discovery_decisions d
+        WHERE d.suggestion_id=s.id)""" if exists else "")
+
+
 def suggestions(*, queue, source, index, research_db, limit=10, offset=0):
     if type(limit) is not int or not 1 <= limit <= 20 or (
             type(offset) is not int or not 0 <= offset <= 100000):
@@ -349,8 +357,9 @@ def suggestions(*, queue, source, index, research_db, limit=10, offset=0):
         return {"suggestions":[],
                 "scope_authority":"CMS_admin_declared_not_verified_fitment"}
     with closing(_connect(queue, writable=False)) as db:
-        rows = db.execute("""SELECT * FROM procedure_discovery_suggestions
-            WHERE status='pending' ORDER BY created,id LIMIT ? OFFSET ?""",
+        rows = db.execute("""SELECT * FROM procedure_discovery_suggestions s
+            WHERE status='pending'""" + _undecided_filter(db) +
+            " ORDER BY created,id LIMIT ? OFFSET ?",
             (limit,offset)).fetchall()
     out = []
     for row in rows:
@@ -387,8 +396,8 @@ def accept(*, queue, suggestion_id, source, index, research_db):
             # No review target can be registered if a concurrent scan has
             # updated or retired the proposed evidence in this private queue.
             current = db.execute("""SELECT evidence_hash,status
-                FROM procedure_discovery_suggestions WHERE id=?""",
-                (suggestion_id,)).fetchone()
+                FROM procedure_discovery_suggestions s WHERE id=?""" +
+                _undecided_filter(db), (suggestion_id,)).fetchone()
             if (current is None or current["status"] != "pending" or
                     current["evidence_hash"] != row["evidence_hash"]):
                 raise ValueError("Suggestion changed during acceptance; rescan first")
