@@ -81,6 +81,27 @@ Before promoting any restored copy, stop affected services in a planned window, 
 ### Scheduler fairness and resource trends
 
 Previously completed unchanged source revisions enter later full coverage cycles at a lower priority than new/revised sections with the *same* admin-assigned source priority. An explicitly higher administrator priority still wins, and normal full-cycle repeat coverage is preserved. The admin dashboard exposes a bounded latest-60 resource sample history and sampled queued-count delta, plus measured per-pass inference latency. This does not measure the resident memory of external llama.cpp processes or ensure GPU availability; continue live benchmarking and resource monitoring.
+### Offline cold-history catalog, source recovery and retention preview (NOT deployed)
+
+The Gentoo approved in-place upgrade will copy both local, trusted-operator programs: `research_archive.py` (snapshot creation, integrity verification and restore-copy) and `research_cold_history.py` (offline inspection). No public CMS/Gentoo HTTP route is added, and no standalone installer or live OpenRC service is started by these changes.
+
+Run these examples only from a **pinned, reviewed source checkout** against an already created private archive directory, replacing paths, exact source IDs and job IDs with verified private values. The CLI prints JSON only to the operator's terminal. A PDF source ID has the form `pdf:` followed by 64 lowercase hexadecimal characters; a prior research source ID uses `research:` followed by 32 lowercase hex characters; a research job uses a 32-lowercase-hex ID.
+
+```sh
+python3 -B sirus-ai-dual-tunnel/gentoo/research_cold_history.py catalog --directory /reviewed/private/archive
+python3 -B sirus-ai-dual-tunnel/gentoo/research_cold_history.py locate-source --directory /reviewed/private/archive --source-id 'pdf:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+python3 -B sirus-ai-dual-tunnel/gentoo/research_cold_history.py locate-job --directory /reviewed/private/archive --job-id '11111111111111111111111111111111'
+python3 -B sirus-ai-dual-tunnel/gentoo/research_cold_history.py source-history --archive /reviewed/private/archive/research-YYYYMMDDHHMMSS-XXXXXXXXXXXXXXXX.sqlite3 --source-id 'pdf:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' --offset 0 --audit-offset 0
+python3 -B sirus-ai-dual-tunnel/gentoo/research_cold_history.py job-provenance --archive /reviewed/private/archive/research-YYYYMMDDHHMMSS-XXXXXXXXXXXXXXXX.sqlite3 --job-id '11111111111111111111111111111111'
+python3 -B sirus-ai-dual-tunnel/gentoo/research_cold_history.py retention-preview --archive /reviewed/private/archive/research-YYYYMMDDHHMMSS-XXXXXXXXXXXXXXXX.sqlite3 --before-unix 1760000000
+```
+
+The filenames and source/job IDs above are **examples, not known live files or real identifiers**. `source-history` returns at most eight pass records and 20 audit events per call with separate pagination; review-version metadata includes original citation hashes, reviewer identity and applicability. Draft notes are omitted by default. The optional `--include-private-drafts` flag for `source-history` or `job-provenance` prints **full unredacted private model output** into the local terminal; use it only with explicitly approved private terminal/log handling. It does not promote anything into verified knowledge, RAG or model weights.
+
+The catalog scans up to 64 snapshots and refuses to claim completeness if any scanned snapshot is invalid or a matching manifest is orphaned. Each query verifies the corresponding SQLite snapshot's SHA-256, manifest row counts and integrity first. These checks catch accidental corruption, but **a mutable SHA-256 manifest is not an independent cryptographic signature**; protect both archive bytes and manifests through operator-controlled private encrypted backup. Identical passes appearing in multiple full snapshots are duplicates of history, not multiple independent supporting sources.
+
+The retention preview counts historical old-revision terminal jobs in closed cycles. It always reports `pruning_permitted=false` and **never deletes, VACUUMs or marks jobs archived**. Do not interpret the count as safe reclaimable space. Immutable event/claim provenance, active leases, current source references and source-PDF backup/restore still need a reviewed selective migration design. Live deployment, restoration and controlled pruning are outside this increment.
+
 ## Stage 3: Rollback and gates
 
 Disable the new controller before any rollback. Use private release backups to restore prior input router/CMS code; never drop any cr_ tables or erase legacy research, knowledge or PDF data as a rollback shortcut. An older router should ignore additive tables. Restore the consistent private SQLite snapshot only after reconciling newer job history and in-flight writes; avoid silently discarding data created since the backup.
