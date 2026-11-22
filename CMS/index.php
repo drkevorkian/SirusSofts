@@ -18,6 +18,14 @@ define('SIRUS_CMS_BOOTSTRAPPED',true);
 require $private.'/core.php';
 require $private.'/site.php';
 cms_headers();
+// The uppercase GPT holding route must not initialize CMS/SQLite, so
+// its future API can remain completely separate from private databases.
+$gptPath=cms_request_path();
+if(cms_project_host_slug(cms_request_host())===null &&
+   ($gptPath==='/GPT'||str_starts_with($gptPath,'/GPT/'))) {
+    require $private.'/gpt_portal.php';
+    cms_gpt_run($gptPath);
+}
 try {$db=cms_db();}
 catch(Throwable $error){
     error_log('SirusSofts CMS unavailable: '.get_class($error));
