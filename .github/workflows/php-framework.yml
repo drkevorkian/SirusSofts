@@ -75,6 +75,7 @@ jobs:
           php CMS/tests/ai_evidence_test.php
           php CMS/tests/ai_chat_files_test.php
           php CMS/tests/session_auth_test.php
+          php CMS/tests/gpt_portal_test.php
           php CMS/tests/smoke.php
           php CMS/tests/theme_test.php
       - name: Storage, backup, and migration tests
