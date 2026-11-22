@@ -11,7 +11,7 @@
 - **Ubuntu public CMS/gateway: NOT UPDATED for this roadmap.** The installed system still runs the pre-roadmap/older code. Changes committed to `main` are not present on that host.
 - **Gentoo AI/worker/research services: NOT UPDATED for this roadmap.** The installed system still runs older code; repository source changes and UI additions are not active there.
 - **No production inference loop, GPU admission change, training integration, new administrative learning panel, archive tool or database migration is claimed to be installed.** Whether any unrelated older features are running is not established here.
-- **GitHub checkboxes are source-development status only: 72/138 currently marked.** Production deployment is pending; Section 11 remains **0/12 live acceptance criteria verified**. This is not equivalent to 72 deployed features.
+- **GitHub checkboxes are source-development status only: 73/138 currently marked.** Production deployment is pending; Section 11 remains **0/12 live acceptance criteria verified**. This is not equivalent to 73 deployed features.
 - Before any implementation is marked **deployed**, record actual installed revisions on both hosts using read-only commands, compare against a reviewed and green pinned commit, prepare independent and verified backups (CMS, Gentoo input, PDF ingest), perform the approved in-place upgrade, check the private bridge key, and verify real endpoints and hardware. **Do not run the old full installers or apply unapproved upgrades.**
 
 ### Checklist rules
@@ -22,12 +22,12 @@
 - **No source or checklist update deploys servers.** In particular, the 32-byte private signed administrative bridge key still needs secure provisioning in an approved maintenance window. Model-weight training remains disabled.
 - **Git workflow:** The repository root README specifies `main` only; the original dedicated-development-branch requirement is superseded rather than performed. Keep history and rollbacks through normal reviewed commits.
 
-**Overall source checklist: 72 / 138 checked (52.2%).** This is development progress, **not production readiness**.
+**Overall source checklist: 73 / 138 checked (52.9%).** This is development progress, **not production readiness**.
 
 | Section | Source-complete | Still open |
 |---|---:|---:|
 | 1. Core requirements | 6/10 | 4 |
-| 2. Knowledge inventory | 6/10 | 4 |
+| 2. Knowledge inventory | 7/10 | 3 |
 | 3. Scheduler | 11/12 | 1 |
 | 4. Multi-pass reasoning | 4/12 | 8 |
 | 5. Verification and memory | 9/12 | 3 |
@@ -59,7 +59,7 @@
 - [x] Inventory existing PDF files and extracted PDF sections on Gentoo.
 - [ ] Inventory available website snapshots, text documents, and supported research records. **Partial (source):** Stored website/text research snapshots are indexed; general text-file import is not.
 - [ ] Inventory existing extracted knowledge, source citations, and research history. **Partial (source):** PDF extracts and existing one-off snapshots are indexed; separately approved CMS knowledge is not.
-- [ ] Identify duplicate files through content hashes. **Partial (source):** SHA-256 source identities exist, but a complete duplicate-file report/deduplication policy does not.
+- [x] Identify duplicate files through content hashes. **Source implementation, 2026-11-22:** The existing PDF ingestion identifies identical uploaded bytes by SHA-256; the new [private read-only duplicate audit](PDF_DUPLICATE_AUDIT.md) reports the canonical stored digest, historical duplicate-upload events, and byte-identical staged PDFs (including matching canonical hashes). Six synthetic tests passed locally; the GitHub workflow now includes the new suite, but its result is not yet confirmed. The documented policy never deletes canonical files, merges near-duplicates, or grants model training. **Scope:** current Gentoo PDF library; other document formats remain under the separate general-inventory item. Live corpus acceptance remains open.
 - [x] Maintain source IDs, page numbers, document versions, timestamps, and extraction status.
 - [x] Detect additions, deletions, and changed source content.
 - [ ] Track inaccessible or incompletely extracted files. **Partial (source):** Failed/zero-text ingestion records are counted; files absent from the catalog are not enumerated.
