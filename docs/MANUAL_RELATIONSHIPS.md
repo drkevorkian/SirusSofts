@@ -103,3 +103,26 @@ This is **admission-time deferral**, not preemption: a chat arriving during
 one bounded indexing call may wait for that call's disk I/O to finish.
 Worker CPU/GPU cost and actual responsiveness require hardware testing
 before production acceptance. No Gentoo or Ubuntu deployment occurred.
+
+
+## Source-scoped local research prompt integration
+
+The autonomous research worker now calls `manual_relationship_context.append_for_section`
+just before local inference for a PDF section. The helper recognizes at most
+two literal part/heading/reference mentions from that section and performs
+bounded lookup against **only the same exact PDF source ID**, rechecking
+current approval, catalog revisions and original excerpt quotes. It appends
+a clearly marked **untrusted, source-cited** quotation packet only when the
+index and selected source are complete and current. If the index is absent,
+partial, stale or revoked, ordinary research proceeds with no added packet.
+
+`evidence_packet` additionally provides an explicit 1–8-SHA cross-manual
+comparison interface for future administrator-approved source selection;
+the autonomous worker **does not** invoke this broad mode. Matching a printed
+identifier across documents does not prove interchangeability. No application
+scope, engine, model year or safety claims are inferred, and generated text is
+not eligible for automatic knowledge promotion or model training.
+
+Source-only: the private index must be installed through a reviewed in-place
+upgrade before this enrichment is possible on Gentoo. No live deployment or
+corpus validation has occurred.

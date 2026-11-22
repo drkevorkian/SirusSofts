@@ -23,7 +23,9 @@
 - **No source or checklist update deploys servers.** In particular, the 32-byte private signed administrative bridge key still needs secure provisioning in an approved maintenance window. Model-weight training remains disabled.
 - **Git workflow:** The repository root README specifies `main` only; the original dedicated-development-branch requirement is superseded rather than performed. Keep history and rollbacks through normal reviewed commits.
 
-**Overall source checklist: 74 / 139 checked (53.2%).** This is development progress, **not production readiness**. The 139th task is an intentionally deferred post-deployment video milestone.
+**Overall source checklist: 74 / 139 checked (53.2%).**
+
+**2026-11-22 reasoning integration increment (source):** The continuous research worker now optionally injects exact, revalidated, same-PDF relationship citations into local model prompts. An explicit selected-source comparison packet supports later cross-document workflows, but unattended cross-model expansion, semantic compatibility reasoning and private-library validation remain open. No new checklist items are checked; total stays **74/139**. See [Manual Relationships](MANUAL_RELATIONSHIPS.md). This is development progress, **not production readiness**. The 139th task is an intentionally deferred post-deployment video milestone.
 
 | Section | Source-complete | Still open |
 |---|---:|---:|

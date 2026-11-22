@@ -934,6 +934,13 @@ class ContinuousResearch:
                 f"\nCurrent source section: {lease['slot']}. "
                 "This is one section, not the entire document. "
                 "Cite only its actual page or part. Unreviewed draft.")
+            # Optional same-PDF citation enrichment: never widen the vehicle,
+            # year or source selection and never depend on index availability.
+            if lease["source_id"].startswith("pdf:"):
+                from manual_relationship_context import append_for_section
+                append_for_section(messages, source=self.source,
+                    index=self.index.with_name("manual_relationships.sqlite3"),
+                    source_id=lease["source_id"], section=section)
             started=time.monotonic()
             returned=infer(messages,lease["target"],lease["model_id"],lease["id"])
             if not isinstance(returned,(tuple,list)) or len(returned) not in (2,3):
