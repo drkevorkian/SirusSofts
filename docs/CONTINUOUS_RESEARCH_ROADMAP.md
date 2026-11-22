@@ -185,8 +185,8 @@ Add a **Continuous Research** section to the existing SirusSofts AI administrati
 
 This phase is separate from continuous inference.
 
-- [ ] Build curated training examples from verified, source-backed findings.
-- [ ] Remove duplicated, contradictory, or unsupported training material.
+- [ ] Build curated training examples from verified, source-backed findings. **Partial (source, 2026-11-22):** The offline mechanics candidate builder selects only current human-supported original PDF quotations, rechecks them against the independent private PDF ingest catalog, preserves citation and applicability, and exports private source-grouped JSONL candidates. It does not approve individual training examples, cover other disciplines, or train weights.
+- [ ] Remove duplicated, contradictory, or unsupported training material. **Partial (source, 2026-11-22):** Numeric mechanics candidates skip duplicated same-scope properties, open conflicts, unreviewed drafts, mismatched original quotations, superseded claims and scope changes. Full-corpus near-duplicate filtering and semantic contradiction detection remain.
 - [ ] Establish evaluation datasets and regression benchmarks.
 - [ ] Determine which locally supported models and hardware can handle adapter fine-tuning.
 - [ ] Evaluate LoRA/QLoRA or other practical fine-tuning methods. **Partial (source):** An offline opt-in QLoRA runner exists outside this autonomous service; no production training acceptance.
@@ -194,6 +194,8 @@ This phase is separate from continuous inference.
 - [ ] Test candidate adapters against the existing production model.
 - [ ] Preserve the ability to reject or roll back degraded models. **Partial (source):** Separate controlled training validation/rollback is future work.
 - [x] Keep fine-tuning disabled until separately approved.
+
+**New source-only increment:** [Reviewed training candidate utility and documented safety limits](REVIEWED_TRAINING_CANDIDATES.md). Default is read-only preview; explicit private output never changes the live database, training models or Ubuntu/Gentoo installations. A source-approved quotation is not yet a training-approved example and does not prove competency. No Phase E checkbox is newly closed.
 
 **Guiding principle:** Continuous inference and knowledge-base refinement come first. Model-weight training is a later, independently validated capability.
 
