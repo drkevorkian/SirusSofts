@@ -91,17 +91,19 @@
 For each selected document or document section:
 
 - [ ] Extract factual claims and technical relationships. **Partial (source):** Only narrow numeric measurement lines are extracted directly from PDFs; general relationships are not.
-- [ ] Identify assumptions, ambiguities, and missing explanations.
+- [ ] Identify assumptions, ambiguities, and missing explanations. **Partial (source, 2026-11-22):** An offline evidence-bound feasibility checker now reports missing or unsupported measurements in operator-declared engineering constraints; autonomous inference of unstated requirements remains open.
 - [ ] Compare the section against related sources. **Partial (source):** Cross-source numeric candidates are compared, not arbitrary related prose.
 - [ ] Detect contradictions between documents. **Partial (source):** Narrow equal-scope/equal-unit measurement conflicts are flagged; procedural/semantic contradictions remain.
-- [ ] Evaluate calculations, measurements, and units where possible. **Partial (source):** Values and literal units are parsed; conversions and independent calculations are not.
+- [ ] Evaluate calculations, measurements, and units where possible. **Partial (source, 2026-11-22):** An offline PDF-quotation-checked tool now compares declared constraints across compatible length, torque, electrical and pressure units with Decimal arithmetic; generalized independent model reasoning, tolerance analysis and application validation remain open.
 - [ ] Identify procedures that may have become outdated.
-- [ ] Generate questions requiring additional evidence.
+- [ ] Generate questions requiring additional evidence. **Partial (source, 2026-11-22):** The offline checker returns explicit unresolved operator-authored evidence questions; it does not independently invent the complete requirement list for a proposed modification.
 - [ ] Re-examine earlier conclusions using fresh source context.
 - [x] Store each pass separately for later inspection.
 - [x] Distinguish verified evidence from model-generated hypotheses.
 - [x] Avoid treating repeated agreement between the model's own outputs as independent confirmation.
 - [x] Support configurable inference passes, preserving the existing 1–100-pass research functionality.
+
+**Engineering feasibility increment:** [Offline source-checked constraint assessment](ENGINEERING_FEASIBILITY.md) and [synthetic regression tests](../sirus-ai-dual-tunnel/tests/test_feasibility_review.py) advance three related open requirements. Results are narrow, source-checked arithmetic only; no claim of overall vehicle fitment or LLM learning is made. All three remain unchecked pending broader reasoning and integration.
 
 ## 5. Knowledge Verification and Memory
 
