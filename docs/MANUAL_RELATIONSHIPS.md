@@ -85,3 +85,21 @@ or implicit system relationships are not indexed by this lexical prototype.
 The index can grow substantially on a large manual library and needs operator
 storage budgeting and long-term retention. No auto-approval, model training,
 part fitment or full semantic reasoning is claimed.
+
+
+## Autonomous low-priority indexing (source-only)
+
+When the Continuous Research controller is explicitly **running**, its
+existing 30-second private inventory loop now refreshes at most four PDF
+relationship-index documents per eligible iteration after the existing
+numeric-evidence batch. If a chat job is queued/running, it performs **no**
+relationship-index write. The index stays disabled when research is disabled
+or paused. The derived file is `manual_relationships.sqlite3` in the
+existing Gentoo private RAG directory, never in the public CMS database.
+No arbitrary model requests, training, outbound fetches, new services,
+automatic original-PDF editing or new web endpoints are introduced.
+
+This is **admission-time deferral**, not preemption: a chat arriving during
+one bounded indexing call may wait for that call's disk I/O to finish.
+Worker CPU/GPU cost and actual responsiveness require hardware testing
+before production acceptance. No Gentoo or Ubuntu deployment occurred.

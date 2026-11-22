@@ -46,6 +46,8 @@ from knowledge import KnowledgeManager,PROFILES
 from continuous_research import ContinuousResearch, init_schema as init_continuous_schema
 from research_evidence import EvidenceLedger, init_schema as init_evidence_schema
 from research_admin_auth import verify as verify_research_admin, init_schema as init_admin_auth_schema
+from relationship_scheduler import index_if_idle as index_relationships_if_idle
+from manual_rag import INDEX as MANUAL_FTS_INDEX
 from research_loop import (validated_spec, read_source, pass_messages,
                            list_local_manuals, pdf_segments)
 from manual_rag import (augment as augment_manuals, sync as sync_manuals,
@@ -489,6 +491,13 @@ class Engine:
                 if enabled and not interactive:
                     self.evidence.index_batch(32)
                     self.evidence.compare_batch(64)
+                    # Derived original-source relationships refresh only when
+                    # the opt-in controller runs and interactive chat is idle.
+                    # Never copy source PDFs to Ubuntu or promote LLM drafts.
+                    index_relationships_if_idle(
+                        enabled=enabled,interactive=interactive,
+                        source=self.continuous.source,
+                        index=MANUAL_FTS_INDEX.with_name("manual_relationships.sqlite3"))
             except (OSError,sqlite3.Error,RuntimeError,ValueError) as exc:
                 # Never leak private PDF text or paths to shared service logs.
                 print("Continuous inventory unavailable:",type(exc).__name__,file=sys.stderr)
