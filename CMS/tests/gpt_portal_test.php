@@ -20,6 +20,6 @@ $index=file_get_contents(dirname(__DIR__).'/index.php');
 gpt_check(is_string($index) &&
     strpos($index,'cms_gpt_run($gptPath)') < strpos($index,'try {$db=cms_db();}'),
     'GPT runs before database bootstrap');
-gpt_check(strpos((string)$index,"require $private.'/gpt_portal.php';")!==false,
+gpt_check(strpos((string)$index,"require \$private.'/gpt_portal.php';")!==false,
     'GPT handler is wired to CMS entrypoint');
 echo "PASS: isolated uppercase GPT holding page; API remains disabled\n";
