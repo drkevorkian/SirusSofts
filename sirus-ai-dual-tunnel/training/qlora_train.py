@@ -33,6 +33,11 @@ def load_examples(filename, profile="all"):
             raise ValueError("Invalid JSONL line " + str(lineno)) from exc
         if not isinstance(data, dict):
             raise ValueError("Invalid example type at line " + str(lineno))
+        # The reviewed-PDF exporter emits *candidates* for a separate human
+        # training approval step. They must never flow straight into --run.
+        # Approved CMS JSONL exports do not carry this source-only marker.
+        if "candidate_only" in data:
+            raise ValueError("Unapproved research candidate is not a training example at line " + str(lineno))
         domain = data.get("profile", "all")
         if domain not in PROFILES:
             raise ValueError("Unknown domain in dataset at line " + str(lineno))
