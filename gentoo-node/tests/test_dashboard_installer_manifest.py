@@ -14,7 +14,7 @@ import unittest
 NODE_DIR = Path(__file__).resolve().parents[1]
 INSTALLER = NODE_DIR / "install-dashboard-live.sh"
 REQUIRED = {
-    "dashboard.py", "dashboard_live.py", "dashboard_live.js", "dashboard_health.py"
+    "dashboard.py", "dashboard_live.py", "dashboard_live.js", "dashboard_health.py",\n    "process_inspector.py"
 }
 
 
