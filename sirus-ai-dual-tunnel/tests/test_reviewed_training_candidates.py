@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "gentoo"))
 sys.path.insert(0, str(ROOT / "training"))
 import reviewed_training_candidates as candidates
 from qlora_train import load_examples, verify_split
+import learning_eval as benchmark
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
@@ -155,6 +156,23 @@ class ReviewedCandidateTests(unittest.TestCase):
             db.execute("UPDATE cr_claim_versions SET applicability=''")
             db.execute("UPDATE cr_evidence_scopes SET applicability=''")
         self.assertEqual(candidates.collect(self.input,self.pdf)[0:2],([],[]))
+
+    def test_reviewed_evidence_to_heldout_questions_end_to_end(self):
+        # SHA_C is deliberately in the deterministic held-out source bucket.
+        self.add(C,quote="Rear axle torque: 52 Nm",value="52")
+        train, evaluation, counts = candidates.collect(self.input,self.pdf)
+        self.assertEqual(len(evaluation),1)
+        self.assertEqual(len(train),0)
+        candidates.export(self.private,train,evaluation,counts)
+        new_private=self.private.parent/"benchmark"
+        new_private.mkdir(mode=0o700)
+        report=benchmark.build(self.private/candidates.FILES[1],
+                               self.private/candidates.FILES[2],new_private)
+        self.assertEqual(report["questions"],2)
+        questions=benchmark._jsonl(new_private/benchmark.TASK_NAME)
+        self.assertTrue(all("52" not in r["question"] for r in questions))
+        self.assertEqual({r["kind"] for r in questions},{"fact","scope_guard"})
+        self.assertTrue((new_private/benchmark.KEY_NAME).exists())
 
     def test_private_writes_only_no_symlink_no_public_permissions(self):
         self.add()
