@@ -38,7 +38,16 @@ procedure_check(cms_ai_procedures_payload([
     'operation'=>'resume','seed_id'=>$seed],$actor)['seed_id']===$seed,
     'Resume known seed only');
 
+$proposal=cms_ai_procedures_payload(['operation'=>'propose_scope','source_id'=>$source,
+    'page'=>'3','part'=>'2','expected_scope'=>'brp/defender/2026/hd10/clutch/rev-a',
+    'quote'=>'BRP Defender 2026 HD10 clutch Rev-A','actor'=>'cms-admin:999'],$actor);
+procedure_check($proposal['page']===3&&$proposal['actor']===$actor,'Scope citation and session identity');
+$vote=cms_ai_procedures_payload(['operation'=>'review_scope','id'=>$id,'decision'=>'support',
+    'reason'=>'Reviewed source context','confirmation'=>'SUPPORT SCOPE'],$actor);
+procedure_check($vote['actor']===$actor&&$vote['id']===$id,'Vote bound to evidence identifier');
 $wrong=[
+    [['operation'=>'review_scope','id'=>$id,'decision'=>'support',
+      'reason'=>'Reviewed source','confirmation'=>'APPROVE REPAIR'],$actor],
     [['operation'=>'seed','source_id'=>'../../etc/passwd','heading'=>'Removal of primary clutch'],$actor],
     [['operation'=>'seed','source_id'=>$source,'heading'=>"<script>alert('x')</script>"],$actor],
     [['operation'=>'accept','id'=>$id,'expected_hash'=>$hash,

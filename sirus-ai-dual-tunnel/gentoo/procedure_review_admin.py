@@ -17,6 +17,7 @@ from procedure_discovery import (_configured, _connect, _validate_suggestion,
                                  _schema as discovery_schema, _report,
                                  register_seed, configure_seed)
 from procedure_review_queue import _json, _sha
+import equipment_attestation as attestation
 from manual_procedure_dependencies import inspect
 
 HEX = re.compile(r"[0-9a-f]{64}\Z")
@@ -108,7 +109,7 @@ def _fresh(row, *, source, index, research_db):
 def overview(*, queue, source, index, research_db):
     """Metadata-only, HMAC-authorized view; no text or write on initial GET."""
     if not _configured(queue):
-        return {"configured":False,"suggestions":[],"decisions":[],
+        return {"configured":False,"attestations":attestation.recent(queue),"suggestions":[],"decisions":[],
                 "warning":"No operator-seeded private procedure discovery configured"}
     rows = _rows(queue,limit=MAX_VISIBLE)
     visible=[]
@@ -135,7 +136,7 @@ def overview(*, queue, source, index, research_db):
         seeds = db.execute("""SELECT id,source_id,heading,state,last_reason,
             scanned,next_due FROM procedure_discovery_seeds
             ORDER BY created,id LIMIT 10""").fetchall()
-    return {"configured":True,"suggestions":visible,"seeds":[dict(x) for x in seeds],
+    return {"configured":True,"attestations":attestation.recent(queue),"suggestions":visible,"seeds":[dict(x) for x in seeds],
             "decisions":[dict(x) for x in decision_rows],
             "note":"Candidate metadata only; no proof of fitment, validated conflict or repair"}
 
@@ -229,6 +230,18 @@ def control(data, *, queue, source, index, research_db):
     if not isinstance(data,dict) or data.get("local_only") is not True:
         raise ValueError("Private signed administrative request required")
     action=data.get("action")
+    scope_ops = {
+        "scope_detail": (attestation.inspect_scope, {"id"}),
+        "propose_scope": (attestation.propose, {"source_id","page","part","quote",
+                                              "expected_scope","actor"}),
+        "review_scope": (attestation.review, {"id","decision","reason","confirmation","actor"}),
+    }
+    if isinstance(action, str) and action in scope_ops:
+        handler, keys = scope_ops[action]
+        if set(data) != keys | {"local_only","action"}:
+            raise ValueError("Invalid scope evidence request")
+        return handler(queue=queue, source=source, research_db=research_db,
+                       **{key:data[key] for key in keys})
     if action=="detail" and set(data)=={"local_only","action","id"}:
         return detail(queue=queue,suggestion_id=data["id"],source=source,
                       index=index,research_db=research_db)

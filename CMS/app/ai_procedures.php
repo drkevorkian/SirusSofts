@@ -11,9 +11,38 @@ function cms_ai_procedures_payload(array $post,string $actor):array {
         throw new InvalidArgumentException('An authenticated administrator is required.');
     $operation=$post['operation']??null;
     if(!is_string($operation) ||
-       !in_array($operation,['seed','accept','reject','pause','resume'],true))
+       !in_array($operation,['seed','accept','reject','pause','resume','propose_scope','review_scope'],true))
         throw new InvalidArgumentException('Unknown procedure-review operation.');
     $out=['local_only'=>true,'action'=>$operation,'actor'=>$actor];
+    if($operation==='propose_scope'){
+        foreach(['page','part'] as $field){
+            $value=filter_var($post[$field]??null,FILTER_VALIDATE_INT,
+                ['options'=>['min_range'=>1,'max_range'=>100000]]);
+            if($value===false)throw new InvalidArgumentException('Invalid PDF page or part.');
+            $out[$field]=$value;
+        }
+        foreach(['source_id'=>68,'quote'=>6000,'expected_scope'=>149] as $field=>$max){
+            $value=$post[$field]??null;
+            if(!is_string($value)||trim($value)===''||strlen($value)>$max)
+                throw new InvalidArgumentException('Incomplete PDF citation or scope.');
+            $out[$field]=$value;
+        }
+        if(!preg_match('/^pdf:[0-9a-f]{64}$/D',$out['source_id']))
+            throw new InvalidArgumentException('Invalid original PDF identifier.');
+        return $out;
+    }
+    if($operation==='review_scope'){
+        $decision=$post['decision']??null;
+        $id=$post['id']??null;
+        $reason=$post['reason']??null;
+        if(!in_array($decision,['support','reject'],true)||!is_string($id)||
+           !preg_match('/^[0-9a-f]{64}$/D',$id)||!is_string($reason)||
+           strlen(trim($reason))<3||strlen($reason)>200||
+           ($post['confirmation']??null)!==strtoupper($decision).' SCOPE')
+            throw new InvalidArgumentException('Invalid scope decision, confirmation or reason.');
+        return $out+['decision'=>$decision,'id'=>$id,'reason'=>trim($reason),
+            'confirmation'=>$post['confirmation']];
+    }
     if($operation==='seed'){
         $sid=$post['source_id']??null;
         $heading=$post['heading']??null;
@@ -57,7 +86,7 @@ function cms_ai_procedures_post(PDO $db,array $post):never {
     $payload=cms_ai_procedures_payload($post,$actor);
     $result=cms_ai_api_upstream('input','/api/in/research/procedures/control',$payload);
     $action=$payload['action'];
-    if(($action==='accept'||$action==='reject') &&
+    if(in_array($action,['accept','reject','propose_scope','review_scope'],true) &&
        (($result['recorded']??null)!==true||($result['action']??null)!==$action))
         throw new RuntimeException('Private procedure review was not confirmed.');
     if($action==='seed' && ($result['seed_id']??null)===null)
@@ -67,6 +96,8 @@ function cms_ai_procedures_post(PDO $db,array $post):never {
     cms_audit($db,'ai-procedure-'.$action,
         substr((string)($payload['id']??$payload['seed_id']??$payload['source_id']??'unknown'),0,80));
     cms_flash('Private procedure review recorded. No repair or source claim approved.');
+    if(in_array($action,['propose_scope','review_scope'],true))
+        cms_go('/admin/ai?scope_proposal='.rawurlencode((string)$result['id']).'#procedure-reviews');
     cms_go('/admin/ai#procedure-reviews');
 }
 
@@ -74,6 +105,7 @@ function cms_ai_procedures_panel(PDO $db):void {
     require_once __DIR__.'/ai_api.php';
     // Called only from cms_ai_page() following cms_need_admin().
     try {
+        cms_ai_api_rate($db,'procedure-overview:'.hash('sha256',session_id()),'admin');
         $overview=cms_ai_api_upstream('input','/api/in/research/procedures');
         $list=$overview['suggestions']??[];
         $seeds=$overview['seeds']??[];
@@ -106,6 +138,58 @@ function cms_ai_procedures_panel(PDO $db):void {
     }
     ?>
     <section id="procedure-reviews" class="admin-panel">
+      <h2>Equipment applicability evidence</h2>
+      <p>Submit a passage that explicitly identifies the full declared equipment scope.
+      A separate administrator reviews the original passage. Support applies only to
+      the cited scope. Service use requires a separate determination.</p>
+      <form method="post" action="/admin/ai" class="form-grid">
+        <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+        <input type="hidden" name="action" value="ai_procedure_review">
+        <input type="hidden" name="operation" value="propose_scope">
+        <label>Original PDF identifier <input name="source_id" required maxlength="68"></label>
+        <label>Manufacturer/model/year/engine/assembly/revision
+          <input name="expected_scope" required maxlength="149"></label>
+        <label>Page <input type="number" name="page" min="1" max="100000" required></label>
+        <label>Part <input type="number" name="part" min="1" max="100000" required></label>
+        <label>Exact original quotation <textarea name="quote" maxlength="1500" required></textarea></label>
+        <button type="submit">Submit for independent evidence review</button>
+      </form>
+      <?php foreach(array_slice($overview['attestations']??[],0,10) as $entry): ?>
+        <p><a href="?scope_proposal=<?=rawurlencode((string)$entry['id'])?>#procedure-reviews">
+          <?=cms_esc((string)$entry['id'])?></a>
+          Submitted by <?=cms_esc((string)$entry['proposer'])?> ·
+          Recorded decision <?=cms_esc((string)($entry['decision']??'pending'))?></p>
+      <?php endforeach;
+      $proposal=$_GET['scope_proposal']??null;
+      if(is_string($proposal)&&preg_match('/^[a-f0-9]{64}$/D',$proposal)):
+        try {
+            cms_ai_api_rate($db,'scope-detail:'.hash('sha256',session_id()),'admin');
+            $item=cms_ai_api_upstream('input','/api/in/research/procedures/control',
+                ['action'=>'scope_detail','id'=>$proposal,'local_only'=>true]);
+            if(($item['id']??null)!==$proposal)throw new RuntimeException();
+        } catch(Throwable $e){$item=['state'=>'unavailable'];}
+        ?>
+        <h3>Selected scope evidence</h3>
+        <p>Current state <?=cms_esc((string)$item['state'])?> · Scope version <?=(int)($item['scope_version']??0)?></p>
+        <?php if(is_array($item['evidence']??null)): $ev=$item['evidence']; ?>
+        <p><?=cms_esc((string)$ev['expected_scope'])?> · <?=cms_esc((string)$ev['source_id'])?>
+        · page <?=(int)$ev['page']?>, part <?=(int)$ev['part']?></p>
+        <blockquote><?=cms_esc((string)$ev['quote'])?></blockquote>
+        <?php endif; if(!empty($item['reviewer'])): ?>
+        <p><?=cms_esc((string)$item['reviewer'])?> · <?=cms_esc((string)$item['historical_decision'])?>
+        · <?=cms_esc((string)$item['reason'])?></p>
+        <?php endif; if($item['state']==='pending'): ?>
+        <form method="post" action="/admin/ai">
+          <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+          <input type="hidden" name="action" value="ai_procedure_review">
+          <input type="hidden" name="operation" value="review_scope">
+          <input type="hidden" name="id" value="<?=cms_esc($proposal)?>">
+          <label>Decision <select name="decision"><option>support</option><option>reject</option></select></label>
+          <label>Review reason <input name="reason" maxlength="200" required></label>
+          <label>Type SUPPORT SCOPE or REJECT SCOPE <input name="confirmation" required></label>
+          <button type="submit">Record scope evidence decision</button>
+        </form>
+        <?php endif; endif; ?>
       <h2>Cross-manual procedure suggestions — administrator review</h2>
       <p>Only exact approved original-PDF citations appear here. Scope entries are
       <strong>administrator declarations, not verified fitment</strong>. A reversed
@@ -140,7 +224,8 @@ function cms_ai_procedures_panel(PDO $db):void {
         $disabled=($seed['state']??'')==='disabled';?>
         <tr><td><code><?=cms_esc((string)($seed['source_id']??''))?></code>
           <p><?=cms_esc((string)($seed['heading']??''))?></p></td>
-          <td><?=cms_esc((string)($seed['state']??''))?></td>
+          <td><?=cms_esc((string)($seed['state']??''))?>
+              <?=cms_esc((string)($seed['last_reason']??''))?></td>
           <td><form method="post" action="/admin/ai">
             <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
             <input type="hidden" name="action" value="ai_procedure_review">

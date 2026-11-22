@@ -442,3 +442,20 @@ All original-source text and comments in the CMS panel are HTML escaped. Stale e
 
 The local operator suggestion list and acceptance transaction honor the signed
 CMS rejection ledger. Older queues without that additive table remain readable.
+
+### Independent equipment scope evidence
+
+On the private procedure panel, enter the declared six-part scope, exact PDF
+identifier, page, excerpt part and one exact passage (at most 1,500 characters).
+All six values must occur explicitly in the passage. This deliberately leaves
+split-page evidence and aliases for future work. A reviewer must examine context,
+including exceptions and exclusions. Literal occurrence alone establishes nothing.
+
+The proposal ID binds the PDF identity, ingest timestamp, excerpt count, whole
+cited excerpt digest, quotation, declaration version and declaring account.
+A distinct signed CMS account from both the proposer and declarer can record
+one immutable support or rejection with a reason. Current detail rechecks
+both private catalogs. Blocked detail suppresses quotations and retains the
+historical decision. The ledger has no service-release, RAG or training action.
+Freshness is evaluated on access across separate databases. A transient change
+restored between checks without a revision change is unobservable.
