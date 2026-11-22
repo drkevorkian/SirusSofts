@@ -23,6 +23,20 @@ class TestTrainingCLI(unittest.TestCase):
                                           "--profile","physics","--output-dir",str(out)]),0)
             self.assertFalse(out.exists())
             self.assertEqual(len(trainer.load_examples(train,"physics")),1)
+    def test_all_cms_domains_are_accepted(self):
+        expected={"coding","science","mathematics","physics","time","relativity","finance","mechanics"}
+        self.assertEqual(set(trainer.PROFILES)-{"all"},expected)
+        with tempfile.TemporaryDirectory() as td:
+            filename=Path(td,"subjects.jsonl")
+            filename.write_text("".join(
+                json.dumps(self.example("Verified question in "+domain,domain))+"\\n"
+                for domain in sorted(expected)
+            ))
+            for domain in expected:
+                records=trainer.load_examples(filename,domain)
+                self.assertEqual(len(records),1)
+                self.assertIn(domain,records[0]["prompt"][0]["content"])
+
     def test_eval_overlap_detection(self):
         example=self.example("Problem")
         train=[{"prompt":[example["messages"][0]],"completion":[example["messages"][1]]}]
