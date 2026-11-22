@@ -177,6 +177,9 @@ def collect(input_db, pdf_db):
                     "applicability": r["applicability"],
                     "human_reviewer": r["reviewed_by"]
                 },
+                "measurement": {
+                    "label": r["label"], "value": r["value"], "unit": r["unit"]
+                },
                 "candidate_only": True
             }
 
