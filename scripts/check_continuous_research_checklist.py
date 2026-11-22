@@ -11,7 +11,7 @@ import sys
 
 ROADMAP = (Path(__file__).resolve().parents[1] /
            "docs/CONTINUOUS_RESEARCH_ROADMAP.md")
-HEADING = re.compile(r"^## ([1-9]|1[0-2])\. .+$")
+HEADING = re.compile(r"^## ([1-9]|1[0-3])\. .+$")
 TASK = re.compile(r"^- \[([x ])\] (.+)$")
 TABLE = re.compile(r"^\|\s*(\d{1,2})\. [^|]+\|\s*(\d+)/(\d+)\s*\|\s*(\d+)\s*\|$")
 SUMMARY = re.compile(
@@ -52,13 +52,17 @@ def validate(text: str) -> dict[int, tuple[int, int]]:
             total_line = (int(summary.group(1)), int(summary.group(2)),
                           float(summary.group(3)))
 
-    expected = set(range(1, 13))
+    expected = set(range(1, 14))
     if set(sections) != expected:
-        raise ValueError(f"Expected all 12 original checklist sections; got {sorted(sections)}")
+        raise ValueError(f"Expected the 12 original sections plus the final video section; got {sorted(sections)}")
     if set(rows) != expected:
         raise ValueError("Progress table must have exactly one entry per section")
-    if sum(total for _, total in sections.values()) < 138:
-        raise ValueError("Original 138 checklist requirements must not be silently removed")
+    if sum(total for _, total in (sections[number] for number in range(1, 13))) != 138:
+        raise ValueError("Original 138 checklist requirements must be preserved exactly")
+    if sections[13] != [0, 1]:
+        raise ValueError("Final post-deployment video milestone must remain the sole unchecked Section 13 item")
+    if not text.rstrip().endswith("No video-related source work, deployment, or live validation is authorized by adding this roadmap entry.**"):
+        raise ValueError("Final deferred video milestone must be the last roadmap entry")
     for number, (checked, total) in sections.items():
         table_checked, table_total, table_open = rows[number]
         if (checked, total, total - checked) != (
@@ -87,7 +91,7 @@ def main() -> int:
     total = sum(c[1] for c in sections.values())
     done = sum(c[0] for c in sections.values())
     print(f"PASS: Continuous Research checklist: {done}/{total} checked, "
-          f"{total-done} open across 12 sections. Source only; not deployed.")
+          f"{total-done} open across 13 sections. Source only; not deployed.")
     return 0
 
 

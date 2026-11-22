@@ -11,7 +11,7 @@
 - **Ubuntu public CMS/gateway: NOT UPDATED for this roadmap.** The installed system still runs the pre-roadmap/older code. Changes committed to `main` are not present on that host.
 - **Gentoo AI/worker/research services: NOT UPDATED for this roadmap.** The installed system still runs older code; repository source changes and UI additions are not active there.
 - **No production inference loop, GPU admission change, training integration, new administrative learning panel, archive tool or database migration is claimed to be installed.** Whether any unrelated older features are running is not established here.
-- **GitHub checkboxes are source-development status only: 74/138 currently marked.** Production deployment is pending; Section 11 remains **0/12 live acceptance criteria verified**. This is not equivalent to 73 deployed features.
+- **GitHub checkboxes are source-development status only: 74/139 currently marked (the original 138 requirements plus one explicitly deferred final video milestone).** Production deployment is pending; Section 11 remains **0/12 live acceptance criteria verified**. A source checkmark does not establish that any feature has been deployed.
 - Before any implementation is marked **deployed**, record actual installed revisions on both hosts using read-only commands, compare against a reviewed and green pinned commit, prepare independent and verified backups (CMS, Gentoo input, PDF ingest), perform the approved in-place upgrade, check the private bridge key, and verify real endpoints and hardware. **Do not run the old full installers or apply unapproved upgrades.**
 
 ### Checklist rules
@@ -19,10 +19,11 @@
 - **[x] Complete in the GitHub source and covered by existing automated tests or a validated source boundary.** A checkmark **does not** mean the feature is installed on Gentoo/Ubuntu, accepted against the private PDF library, or safe for unrestricted production use.
 - **[ ] Open or partially implemented.** Each partial item retains its unchecked state until its **whole** requirement is met; source-only progress is noted beside it.
 - **Section 11 is real deployment/acceptance testing.** Synthetic unit tests are noted as partial evidence but do not close real-system acceptance tasks.
+- **Section 13 is blocked until all original 138 checklist requirements are complete and the integrated system is deployed to, working on, and accepted on both Ubuntu and Gentoo.** Do not begin video implementation during source development or before live acceptance.
 - **No source or checklist update deploys servers.** In particular, the 32-byte private signed administrative bridge key still needs secure provisioning in an approved maintenance window. Model-weight training remains disabled.
 - **Git workflow:** The repository root README specifies `main` only; the original dedicated-development-branch requirement is superseded rather than performed. Keep history and rollbacks through normal reviewed commits.
 
-**Overall source checklist: 74 / 138 checked (53.6%).** This is development progress, **not production readiness**.
+**Overall source checklist: 74 / 139 checked (53.2%).** This is development progress, **not production readiness**. The 139th task is an intentionally deferred post-deployment video milestone.
 
 | Section | Source-complete | Still open |
 |---|---:|---:|
@@ -38,6 +39,7 @@
 | 10. Optional model training | 1/9 | 8 |
 | 11. Acceptance tests | 0/12 | 12 |
 | 12. Implementation and deployment | 7/14 | 7 |
+| 13. Final post-deployment video capabilities | 0/1 | 1 |
 
 **Primary implementation:** [Gentoo scheduler](../sirus-ai-dual-tunnel/gentoo/continuous_research.py) · [Original-source evidence ledger](../sirus-ai-dual-tunnel/gentoo/research_evidence.py) · [Signed private bridge](../sirus-ai-dual-tunnel/gentoo/research_admin_auth.py) · [CMS controls](../CMS/app/ai_continuous.php) · [Deployment and acceptance procedure](CONTINUOUS_RESEARCH_DEPLOYMENT.md).
 
@@ -395,3 +397,9 @@ No autonomous LoRA or model-weight changes. Future training requires curated **h
 
 **Full-roadmap definition of done (NOT met):** End-to-end multi-format inventory, validated repeat cycles after outages, deeper independent cross-document reasoning, reviewed-claim retrieval integration and rollback, measured interactive responsiveness, monitoring and archival, plus explicit operator acceptance on both servers. All optional LoRA training remains disconnected and disabled.
 
+
+## 13. Final post-deployment video capabilities
+
+This section is the **absolute last milestone**, not a task to work on alongside the current research, chat, markup, image, or attachment features. It must remain pending until the complete preceding roadmap is implemented, deployed and verified on the real Ubuntu and Gentoo hosts. This milestone is separate from the original 138 requirements.
+
+- [ ] **FINAL TASK — Video editing, video coding, and video understanding (DEFERRED until after Ubuntu + Gentoo deployment and acceptance).** Only begin after **all original 138 roadmap requirements are completed**, the integrated SirusSofts system is **successfully deployed to both Ubuntu and Gentoo**, and real-system health, source integrity, security, backup/rollback and acceptance testing have passed. Then implement secure video upload/ingestion; video encoding, transcoding, programmatic editing and export; and multimodal video analysis so the local LLM can **watch a provided video, describe and explain what happens, answer questions about it, and reference timestamps** (using frames and audio/transcripts when available). Preserve original media, distinguish direct observations from inference, and require operator approval for edits or publishing. **No video-related source work, deployment, or live validation is authorized by adding this roadmap entry.**
