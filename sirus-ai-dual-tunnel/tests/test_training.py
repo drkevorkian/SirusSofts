@@ -29,7 +29,7 @@ class TestTrainingCLI(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             filename=Path(td,"subjects.jsonl")
             filename.write_text("".join(
-                json.dumps(self.example("Verified question in "+domain,domain))+"\\n"
+                json.dumps(self.example("Verified question in "+domain,domain))+"\n"
                 for domain in sorted(expected)
             ))
             for domain in expected:
