@@ -173,6 +173,63 @@ class ContinuousResearchTests(unittest.TestCase):
                 self.assertGreater(row["duration_ms"],0)
                 self.assertGreater(row["output_chars"],0)
 
+    def test_measured_token_counts_per_pass_job_and_unknown_legacy(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("configure",value={"passes":2})
+        self.research.control("enable")
+        def with_counts(messages,target,model_id,job_id):
+            return "Original quote is unverified", "cpu", {
+                "prompt_tokens":110,"completion_tokens":25,"generation_tps":12.5}
+        self.assertTrue(self.research.run_once(with_counts))
+        self.assertTrue(self.research.run_once(self.run_result))
+        status=self.research.status()["throughput"]
+        self.assertEqual(status["prompt_tokens"],110)
+        self.assertEqual(status["completion_tokens"],25)
+        self.assertEqual(status["prompt_token_samples"],1)
+        self.assertEqual(status["completion_token_samples"],1)
+        self.assertGreater(status["observed_output_tps_inference_wall"],0)
+        history=self.research.history("pdf:"+SHA)
+        job=history["jobs"][0]
+        self.assertEqual(job["prompt_tokens"],110)
+        self.assertEqual(job["completion_tokens"],25)
+        self.assertGreater(job["observed_output_tps_inference_wall"],0)
+        rows=sorted(history["passes"],key=lambda x:x["pass_number"])
+        self.assertEqual(rows[0]["completion_tokens"],25)
+        self.assertEqual(rows[0]["generation_tps"],12.5)
+        self.assertIsNone(rows[1]["prompt_tokens"])
+        self.assertIsNone(rows[1]["generation_tps"])
+        with connect(self.db) as db:
+            db.execute("UPDATE cr_results SET prompt_tokens=NULL,completion_tokens=NULL, generation_tps=NULL")
+        status=self.research.status()["throughput"]
+        self.assertIsNone(status["observed_output_tps_inference_wall"])
+        self.assertIsNone(status["prompt_tokens"])
+
+    def test_token_metrics_reject_guesses_and_invalid_counts(self):
+        self.assertEqual(ai.model_token_metrics({"choices":[]}),{
+            "prompt_tokens":None,"completion_tokens":None,"generation_tps":None})
+        values=ai.model_token_metrics({"usage":{"prompt_tokens":42,"completion_tokens":20},
+             "timings":{"predicted_per_second":11.2}})
+        self.assertEqual(values,{"prompt_tokens":42,"completion_tokens":20,
+                                  "generation_tps":11.2})
+        self.assertEqual(ai.model_token_metrics(
+            {"usage":{"completion_tokens":True},
+             "timings":{"predicted_per_second":float('nan')}}),
+             {"prompt_tokens":None,"completion_tokens":None,"generation_tps":None})
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("enable")
+        lease=self.research.claim()
+        self.assertIsNotNone(lease)
+        with self.assertRaises(ValueError):
+            self.research.finish(lease,"draft",duration_ms=1,
+                token_metrics={"completion_tokens":True})
+        with self.assertRaises(ValueError):
+            self.research.finish(lease,"draft",duration_ms=1,
+                token_metrics={"generation_tps":float('inf')})
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM cr_results").fetchone()[0],0)
+
     def test_targeted_reanalysis_does_not_repeat_unchanged_sources_early(self):
         self.add_doc(SHA,text="Old unchanged source specification.")
         self.add_doc(FAILED,text="Other source unaffected.")
