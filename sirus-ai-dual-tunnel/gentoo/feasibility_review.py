@@ -130,8 +130,8 @@ def assess(plan, *, source):
                         outcome="measured_constraint_satisfied" if ok
                         else "measured_constraint_violated",
                         normalized_dimension=a[0],
-                        normalized_actual=str(observed),
-                        normalized_limit=str(threshold),
+                        normalized_actual=format(observed, "f"),
+                        normalized_limit=format(threshold, "f"),
                         reasoning=("This numeric check passes; it does not prove overall fit."
                                    if ok else
                                    "The measured requirement is violated; modification, "
