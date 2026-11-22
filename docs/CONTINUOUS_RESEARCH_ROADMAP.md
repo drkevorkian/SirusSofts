@@ -199,6 +199,8 @@ This phase is separate from continuous inference.
 
 **Latest evaluation increment:** [Offline held-out mechanics benchmark](REVIEWED_TRAINING_CANDIDATES.md#held-out-mechanics-benchmark-source-only) and [synthetic scoring tests](../sirus-ai-dual-tunnel/tests/test_learning_eval.py) added in GitHub source only. Training remains disabled; questions and private answer keys are separated to prevent answer leakage, and no model has been scored. The evaluator currently measures reviewed numeric mechanics facts, not general comprehension.
 
+**Dataset admission guard:** The optional offline QLoRA loader now refuses rows explicitly marked `candidate_only`, with regression coverage. Review/approval must occur through a separate operator workflow before a research candidate can become a permitted training example. This input check is not tamper-proof authorization, and no autonomous training or promotion exists.
+
 **Guiding principle:** Continuous inference and knowledge-base refinement come first. Model-weight training is a later, independently validated capability.
 
 ## 11. Testing and Acceptance Criteria
