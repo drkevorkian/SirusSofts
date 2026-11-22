@@ -93,3 +93,75 @@ training capacity has not been established.
 
 Run the focused source tests with
 \`python3 -m unittest discover -s sirus-ai-dual-tunnel/tests -p 'test_reviewed_training_candidates.py' -v\`.
+
+## Held-out mechanics benchmark (source-only)
+
+\`sirus-ai-dual-tunnel/training/learning_eval.py\` adds a deterministic offline
+**evaluation-only** step. It requires reviewed candidate JSONL with the original
+measurement label, numerical value and unit, plus the SHA-256 manifest. The
+existing exporter now includes that metadata under \`measurement\`. No model
+is called, installed or fine-tuned by this tool.
+
+Before building an evaluation, verify that the private PDF sources, human
+reviews and extraction revisions are still current by producing a **fresh**
+reviewed-candidate export. Old exports are historical snapshots and do not
+self-revoke when original manuals are changed.
+
+The operator must keep both the hold-out dataset and the benchmark's private
+scoring key out of every training prompt, training file, context retrieval
+channel and model-accessible directory. On a single protected machine with
+distinctly controlled access, run:
+
+\`\`\`bash
+python3 sirus-ai-dual-tunnel/training/learning_eval.py build \
+  --eval-jsonl /ABSOLUTE/PRIVATE/mechanics-eval-candidates.jsonl \
+  --manifest /ABSOLUTE/PRIVATE/mechanics-candidates-manifest.json \
+  --output-dir /ABSOLUTE/PRIVATE/new-benchmark-directory
+\`\`\`
+
+The tool verifies the evaluation-file hash and refuses an empty holdout or
+unsafe output directory. It creates two **new** files (0600) without overwriting
+existing files:
+
+- \`mechanics-benchmark-questions.jsonl\`: **question-only** model inputs; no
+  ground-truth measurements or provenance keys.
+- \`mechanics-benchmark-private-key.jsonl\`: **private** expected measurements,
+  exact application, original PDF ID/page/part and scope-guard answers. Never
+  pass this file to the model.
+
+The operator may submit *only the question file's question field* to a
+separately authorized inference runner (no runner is integrated here). It
+must collect one structured JSONL prediction per task, e.g.:
+
+\`\`\`json
+{"task_id":"<64-lowercase-hex-id>","abstain":false,"value":"40","unit":"nm","applicability":"brp/defender/2026/hd11/clutch","source_id":"pdf:<64-lowercase-hex-id>","page":5,"part":1}
+\`\`\`
+
+For an unanswerable question, report
+\`{"task_id":"...","abstain":true}\`. The scope-guard questions test
+whether the model falsely applies a **specific reviewed claim** to a different
+unspecified equipment model or year. They do not prove that other manuals
+lack an applicable specification.
+
+Score locally with the private key without running a model:
+
+\`\`\`bash
+python3 sirus-ai-dual-tunnel/training/learning_eval.py score \
+  --private-key /ABSOLUTE/PRIVATE/new-benchmark-directory/mechanics-benchmark-private-key.jsonl \
+  --predictions /ABSOLUTE/PRIVATE/candidate-predictions.jsonl \
+  --baseline-predictions /ABSOLUTE/PRIVATE/baseline-predictions.jsonl
+\`\`\`
+
+The scorer reports held-out measurement **value + unit + applicability**
+accuracy, exact PDF/page/part citation accuracy, missing answers, abstentions,
+unsafe out-of-scope answers and baseline-versus-candidate deltas. Values are
+compared as finite decimals; this first benchmark does **not** infer or
+normalize different physical units, grade freeform scientific reasoning,
+execute programming solutions, or calculate statistical confidence. In
+particular, a correct synthetic test score does not imply the real local model
+has improved. A real evaluation requires independent model runs over whole
+held-out manuals, which have **not** occurred.
+
+The benchmark remains an incomplete portion of the open Phase E requirement,
+not a checked-off multi-domain proficiency evaluation. Run its synthetic tests
+with \`python3 -m unittest discover -s sirus-ai-dual-tunnel/tests -p 'test_learning_eval.py' -v\`.
