@@ -6,6 +6,14 @@
 **Platform:** Gentoo local AI workers + Ubuntu public CMS gateway  
 **Objective:** Enable the local LLM to continuously revisit, analyze, cross-reference, and improve its understanding of the entire available knowledge library without requiring a user to initiate each research session.
 
+### Deployment state — operator-confirmed, 2026-11-22
+
+- **Ubuntu public CMS/gateway: NOT UPDATED for this roadmap.** The installed system still runs the pre-roadmap/older code. Changes committed to `main` are not present on that host.
+- **Gentoo AI/worker/research services: NOT UPDATED for this roadmap.** The installed system still runs older code; repository source changes and UI additions are not active there.
+- **No production inference loop, GPU admission change, training integration, new administrative learning panel, archive tool or database migration is claimed to be installed.** Whether any unrelated older features are running is not established here.
+- **GitHub checkboxes are source-development status only: 72/138 currently marked.** Production deployment is pending; Section 11 remains **0/12 live acceptance criteria verified**. This is not equivalent to 72 deployed features.
+- Before any implementation is marked **deployed**, record actual installed revisions on both hosts using read-only commands, compare against a reviewed and green pinned commit, prepare independent and verified backups (CMS, Gentoo input, PDF ingest), perform the approved in-place upgrade, check the private bridge key, and verify real endpoints and hardware. **Do not run the old full installers or apply unapproved upgrades.**
+
 ### Checklist rules
 
 - **[x] Complete in the GitHub source and covered by existing automated tests or a validated source boundary.** A checkmark **does not** mean the feature is installed on Gentoo/Ubuntu, accepted against the private PDF library, or safe for unrestricted production use.
