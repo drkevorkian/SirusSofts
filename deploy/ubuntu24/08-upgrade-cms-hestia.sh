@@ -25,7 +25,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 TOP="$(cd "$HERE/../.." && pwd)"
 git -C "$TOP" rev-parse --show-toplevel >/dev/null 2>&1 ||
   fail 'CMS source must come from a Git checkout'
-[[ -z "$(git -C "$TOP" status --porcelain --untracked-files=normal)" ]] ||
+source_status="$(git -C "$TOP" status --porcelain --untracked-files=normal)" ||
+  fail 'Could not inspect source checkout status'
+[[ -z "$source_status" ]] ||
   fail 'Source checkout has tracked or untracked changes'
 expected="$(printenv SIRUS_EXPECTED_COMMIT || true)"
 [[ "$expected" =~ ^[0-9a-f]{40}$ ]] ||
