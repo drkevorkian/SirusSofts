@@ -70,6 +70,75 @@ class ContinuousResearchTests(unittest.TestCase):
         self.assertAlmostEqual(summary["kwh"],0.25)
         self.assertAlmostEqual(summary["usd"],0.045)
 
+    def test_daily_power_admission_and_utc_rollover(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("configure",value={"passes":2,"research_watts":200,"daily_energy_wh":200})
+        self.research.control("enable")
+        with patch("continuous_research.time.monotonic",side_effect=[0,3600]):
+            self.research.run_once(self.run_result)
+        self.assertIsNone(self.research.claim())
+        self.assertIn("daily-energy-budget",self.research.status()["admission_blocks"])
+        self.assertIsNotNone(self.research.claim(now=(int(time.time())//86400+1)*86400))
+
+    def test_unknown_usage_and_scoped_expiring_admin_override(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("configure",value={"daily_energy_wh":20,
+            "quiet_start_utc":22,"quiet_end_utc":6})
+        self.research.control("enable")
+        self.assertIsNone(self.research.claim())
+        for minutes,actor in ((15,"guest:1"),(True,"cms-admin:1"),(61,"cms-admin:1")):
+            with self.assertRaises(ValueError):
+                self.research.control("power_override",value=minutes,actor=actor)
+        current=self.research.control("power_override",value=15,actor="cms-admin:2")
+        expiry=current["config"]["power_override_until"]
+        self.assertGreater(expiry,time.time())
+        self.assertIsNone(self.research.claim(now=expiry))
+        self.assertEqual(admission_reasons(current["config"],free_mib=999,load=0,
+                                           hour=23,now=expiry-1),[])
+        with connect(self.db) as con:
+            con.execute("INSERT INTO jobs(id,messages,target,state,created) VALUES('chat','[]','auto','queued',?)",(time.time(),))
+            self.assertIn("cms-admin:2",con.execute("SELECT detail FROM cr_events WHERE kind='power-override'").fetchone()[0])
+        self.assertIsNone(self.research.claim())
+        self.research.control("pause")
+        self.assertEqual(self.research.status()["config"]["power_override_until"],0)
+        with connect(self.db) as con:
+            con.execute("UPDATE jobs SET state='completed' WHERE id='chat'")
+        self.research.control("resume")
+        self.research.control("power_override",value=30,actor="cms-admin:2")
+        self.assertIsNotNone(self.research.claim())
+        cleared=self.research.control("power_override",value=0,actor="cms-admin:2")
+        self.assertIn("daily-energy-unknown",cleared["admission_blocks"])
+
+    def test_racing_energy_commit_defers_admission(self):
+        from continuous_research import daily_energy
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("configure",value={"daily_energy_wh":200,"research_watts":100})
+        self.research.control("enable")
+        def race(reader,now):
+            before=daily_energy(reader,now)
+            with connect(self.db) as writer:
+                writer.execute("""INSERT INTO cr_energy_attempts(attempt_id,started,watts,rate_microusd)
+                    VALUES('concurrent',?,100,-1)""",(now,))
+            return before
+        with patch("continuous_research.daily_energy",side_effect=race):
+            self.assertIsNone(self.research.claim())
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM cr_jobs WHERE state='leased'").fetchone()[0],0)
+
+    def test_daily_budget_defers_when_attempt_coverage_is_incomplete(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("configure",value={"daily_energy_wh":200,"research_watts":100})
+        self.research.control("enable")
+        with connect(self.db) as db:
+            db.execute("""INSERT INTO cr_energy_attempts(attempt_id,started,watts,rate_microusd)
+                VALUES('interrupted',?,100,-1)""",(time.time(),))
+        self.assertIsNone(self.research.claim())
+        self.assertIn("daily-energy-unknown",self.research.status()["admission_blocks"])
+
     def test_failed_unknown_free_and_interrupted_energy_attempts(self):
         self.add_doc()
         self.research.inventory()

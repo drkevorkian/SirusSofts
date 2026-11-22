@@ -11,7 +11,7 @@
 - **Ubuntu public CMS/gateway: NOT UPDATED for this roadmap.** The installed system still runs the pre-roadmap/older code. Changes committed to `main` are not present on that host.
 - **Gentoo AI/worker/research services: NOT UPDATED for this roadmap.** The installed system still runs older code; repository source changes and UI additions are not active there.
 - **No production inference loop, GPU admission change, training integration, new administrative learning panel, archive tool or database migration is claimed to be installed.** Whether any unrelated older features are running is not established here.
-- **GitHub checkboxes are source-development status only: 75/139 currently marked (the original 138 requirements plus one explicitly deferred final video milestone).** Production deployment is pending; Section 11 remains **0/12 live acceptance criteria verified**. A source checkmark does not establish that any feature has been deployed.
+- **GitHub checkboxes are source-development status only: 76/139 currently marked (the original 138 requirements plus one explicitly deferred final video milestone).** Production deployment is pending; Section 11 remains **0/12 live acceptance criteria verified**. A source checkmark does not establish that any feature has been deployed.
 - Before any implementation is marked **deployed**, record actual installed revisions on both hosts using read-only commands, compare against a reviewed and green pinned commit, prepare independent and verified backups (CMS, Gentoo input, PDF ingest), perform the approved in-place upgrade, check the private bridge key, and verify real endpoints and hardware. **Do not run the old full installers or apply unapproved upgrades.**
 
 ### Checklist rules
@@ -23,7 +23,7 @@
 - **No source or checklist update deploys servers.** In particular, the 32-byte private signed administrative bridge key still needs secure provisioning in an approved maintenance window. Model-weight training remains disabled.
 - **Git workflow:** The repository root README specifies `main` only; the original dedicated-development-branch requirement is superseded rather than performed. Keep history and rollbacks through normal reviewed commits.
 
-**Overall source checklist: 75 / 139 checked (54.0%).**
+**Overall source checklist: 76 / 139 checked (54.7%).**
 
 **Operator review consistency (source):** Local procedure discovery now honors immutable CMS rejections during listing and transactional acceptance. Safety-critical procedure controls remain partial. **74/139 complete.**
 
@@ -49,7 +49,7 @@
 | 4. Multi-pass reasoning | 4/12 | 8 |
 | 5. Verification and memory | 9/12 | 3 |
 | 6. Cross-document intelligence | 1/9 | 8 |
-| 7. Resource management | 7/11 | 4 |
+| 7. Resource management | 8/11 | 3 |
 | 8. Administrator dashboard | 15/15 | 0 |
 | 9. Safety and reliability | 7/12 | 5 |
 | 10. Optional model training | 1/9 | 8 |
@@ -163,7 +163,7 @@ For each selected document or document section:
 - [x] Track tokens processed per second and per research job. **Source implementation, 2026-11-22:** Local model-reported prompt/completion tokens and generation tokens/second are saved for each completed research pass and summarized per job in the signed admin status/history. Missing legacy/model usage remains unknown, never estimated from character length. Regression tests cover valid, invalid, and missing telemetry; live model/driver acceptance remains pending.
 - [ ] Prevent uncontrolled database growth through configurable retention and archival. **Partial (source):** A manual WAL-consistent private snapshot/restore utility and a verified read-only cold-history catalog, source/job locator and bounded provenance browser are implemented and tested. The private SQLite admission ceiling blocks new background work near a configured footprint threshold; operational telemetry expires after seven days. A metadata-only offline retention preview **does not authorize any pruning**. Selective offload/deletion with recoverable primary indexes, archive capacity limits, independent PDF-ingest backups and live restore acceptance are still outstanding.
 - [x] Avoid continuously reprocessing unchanged material at unnecessarily high priority. **Source implementation:** Targeted cycles already exclude unchanged completed revisions until configured revisit; when a full cycle is due, previously completed unchanged sections rank behind unseen/revised sections of equal admin priority, while an operator's explicitly higher source priority wins. Full revisits remain indefinite.
-- [ ] Support quiet hours, power-management policies, and operator overrides. **Partial (source):** UTC quiet hours, CPU/RAM/VRAM admission settings and admin overrides exist; power-management policy and energy budgets are missing.
+- [x] Support quiet hours, power-management policies, and operator overrides. **Source implementation:** UTC quiet hours and a configurable daily estimated inference energy budget defer new background leases. Unknown usage blocks budgeted work. A signed administrator can temporarily override these two policies for 15, 30 or 60 minutes or revoke the override. Chat, RAM, VRAM and other admission gates remain enforced. Live acceptance is tracked in Section 11.
 - [x] Track resource consumption and estimated energy costs. **Source implementation:** The signed administrator dashboard combines resource telemetry with a seven-day inference energy and USD estimate. Each background attempt snapshots configured watts and electricity rate before inference. Elapsed model-call time includes failed calls; unfinished or unpriced attempts remain visible in coverage counts. Real hardware calibration is pending.
 
 ## 8. Administrator Dashboard

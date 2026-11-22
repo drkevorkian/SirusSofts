@@ -25,6 +25,10 @@ foreach(['0.129999'=>129999,'0'=>0,''=>-1] as $input=>$micros){
     continuous_check($estimate['value']['research_watts']===250&&
         $estimate['value']['rate_microusd_kwh']===$micros,'Exact rate and power assumptions');
 }
+$budget=cms_ai_continuous_payload($base+['daily_energy_wh'=>'500']);
+continuous_check($budget['value']['daily_energy_wh']===500,'Energy admission budget');
+$override=cms_ai_continuous_payload(['operation'=>'power_override','minutes'=>'15','actor'=>'guest:1'],'cms-admin:7');
+continuous_check($override['actor']==='cms-admin:7'&&$override['value']===15,'Bounded session-attributed override');
 $bounded=cms_ai_continuous_payload(array_replace($base,[
     'max_database_mib'=>'512']));
 continuous_check($bounded['value']['max_database_mib']===512,
@@ -108,6 +112,8 @@ foreach([
   array_replace($base,['min_gpu_free_mib'=>'not-a-number']),
   array_replace($base,['usd_kwh'=>'10.000001']),
   array_replace($base,['usd_kwh'=>'1e5']),
+  array_replace($base,['daily_energy_wh'=>'-1']),
+  ['operation'=>'power_override','minutes'=>'15'],
   array_replace($base,['research_watts'=>'-1']),
   array_replace($base,['max_database_mib'=>'-1']),
   array_replace($base,['max_database_mib'=>'1048577']),

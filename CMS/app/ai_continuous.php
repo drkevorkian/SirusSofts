@@ -10,9 +10,17 @@ function cms_ai_continuous_payload(array $post,string $actor=''):array {
     $action=$post['operation']??null;
     if(!is_string($action)||!in_array($action,[
         'enable','pause','resume','stop','disable','scan',
-        'configure','include','exclude','priority','cancel'],true))
+        'configure','include','exclude','priority','cancel','power_override'],true))
         throw new InvalidArgumentException('Unknown continuous research operation.');
     $data=['local_only'=>true,'action'=>$action];
+    if($action==='power_override'){
+        $minutes=$post['minutes']??null;
+        if(!in_array($minutes,['0','15','30','60'],true)||
+           !preg_match('/^cms-admin:[1-9][0-9]{0,12}$/D',$actor))
+            throw new InvalidArgumentException('Select a permitted override duration.');
+        $data['value']=(int)$minutes;
+        $data['actor']=$actor;
+    }
     if($action==='cancel'){
         $job=$post['job_id']??null;
         if(!is_string($job)||!preg_match('/^[a-f0-9]{32}$/D',$job)||
@@ -73,6 +81,12 @@ function cms_ai_continuous_payload(array $post,string $actor=''):array {
             'quiet_end_utc'=>$quietEnd,
             'target'=>$target,'model_id'=>$model];
         // An older form omits these fields and preserves the current estimates.
+        if(array_key_exists('daily_energy_wh',$post)){
+            $budget=filter_var($post['daily_energy_wh'],FILTER_VALIDATE_INT);
+            if($budget===false||$budget<0||$budget>2400000)
+                throw new InvalidArgumentException('Invalid daily energy budget.');
+            $data['value']['daily_energy_wh']=$budget;
+        }
         if(array_key_exists('research_watts',$post)){
             $watts=filter_var($post['research_watts'],FILTER_VALIDATE_INT);
             if($watts===false||$watts<0||$watts>100000)
@@ -301,6 +315,24 @@ function cms_ai_continuous_panel(PDO $db):void {
          <?=(int)($energy['errors']??0)?> timed calls raised an error. Estimates use elapsed
          model-call time and the power and rate saved when each attempt started.
          Idle time, chat and attempts without an end time are excluded.</p>
+      <?php $today=$info['energy_today']??[]; ?>
+      <p>UTC start-day usage <?=number_format((float)($today['estimated_wh']??0),3)?> Wh
+         across <?=(int)($today['estimated']??0)?> estimated of <?=(int)($today['attempts']??0)?> attempts.
+         Daily admission budget <?=empty($cfg['daily_energy_wh'])?'disabled':(int)$cfg['daily_energy_wh'].' Wh'?>.
+         <?php if(($cfg['power_override_until']??0)>time()): ?>
+         Override expires <?=cms_esc(gmdate('Y-m-d H:i:s',(int)$cfg['power_override_until']))?> UTC.
+         <?php endif; ?></p>
+      <form method="post" action="/admin/ai">
+        <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+        <input type="hidden" name="action" value="ai_continuous">
+        <input type="hidden" name="operation" value="power_override">
+        <label>Temporarily override quiet hours and the daily energy budget
+          <select name="minutes"><option value="0">Restore configured policy</option>
+            <option value="15">15 minutes</option><option value="30">30 minutes</option>
+            <option value="60">60 minutes</option></select>
+        </label>
+        <button type="submit">Apply power policy</button>
+      </form>
       <p>Throughput (measured): <?=cms_esc((string)($throughput['passes_last_60_minutes']??0))?>
         completed passes in the last 60 minutes.
         Average inference latency:
@@ -433,6 +465,12 @@ function cms_ai_continuous_panel(PDO $db):void {
           <input type="number" name="max_cpu_load" min="0" max="1024" step="0.1"
             value="<?=cms_esc((string)($cfg['max_cpu_load']??0))?>">
         </label>
+        <label>Daily background inference energy budget in Wh (0 disables)
+          <input type="number" name="daily_energy_wh" min="0" max="2400000" required
+            value="<?=(int)($cfg['daily_energy_wh']??0)?>">
+        </label>
+        <p>The scheduler defers new passes once the UTC start-day budget is reached
+        or usage is unknown. An admitted pass may finish above budget.</p>
         <label>Estimated background inference draw in watts (0 means unknown)
           <input type="number" name="research_watts" min="0" max="100000" required
             value="<?=(int)($cfg['research_watts']??0)?>">

@@ -183,3 +183,15 @@ leaves an attempt without an end time. Energy is watts × elapsed milliseconds
 / 3,600,000,000 in kWh. Source IO, interactive traffic and idle consumption
 fall outside this model. Acceptance on the Gentoo host requires comparison
 with an independent energy meter over a representative workload.
+
+A daily Wh budget of zero disables power-budget admission. A positive value
+requires configured watts and complete timed coverage for attempts started on
+the current UTC day. Reaching the budget defers the next lease. A running
+attempt can take usage above budget and all its energy belongs to its start
+day. Administrators can grant a 15-, 30- or 60-minute quiet-hours and energy
+override through the signed CMS panel. The override persists through process
+restart until expiry. Restore, pause, stop and disable clear it immediately.
+Interactive admission and the resource limits continue to apply. The normal
+mode after an in-place upgrade preserves the existing quiet-hour settings and
+has a disabled energy budget. Hardware calibration and live acceptance remain
+pending.

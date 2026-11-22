@@ -168,6 +168,8 @@ def init_schema(path):
         # Compatible with v1 private databases; never rebuild existing tables.
         cols={row[1] for row in db.execute("PRAGMA table_info(cr_config)")}
         for column,definition in (
+            ("daily_energy_wh","INTEGER NOT NULL DEFAULT 0"),
+            ("power_override_until","REAL NOT NULL DEFAULT 0"),
             ("research_watts","INTEGER NOT NULL DEFAULT 0"),
             ("rate_microusd_kwh","INTEGER NOT NULL DEFAULT -1"),
             ("min_available_ram_mib","INTEGER NOT NULL DEFAULT 0"),
@@ -309,15 +311,36 @@ def gpu_memory_snapshot(*, drm_root="/sys/class/drm",
     return devices
 
 
+def daily_energy(db, now):
+    """UTC start-day usage; an interrupted or uncalibrated attempt is unknown."""
+    midnight = int(now)//86400*86400
+    return db.execute("""SELECT count(*) attempts,
+        count(CASE WHEN watts>0 THEN duration_ms END) estimated,
+        coalesce(sum(CASE WHEN watts>0 THEN watts*1.0*duration_ms END),0) watt_ms
+        FROM cr_energy_attempts WHERE started>=? AND started<?""",
+        (midnight,midnight+86400)).fetchone()
+
+
+def power_blocks(cfg, now, usage):
+    if cfg["power_override_until"]>now or not cfg["daily_energy_wh"]:
+        return []
+    if (not cfg["research_watts"] or usage is None or
+            usage["estimated"]!=usage["attempts"]):
+        return ["daily-energy-unknown"]
+    if usage["watt_ms"]>=cfg["daily_energy_wh"]*3600000:
+        return ["daily-energy-budget"]
+    return []
+
+
 def admission_reasons(cfg, *, free_mib=None, load=None, hour=None,
-                      gpu_devices=None, database_bytes=None):
+                      gpu_devices=None, database_bytes=None, now=None, energy_usage=None):
     """Pure, testable background gating. Never affects interactive requests."""
     if free_mib is None:
         free_mib=free_memory_mib()
     if load is None:
         load=os.getloadavg()[0]
     if hour is None:
-        hour=datetime.now(timezone.utc).hour
+        hour=datetime.fromtimestamp(time.time() if now is None else now,timezone.utc).hour
     blocked=[]
     if cfg["min_available_ram_mib"]:
         if free_mib is None:
@@ -346,11 +369,12 @@ def admission_reasons(cfg, *, free_mib=None, load=None, hour=None,
             elif any(gpu["free_mib"]<min_vram for gpu in selected):
                 blocked.append("low-free-vram")
     start,end=cfg["quiet_start_utc"],cfg["quiet_end_utc"]
-    if 0<=start<=23 and 0<=end<=23:
+    now=time.time() if now is None else now
+    if cfg["power_override_until"]<=now and 0<=start<=23 and 0<=end<=23:
         if (start<end and start<=hour<end) or (
             start>end and (hour>=start or hour<end)):
             blocked.append("quiet-hours-utc")
-    return blocked
+    return blocked + power_blocks(cfg,now,energy_usage)
 
 
 class ContinuousResearch:
@@ -509,7 +533,7 @@ class ContinuousResearch:
     def control(self, action, *, source_id="", value=None, job_id="", actor=""):
         if action not in ("enable", "pause", "resume", "stop", "disable",
                           "include", "exclude", "priority", "configure", "scan",
-                          "cancel"):
+                          "cancel","power_override"):
             raise ValueError("Invalid control action")
         if action=="cancel":
             if (not isinstance(job_id,str) or
@@ -520,7 +544,14 @@ class ContinuousResearch:
         with connect(self.db_path) as db:
             db.execute("BEGIN IMMEDIATE")
             now = time.time()
-            if action=="cancel":
+            if action=="power_override":
+                if (not isinstance(actor,str) or not re.fullmatch(r"cms-admin:[1-9][0-9]{0,12}",actor)
+                        or type(value) is not int or value not in (0,15,30,60)):
+                    raise ValueError("Authenticated admin and bounded override duration required")
+                until=now+60*value if value else 0
+                db.execute("UPDATE cr_config SET power_override_until=?,updated=? WHERE id=1",(until,now))
+                self._event(db,"power-override","research",actor+" minutes="+str(value))
+            elif action=="cancel":
                 # An existing SQLite stopped state is used to avoid rebuilding
                 # the legacy cr_jobs CHECK constraint during an in-place upgrade.
                 # The immutable marker makes it distinct from a global stop.
@@ -582,7 +613,7 @@ class ContinuousResearch:
                     "passes","model_id","target","revisit_seconds",
                     "max_cpu_load","max_chat_jobs","min_available_ram_mib",
                     "min_gpu_free_mib","max_database_mib",
-                    "research_watts","rate_microusd_kwh","quiet_start_utc","quiet_end_utc"}:
+                    "research_watts","rate_microusd_kwh","daily_energy_wh","quiet_start_utc","quiet_end_utc"}:
                     raise ValueError("Invalid research settings")
                 if "quiet_start_utc" in value or "quiet_end_utc" in value:
                     if not {"quiet_start_utc","quiet_end_utc"} <= set(value):
@@ -607,6 +638,8 @@ class ContinuousResearch:
                     if key=="max_cpu_load" and (type(item) not in (int,float) or
                                                  not 0<=item<=1024):
                         raise ValueError("Invalid load limit")
+                    if key=="daily_energy_wh" and (type(item) is not int or not 0<=item<=2400000):
+                        raise ValueError("Daily energy admission budget must be 0..2400000 Wh")
                     if key=="research_watts" and (type(item) is not int or not 0<=item<=100000):
                         raise ValueError("Estimated inference watts must be 0..100000")
                     if key=="rate_microusd_kwh" and (type(item) is not int or not -1<=item<=10000000):
@@ -632,6 +665,8 @@ class ContinuousResearch:
                            "stop":"stopped","disable":"disabled"}[action]
                 db.execute("UPDATE cr_config SET mode=?,updated=?,scan_requested=CASE WHEN ?='running' THEN 1 ELSE scan_requested END WHERE id=1",
                            (next_mode,now,next_mode))
+                if action in ("disable","stop","pause"):
+                    db.execute("UPDATE cr_config SET power_override_until=0 WHERE id=1")
                 if action=="stop":
                     db.execute("""INSERT INTO cr_events(happened,kind,subject,detail)
                         SELECT ?,'job-stopped',id,'' FROM cr_jobs
@@ -740,12 +775,19 @@ class ContinuousResearch:
         # GPU telemetry can execute a bounded local subprocess. Probe BEFORE
         # obtaining the write lock, so normal interactive work is not blocked.
         with connect(self.db_path) as preflight:
-            initial=preflight.execute("""SELECT min_gpu_free_mib,max_database_mib
+            initial=preflight.execute("""SELECT min_gpu_free_mib,max_database_mib,daily_energy_wh,mode
                 FROM cr_config WHERE id=1""").fetchone()
         gpu_devices=gpu_memory_snapshot() if initial["min_gpu_free_mib"] else None
         db_bytes=database_size_bytes(self.db_path) if initial["max_database_mib"] else None
         # Source reads and model calls occur OUTSIDE this short write transaction.
         with connect(self.db_path) as db:
+            usage = None
+            version = None
+            if initial["daily_energy_wh"] and initial["mode"]=="running":
+                # Aggregate outside the writer lock. A concurrent commit on this
+                # same database invalidates the read; defer to the next poll.
+                version=db.execute("PRAGMA data_version").fetchone()[0]
+                usage=daily_energy(db,now)
             db.execute("BEGIN IMMEDIATE")
             expired = db.execute("""SELECT id,attempts FROM cr_jobs
                 WHERE state='leased' AND lease_until<=?""",(now,)).fetchall()
@@ -779,7 +821,9 @@ class ContinuousResearch:
                 return None
             if conf["min_gpu_free_mib"] and gpu_devices is None:
                 return None  # Config enabled during preflight; fail closed.
-            if admission_reasons(conf,gpu_devices=gpu_devices,
+            if conf["daily_energy_wh"] and version!=db.execute("PRAGMA data_version").fetchone()[0]:
+                return None
+            if admission_reasons(conf,gpu_devices=gpu_devices,now=now,energy_usage=usage,
                                  database_bytes=db_bytes):
                 return None
             row=db.execute("""SELECT j.id,j.slot,j.revision,j.pass_completed,
@@ -1208,7 +1252,9 @@ class ContinuousResearch:
                 FROM cr_results""").fetchone()
             completed_hour=db.execute("""SELECT count(*) FROM cr_results
                 WHERE created>=?""",(time.time()-3600,)).fetchone()[0]
-            energy=self._energy_summary(db,time.time())
+            report_time=time.time()
+            usage=daily_energy(db,report_time)
+            energy=self._energy_summary(db,report_time)
             trend=db.execute("""SELECT minute,queued,leased,failed,
                 process_rss_mib,host_free_ram_mib,database_bytes
                 FROM cr_resource_samples
@@ -1237,7 +1283,7 @@ class ContinuousResearch:
         gpu_devices=gpu_memory_snapshot()
         db_bytes=database_size_bytes(self.db_path)
         resident_mib=process_resident_mib()
-        blocked=admission_reasons(config,free_mib=free_mib,load=load,
+        blocked=admission_reasons(config,free_mib=free_mib,load=load,now=report_time,energy_usage=usage,
                                   gpu_devices=gpu_devices,database_bytes=db_bytes)
         if chat>config["max_chat_jobs"]:
             blocked.append("interactive-queue")
@@ -1251,6 +1297,8 @@ class ContinuousResearch:
                 "cycle":dict(cycle) if cycle else None,
                 "cycle_progress":progress,"throughput":throughput,
                 "resource_history":history,"energy_7d":energy,
+                "energy_today":{"estimated_wh":usage["watt_ms"]/3600000,
+                                "attempts":usage["attempts"],"estimated":usage["estimated"]},
                 "queued_growth_last_samples":queue_delta,
                 "active":dict(in_flight) if in_flight else None,
                 "interactive_jobs":chat,"cpu_load_1m":load,
