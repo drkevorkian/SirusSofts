@@ -43,12 +43,13 @@ catch(InvalidArgumentException $expected){}
 ai_assert(cms_ai_pdf_filename('BRP HD11 Shop Manual.pdf')==='BRP HD11 Shop Manual.pdf','manual filename');
 ai_assert(cms_ai_profile('finance')==='finance','finance expertise');
 ai_assert(cms_ai_profile('mechanics')==='mechanics','mechanics expertise');
+ai_assert(cms_ai_profile('mathematics')==='mathematics','mathematics expertise');
 ai_assert(cms_ai_profile('relativity')==='relativity','relativity expertise');
 if(!extension_loaded('pdo_sqlite')){echo "PASS: validation; SQLite unavailable\n";exit(0);}
 $db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
 $db->exec('PRAGMA foreign_keys=ON');
 cms_schema($db);cms_schema($db);
-ai_assert((int)$db->query('SELECT count(*) FROM cms_ai_profiles')->fetchColumn()===7,'idempotent profiles');
+ai_assert((int)$db->query('SELECT count(*) FROM cms_ai_profiles')->fetchColumn()===8,'idempotent profiles');
 ai_assert((int)$db->query('SELECT depth FROM cms_ai_research_config')->fetchColumn()===50,'persisted default search depth');
 ai_assert((int)$db->query("SELECT count(*) FROM sqlite_master WHERE name='cms_ai_pdf_uploads'")->fetchColumn()===1,'PDF staging schema');
 ai_assert((int)$db->query("SELECT count(*) FROM sqlite_master WHERE name='cms_ai_manual_batches'")->fetchColumn()===1,'manual batch schema');
@@ -88,7 +89,26 @@ $legacy->exec("CREATE TABLE cms_ai_documents (id INTEGER PRIMARY KEY,profile TEX
 $legacy->exec("INSERT INTO cms_ai_profiles(slug,title) VALUES('physics','Science & physics')");
 $legacy->exec("INSERT INTO cms_ai_documents VALUES(1,'physics','Legacy','','Lorentz',1,'2026')");
 cms_ai_schema($legacy);
-ai_assert((int)$legacy->query("SELECT COUNT(*) FROM cms_ai_profiles")->fetchColumn()===7,'legacy upgraded');
+ai_assert((int)$legacy->query("SELECT COUNT(*) FROM cms_ai_profiles")->fetchColumn()===8,'legacy upgraded');
 ai_assert((string)$legacy->query("SELECT profile FROM cms_ai_documents WHERE id=1")->fetchColumn()==='physics','legacy documents retained');
 ai_assert($legacy->query('PRAGMA foreign_key_check')->fetchColumn()===false,'legacy foreign keys intact');
+// Upgrade seven-subject installations too; records and foreign keys must survive.
+$seven=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+$seven->exec('PRAGMA foreign_keys=ON');
+$seven->exec("CREATE TABLE cms_ai_profiles (
+    slug TEXT PRIMARY KEY CHECK(slug IN ('coding','science','physics','time','relativity','finance','mechanics')),
+    title TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)))");
+$seven->exec("CREATE TABLE cms_ai_documents (
+    id INTEGER PRIMARY KEY,profile TEXT REFERENCES cms_ai_profiles(slug),
+    title TEXT,source_url TEXT,content TEXT,reviewed INTEGER,created_at TEXT)");
+$seven->exec("INSERT INTO cms_ai_profiles VALUES ('mechanics','Mechanics',1)");
+$seven->exec("INSERT INTO cms_ai_documents VALUES (1,'mechanics','Legacy mechanic manual','',
+    'Repair note',1,'2026')");
+cms_ai_schema($seven);cms_ai_schema($seven);
+ai_assert((int)$seven->query('SELECT count(*) FROM cms_ai_profiles')->fetchColumn()===8,
+    'seven-profile upgrade idempotent');
+ai_assert((string)$seven->query('SELECT content FROM cms_ai_documents WHERE id=1')->fetchColumn()==='Repair note',
+    'existing mechanical reference preserved');
+ai_assert($seven->query('PRAGMA foreign_key_check')->fetchColumn()===false,
+    'seven-profile foreign keys intact');
 echo "PASS: AI schema, validation, review gating, separated exports and admin UI.\n";
