@@ -183,6 +183,7 @@ function cms_ai_procedures_panel(PDO $db):void {
         <p><?=cms_esc((string)$ev['expected_scope'])?> · <?=cms_esc((string)$ev['source_id'])?>
         · page <?=(int)$ev['page']?>, part <?=(int)$ev['part']?></p>
         <blockquote><?=cms_esc((string)$ev['quote'])?></blockquote>
+        <details><summary>Surrounding original text</summary><pre><?=cms_esc((string)$item['source_context'])?></pre></details>
         <?php endif; if(!empty($item['reviewer'])): ?>
         <p><?=cms_esc((string)$item['reviewer'])?> · <?=cms_esc((string)$item['historical_decision'])?>
         · <?=cms_esc((string)$item['reason'])?></p>
@@ -218,7 +219,9 @@ function cms_ai_procedures_panel(PDO $db):void {
             cms_ai_api_rate($db,'procedure-packet:'.hash('sha256',session_id()),'admin');
             $packet=cms_ai_api_upstream('input','/api/in/research/procedures/control',
                 $params+['local_only'=>true,'action'=>'inspect_procedure']);
-            if(($packet['id']??null)!==$params['id'])throw new RuntimeException();
+            if(($packet['id']??null)!==$params['id'] ||
+               (isset($_GET['recorded_digest']) && $_GET['recorded_digest']!==($packet['digest']??null)))
+                throw new RuntimeException();
         }catch(Throwable $e){$packet=['state'=>'blocked'];}
         ?>
         <p>Printed evidence review <strong><?=cms_esc((string)$packet['state'])?></strong>.
@@ -227,8 +230,11 @@ function cms_ai_procedures_panel(PDO $db):void {
           <p><?=cms_esc((string)$ev['source_id'])?> · <?=cms_esc((string)$ev['expected_scope'])?>
           · scope version <?=(int)$ev['scope_version']?> · page <?=(int)$ev['page']?>, part <?=(int)$ev['part']?></p>
           <blockquote><?=cms_esc((string)$ev['quote'])?></blockquote>
+          <details><summary>Surrounding original text</summary><pre><?=cms_esc((string)$scope['source_context'])?></pre></details>
         <?php endforeach;
-        foreach($packet['windows']??[] as $w): ?>
+        foreach($packet['disagreements']??[] as $difference): ?>
+          <p><?=cms_esc((string)$difference['kind'])?> · <?=cms_esc(implode(' / ',$difference['phrases']))?></p>
+        <?php endforeach; foreach($packet['windows']??[] as $w): ?>
           <h4><?=cms_esc((string)$w['source_id'])?></h4>
           <?php foreach(array_merge([$w['heading_citation']],array_column($w['steps'],'citation'),
                 array_column($w['explicit_relations'],'citation')) as $cite): ?>
@@ -252,7 +258,7 @@ function cms_ai_procedures_panel(PDO $db):void {
         <?php endif; endif; ?>
       <?php foreach($overview['votes']??[] as $vote):
         $query=http_build_query(['packet'=>$vote['suggestion'],'left_scope'=>$vote['left_scope'],
-                                 'right_scope'=>$vote['right_scope']]); ?>
+                                 'right_scope'=>$vote['right_scope'],'recorded_digest'=>$vote['digest']]); ?>
         <p>Recorded <?=cms_esc((string)$vote['decision'])?> · <?=cms_esc((string)$vote['actor'])?>
           · <?=cms_esc((string)$vote['reason'])?> ·
           <a href="?<?=cms_esc($query)?>#procedure-reviews">Recheck current evidence</a></p>

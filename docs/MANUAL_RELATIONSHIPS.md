@@ -475,3 +475,9 @@ A changed or revoked input blocks the old result. Historical votes are labeled
 as recorded decisions. Queue triage remains available separately. A supported
 packet establishes human agreement on the printed evidence only. Establishing
 which procedure to use on actual equipment remains an open acceptance item.
+
+Scope inspection includes up to 400 characters of original context on either
+side of the selected quotation so reviewers can see qualifications or exclusions.
+Historical procedure links bind the digest that received the displayed vote.
+Synthetic recovery tests terminate a separate SQLite writer immediately before
+commit, reopen the private queue, and complete the interrupted review once.

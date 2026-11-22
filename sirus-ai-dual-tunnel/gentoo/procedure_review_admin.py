@@ -133,7 +133,7 @@ def overview(*, queue, source, index, research_db):
             evidence_hash,review_id,created FROM procedure_discovery_decisions
             ORDER BY created DESC,suggestion_id LIMIT ?""",
             (MAX_VISIBLE,)).fetchall() if found else [])
-        votes = (db.execute("""SELECT suggestion,left_scope,right_scope,decision,
+        votes = (db.execute("""SELECT digest,suggestion,left_scope,right_scope,decision,
             actor,reason,created FROM procedure_evidence_votes ORDER BY rowid DESC LIMIT 10""").fetchall()
                  if _has_table(db,"procedure_evidence_votes") else [])
         blocked = db.execute("""SELECT id,last_reason,last_version FROM procedure_review_targets
@@ -328,7 +328,10 @@ def _procedure_packet(db, id, left_scope, right_scope, source, index, research_d
     state = ("rejected" if any(v["decision"]=="reject" for v in votes)
              else "supported" if len(votes)==2 else "pending")
     return {"id":id,"digest":digest,"state":state,"votes":votes,"scopes":scopes,
-            "windows":report["windows"],"service_use_approved":False}
+            "windows":report["windows"],
+            "disagreements":[{"kind":c["status"],"phrases":c.get("action_keys",c.get("phrases",[]))}
+                             for c in report["comparisons"][0]["candidates"]],
+            "service_use_approved":False}
 
 
 def procedure_packet(data, *, queue, source, index, research_db):

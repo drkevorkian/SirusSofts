@@ -1,6 +1,8 @@
 """Independent scope review through the signed procedure control dispatcher."""
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import multiprocessing
+import os
 import sqlite3
 import sys
 import unittest
@@ -159,6 +161,49 @@ class EquipmentReviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.procedure_vote(args,digest,"cms-admin:5","support")
         self.assertEqual(self.dispatch("inspect_procedure",**args)["state"],"rejected")
+
+    def test_abrupt_exit_before_review_commit_recovers(self):
+        # Gentoo worker process dies after the INSERT, as SQLite starts COMMIT.
+        import equipment_attestation
+        key=self.propose()
+        def interrupted_reviewer():
+            connect=equipment_attestation._connect
+            def instrumented(*args, **kwargs):
+                db=connect(*args, **kwargs)
+                def terminate_on_commit(statement):
+                    if statement == "COMMIT":
+                        os._exit(73)
+                db.set_trace_callback(terminate_on_commit)
+                return db
+            equipment_attestation._connect=instrumented
+            self.vote(key)
+        process=multiprocessing.get_context("fork").Process(target=interrupted_reviewer)
+        process.start()
+        process.join(10)
+        if process.is_alive():
+            process.kill()
+            process.join()
+        self.assertEqual(process.exitcode,73)
+        self.assertEqual(self.dispatch("scope_detail",id=key)["state"],"pending")
+        self.vote(key)
+        self.assertEqual(self.dispatch("scope_detail",id=key)["state"],"support")
+
+    def test_quote_ending_inside_revision_token_is_rejected(self):
+        with sqlite3.connect(self.args["source"]) as db:
+            db.execute("UPDATE excerpts SET text=text||'2' WHERE sha256=?", (fixtures.A,))
+        with self.assertRaises(ValueError):
+            self.propose()
+
+    def test_original_context_surrounds_quote_and_is_hidden_after_change(self):
+        with sqlite3.connect(self.args["source"]) as db:
+            db.execute("UPDATE excerpts SET text=text||' (excluded)' WHERE sha256=?", (fixtures.A,))
+        key=self.propose()
+        view=self.dispatch("scope_detail",id=key)
+        self.assertIn(self.quote+" (excluded)",view["source_context"])
+        self.assertEqual(view["evidence"]["quote"],self.quote)
+        with sqlite3.connect(self.args["source"]) as db:
+            db.execute("UPDATE documents SET updated_at=11 WHERE sha256=?", (fixtures.A,))
+        self.assertIsNone(self.dispatch("scope_detail",id=key)["source_context"])
 
     def test_failed_transaction_recovers_without_partial_decision(self):
         key=self.propose()

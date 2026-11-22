@@ -62,17 +62,25 @@ def _snapshot(source, research_db, source_id, page, part, quote, expected_scope)
             (source_id[4:], page, part)).fetchall()
     if len(rows) != 1 or not isinstance(rows[0]["text"], str) or rows[0]["text"].count(quote) != 1:
         raise ValueError("Approved original PDF citation unavailable or ambiguous")
-    return dict(source_id=source_id, page=page, part=part, quote=quote,
+    snapshot = dict(source_id=source_id, page=page, part=part, quote=quote,
                 expected_scope=expected_scope, scope=scope, scope_version=revision[0],
                 declared_by=revision[1], updated_at=rows[0]["updated_at"],
                 excerpt_count=rows[0]["excerpts"], excerpt_hash=_sha(rows[0]["text"]),
                 quote_hash=_sha(quote))
+    body = rows[0]["text"]
+    start = body.index(quote)
+    end = start + len(quote)
+    if ((start and body[start-1].isalnum() and quote[0].isalnum())
+            or (end < len(body) and body[end].isalnum() and quote[-1].isalnum())):
+        raise ValueError("Quotation cuts through an original equipment or text token")
+    return snapshot, body[max(0,start-400):min(len(body),end+400)]
 
 
 def propose(*, queue, source, research_db, actor, **citation):
     if not isinstance(actor, str) or not ACTOR.fullmatch(actor):
         raise ValueError("Authenticated CMS administrator required")
-    snapshot = _json(_snapshot(source, research_db, **citation))
+    saved, _ = _snapshot(source, research_db, **citation)
+    snapshot = _json(saved)
     key = _sha(snapshot)
     with closing(_connect(queue, writable=True)) as db:
         _schema(db)
@@ -94,13 +102,15 @@ def _inspect(db, key, source, research_db):
     saved = json.loads(row["snapshot"])
     citation = {k: saved[k] for k in ("source_id","page","part","quote","expected_scope")}
     try:
-        current = _snapshot(source, research_db, **citation) == saved
+        fresh, context = _snapshot(source, research_db, **citation)
+        current = fresh == saved
     except (ValueError, sqlite3.Error, OSError):
         current = False
     return {"id": key, "state": (row["decision"] or "pending") if current else "blocked",
             "historical_decision": row["decision"], "proposer": row["proposer"],
             "reviewer": row["reviewer"], "reason": row["reason"],
             "source_id": saved["source_id"], "scope_version": saved["scope_version"],
+            "source_context": context if current else None,
             "evidence": saved if current else None, "service_use_approved": False}
 
 
