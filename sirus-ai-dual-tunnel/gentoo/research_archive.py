@@ -66,8 +66,10 @@ def _hash_file(path):
 def _snapshot_counts(path):
     # URI encoding prevents special characters in absolute paths being
     # interpreted as URI query parameters or alternate SQLite filenames.
-    uri="file:"+quote(str(path),safe="/")+"?mode=ro"
-    with sqlite3.connect(uri, uri=True, timeout=20) as db:
+    uri="file:"+quote(str(path),safe="/")+"?mode=ro&immutable=1"
+    db=sqlite3.connect(uri, uri=True, timeout=20)
+    try:
+        db.execute("PRAGMA query_only=ON")
         if db.execute("PRAGMA integrity_check").fetchone()[0]!="ok":
             raise ValueError("Snapshot failed SQLite integrity check")
         available={r[0] for r in db.execute(
@@ -76,6 +78,8 @@ def _snapshot_counts(path):
             raise ValueError("Research schema missing from snapshot")
         return {table:db.execute("SELECT count(*) FROM "+table).fetchone()[0]
                 for table in ARCHIVE_TABLES if table in available}
+    finally:
+        db.close()
 
 
 def _sync_dir(path):

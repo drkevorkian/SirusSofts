@@ -178,7 +178,7 @@ class ColdHistoryTests(unittest.TestCase):
                 source_history(file,SOURCE_A,offset=offset)
             with self.assertRaises(ValueError):
                 source_history(file,SOURCE_A,audit_offset=offset)
-        for job in (JOB_A.upper(),"../job","f"*32,None):
+        for job in ("A"*32,"../job","f"*32,None):
             with self.assertRaises(ValueError):
                 job_provenance(file,job)
         for before in (0,-1,1.5,True,"20"):
