@@ -160,3 +160,40 @@ enable website controls needs separate operator approval and rigorous
 independent security and hardware verification. Stopping the GPU OpenRC
 worker may end in-flight chats; VRAM may remain occupied by other
 clients even when the service is stopped.
+
+
+## Gentoo process-management feature checklist
+
+This independent **source-development checklist** tracks the Gentoo monitoring
+feature, not the 139-item Continuous Research roadmap. Checked items are
+committed source with synthetic validation; **not** confirmed on the real hosts.
+
+- [x] Show global CPU, memory, temperature, GPU and VRAM counters.
+- [x] Show bounded process PID/name, RSS, threads and allowed logical CPUs.
+- [x] Flag root, OpenRC infrastructure and likely inference workloads.
+- [x] Show NVIDIA compute-process VRAM attribution with unknowns preserved.
+- [x] Detect bounded AMD/NVIDIA GPU device handles without inventing VRAM usage.
+- [x] Display per-GPU used/total VRAM and NVIDIA unexplained-memory gap.
+- [x] Name configured GPU inference services and show possible release steps.
+- [x] Allow confirmed, same-user process CPU-affinity reduction.
+- [x] Allow confirmed, same-user graceful SIGTERM with PID identity checks.
+- [x] Protect process controls with existing dashboard authentication,
+  same-origin restriction, scoped one-use tokens and server-side ownership checks.
+- [x] Provide a read-only GPU reset-readiness/blocked-reasons display.
+- [x] Provide an independent, root-console-only, audited OpenRC lifecycle
+  utility for the named AMD/NVIDIA inference services.
+- [ ] Build and independently audit a dedicated least-privilege **local**
+  website-to-OpenRC broker with explicit service permissions; do not expose
+  root, arbitrary PIDs, shell commands or uncontrolled service names.
+- [ ] Implement graceful model unload/drain of in-flight requests and confirm
+  actual GPU context/VRAM release before reporting success.
+- [ ] Assess compatible hardware and implement a driver-reset maintenance
+  workflow with live-client exclusion, independent authorization and rollback.
+- [ ] Add longitudinal per-process GPU/CPU/RAM histories and configurable
+  per-service CPU policy without exceeding cgroup limits.
+- [ ] Complete real Gentoo+Ubuntu deployment and authenticated hardware
+  acceptance with verified backup/rollback, including the RX 590 and GTX 1660.
+
+**Tracking: 12/17 source items coded; 5 remain open.** Live deployment
+acceptance is entirely outstanding. The reset and broker tasks cannot be
+considered complete on the basis of read-only previews or mocked tests.
