@@ -132,3 +132,31 @@ It also lists hardware/operational blockers and an operator-only next step.
 **The reset action always remains disabled.** This is an eligibility
 assessment, not a claim that a GPU can be reset or VRAM flushed. It
 issues no OpenRC command, GPU reset, PCI mutation or process signal.
+
+
+## Operator-only OpenRC GPU worker lifecycle tool (not a web API)
+
+`gentoo-node/ai_worker_maintenance.py` defines exactly two service
+targets: `amd-vulkan` -> `sirus-ai-amd`, and `nvidia-cuda` ->
+`sirus-ai-nvidia`. CPU inference and dashboard/tunnel services are
+not targeted. The optional local CLI supports:
+
+```bash
+python3 gentoo-node/ai_worker_maintenance.py --worker amd-vulkan --action plan
+python3 gentoo-node/ai_worker_maintenance.py --worker nvidia-cuda --action plan
+```
+
+The **plan** command is read-only and reports OpenRC service state and
+caveats. **Start/stop** require a physical/interactive root console and
+an exact typed service-specific confirmation; they use only fixed
+`/sbin/rc-service` argument arrays (no shell), verify resulting state,
+and journal requested/outcome events to a root-owned mode-0600 local
+audit file before/after mutation. No forced kill, arbitrary OpenRC
+service, driver reset, package install or public web endpoint is added.
+This does not integrate with the dashboard's process-control POST.
+The control code is source-only and has synthetic/mock tests; it is not
+installed on Gentoo. Installing a future privileged broker to safely
+enable website controls needs separate operator approval and rigorous
+independent security and hardware verification. Stopping the GPU OpenRC
+worker may end in-flight chats; VRAM may remain occupied by other
+clients even when the service is stopped.
