@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"gentoo"))
 import input_server as ai
-from continuous_research import (ContinuousResearch, connect, digest,
+from continuous_research import (LEASE_SECONDS, ContinuousResearch, connect, digest,
                                  init_schema, admission_reasons,
                                  gpu_memory_snapshot, database_size_bytes)
 
@@ -54,6 +54,17 @@ class ContinuousResearchTests(unittest.TestCase):
         self.assertEqual(target,"auto")
         self.assertIn("[BEGIN UNTRUSTED SOURCE]",messages[1]["content"])
         return "Unverified analysis", "cpu"
+
+    def test_production_inference_timeout_expires_before_lease(self):
+        import input_server as gateway
+        engine=type("TestEngine",(),{"gpu_percent":35})()
+        messages=[{"role":"user","content":"test"}]
+        with patch.object(gateway,"choose_worker",return_value=("cpu","http://127.0.0.1:18482")) as choose, \
+             patch.object(gateway,"chat",return_value=("draft",{})) as request:
+            self.assertEqual(gateway.Engine._continuous_infer(engine,messages,"auto","local-model","job"),
+                             ("draft","cpu",{}))
+        self.assertEqual(request.call_args.kwargs["timeout"],180)
+        self.assertLess(request.call_args.kwargs["timeout"],LEASE_SECONDS)
 
     def test_configurable_background_lease_concurrency_and_default(self):
         self.add_doc()

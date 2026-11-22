@@ -539,8 +539,8 @@ class Engine:
 
     def _continuous_infer(self, messages, target, model_id, job_id):
         worker, endpoint = choose_worker(job_id,target,self.gpu_percent,model_id=model_id)
-        content,metrics=chat(endpoint,messages,model_id=model_id,max_tokens=2048,
-                             include_metrics=True)
+        content,metrics=chat(endpoint,messages,timeout=180,model_id=model_id,
+                             max_tokens=2048,include_metrics=True)
         return content,worker,metrics
 
     def research_loop(self):

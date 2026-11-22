@@ -96,7 +96,7 @@
 - [x] Support repeated analysis across multiple research cycles.
 - [x] Ensure completed work is checkpointed before proceeding.
 - [x] Recover interrupted jobs without losing valid completed results.
-- [ ] Prevent duplicate execution of the same job. **Partial (source):** Fencing prevents duplicate commits, but an expired lease can briefly overlap physical inference.
+- [ ] Prevent duplicate execution of the same job. **Partial (source):** Atomic claims prevent simultaneous lease ownership, and production HTTP inference now has a 180-second timeout below the 240-second lease with 30-second heartbeats. A model server that continues work after client timeout or real process/lease failure still needs measured duplicate-execution validation.
 - [x] Detect stalled workers and recover abandoned jobs safely.
 - [x] Implement exponential backoff for repeated failures.
 - [x] Automatically begin another coverage cycle when eligible work has been completed.
