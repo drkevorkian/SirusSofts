@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 import client
 import dashboard_live
 import pdf_admin
+import process_inspector
 
 HOST, PORT = "127.0.0.1", 18080
 AUTH = "/etc/sirus-gentoo-node/dashboard.auth"
@@ -119,6 +120,9 @@ def live_loop(server, stop: threading.Event):
                 fresh = client.performance()
                 if isinstance(fresh, dict):
                     metrics = fresh
+                    # Process inventory is private to the Basic-authenticated
+                    # dashboard; do not add sensitive PID data to Ubuntu heartbeats.
+                    metrics['process_inventory'] = process_inspector.inventory()
                     changed = True
             except (OSError, ValueError, TypeError) as error:
                 print("Live metrics failed:", type(error).__name__, flush=True)
@@ -225,6 +229,17 @@ def page(m: dict, hardware: dict, jobs: list, graph: str, sync: str) -> bytes:
                    "</td><td>"+e(temperature)+"</td><td>"+
                    e(bytes_gib(gpu.get("vram_used_bytes")))+" / "+
                    e(bytes_gib(gpu.get("vram_total_bytes")))+"</td></tr>")
+    proc=m.get("process_inventory",{})
+    process_rows=""
+    for entry in proc.get("processes",[])[:48]:
+        if not isinstance(entry,dict): continue
+        vram=entry.get("vram_bytes")
+        ram=entry.get("rss_bytes")
+        cores=entry.get("affinity",[])
+        process_rows+=("<tr><td>"+e(entry.get("pid",""))+"</td><td>"+
+            e(entry.get("name",""))+"</td><td>"+e(entry.get("importance","unknown"))+
+            "</td><td>"+e(bytes_gib(vram))+"</td><td>"+e(bytes_gib(ram))+
+            "</td><td>"+e(len(cores))+"</td></tr>")
     rows=""
     for job in jobs[:40]:
         if not isinstance(job,dict):
@@ -284,6 +299,17 @@ assigns jobs and stores the authoritative task history.
 <section><h2>Graphics hardware</h2><div class="wrap"><table>
 <thead><tr><th>GPU</th><th>Usage</th><th>Temperature</th><th>VRAM</th></tr></thead>
 <tbody id="live-gpu-rows">{gpu_rows or '<tr><td colspan="4">No GPUs found</td></tr>'}</tbody>
+</table></div></section>
+<section><h2>Process and VRAM ownership (top 48)</h2>
+<p class="muted">Read-only process sampling. VRAM attribution covers reported
+NVIDIA compute clients only; AMD and NVIDIA graphics allocations may be unknown.
+A zero or missing process reading does not mean the GPU is empty. Importance is
+a caution label, not permission to terminate an application.</p>
+<p class="muted" id="live-process-coverage">Process details refresh every 10 seconds.
+Driver reset is unavailable without a separately approved privileged controller.</p>
+<div class="wrap"><table><thead><tr><th>PID</th><th>Name</th><th>Importance</th>
+<th>Attributed VRAM</th><th>RAM resident</th><th>Allowed logical CPUs</th></tr></thead>
+<tbody id="live-process-rows">{process_rows or '<tr><td colspan="6">Collecting process inventory</td></tr>'}</tbody>
 </table></div></section>
 <section><h2>Previous tasks</h2><p class="muted" id="live-history-status">{e(sync)}</p>
 <div class="wrap"><table><thead><tr><th>ID</th><th>Kind</th><th>Status</th>

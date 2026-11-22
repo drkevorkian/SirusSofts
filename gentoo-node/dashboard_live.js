@@ -101,6 +101,35 @@
     table.replaceChildren(fragment);
   }
 
+  function renderProcesses(info) {
+    const tbody = byId("live-process-rows");
+    if (!tbody) return;
+    const all = Array.isArray(info?.processes) ? info.processes.slice(0, 48) : [];
+    const fragment = document.createDocumentFragment();
+    for (const proc of all) {
+      if (!proc || typeof proc !== "object") continue;
+      const row = node("tr");
+      for (const value of [proc.pid, proc.name || "unknown",
+        proc.importance || "unknown", gb(proc.vram_bytes),
+        gb(proc.rss_bytes), Array.isArray(proc.affinity) ? proc.affinity.length : "unknown"]) {
+        row.appendChild(node("td", value));
+      }
+      fragment.appendChild(row);
+    }
+    if (!fragment.childNodes.length) {
+      const row = node("tr");
+      const cell = node("td", "No readable process records");
+      cell.colSpan = 6;
+      row.appendChild(cell);
+      fragment.appendChild(row);
+    }
+    tbody.replaceChildren(fragment);
+    metric("live-process-coverage", "Scanned " + Number(info?.scanned || 0) +
+      " processes; " + (info?.partial ? "partial inventory" : "accessible inventory") +
+      "; GPU ownership: " + String(info?.gpu_attribution || "unknown") +
+      ". Driver reset and process changes require a separate restricted control path.");
+  }
+
   function renderJobs(jobs) {
     const table = byId("live-job-rows");
     if (!table || !Array.isArray(jobs)) return;
@@ -158,7 +187,7 @@
     }
   }
 
-  let lastGpu = "", lastJobs = "", lastGraph = "", lastServices = "";
+  let lastGpu = "", lastJobs = "", lastGraph = "", lastServices = "", lastProcesses = "";
   function render(data) {
     if (!data || data.type !== "snapshot") return;
     const m = data.metrics || {};
@@ -174,6 +203,11 @@
     if (serviceState !== lastServices) {
       renderServices(m);
       lastServices = serviceState;
+    }
+    const processes = JSON.stringify(m.process_inventory || {});
+    if (processes !== lastProcesses) {
+      renderProcesses(m.process_inventory || {});
+      lastProcesses = processes;
     }
     const gpus = JSON.stringify(m.gpus || []);
     const jobs = JSON.stringify(data.jobs || []);
