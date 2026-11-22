@@ -69,8 +69,9 @@ jobs over existing reverse SSH input tunnel 18485 to Gentoo 18082.
    \`sirusai\`, restarts only \`sirus-ai-input\`, and verifies local health.
    **It will not restart the actual llama.cpp model services.**
 
-3. On **Ubuntu VPS**, pull/review the same pinned commit. Run CMS in-place
-   upgrade \`deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan\` then
+3. On **Ubuntu VPS**, pull/review the same pinned commit and set
+   `SIRUS_EXPECTED_COMMIT` to its full SHA. Run CMS in-place upgrade
+   \`deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan\` then
    \`--apply --user sirusweb --domain sirussofts.com\` with explicit operator
    confirmation and consistent rollback backups.
 

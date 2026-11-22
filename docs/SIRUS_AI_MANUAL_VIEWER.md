@@ -86,7 +86,7 @@ Gentoo dashboard bridge, CMS and Ubuntu AI frontend upgraders pass**.
    preserves its SQLite backup, updates only AI router/RAG sources, and
    restarts **only** \`sirus-ai-input\`. Index rebuild is incremental.
 4. **Ubuntu third**: run CMS code upgrader
-   \`bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com\`,
+   \`SIRUS_EXPECTED_COMMIT=<PIN> bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com\`,
    then \`--apply\` after reviewing, confirming \`UPGRADE CMS\`.
    Consistent SQLite backup and code rollback are saved privately.
 5. **Ubuntu fourth**: run

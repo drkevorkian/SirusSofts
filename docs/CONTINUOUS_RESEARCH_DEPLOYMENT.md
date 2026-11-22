@@ -39,11 +39,24 @@ Both `/api/in/research/continuous` and `/api/in/research/evidence` reads, plus t
 
 ## Stage 1: Backups and read-only plans
 
+Both the Gentoo and Hestia CMS in-place upgrade scripts require a clean
+checkout and an exact 40-character `SIRUS_EXPECTED_COMMIT` match. On each
+host, set it to the reviewed `main` SHA and verify `git rev-parse HEAD` before
+running `--plan`; the plan prints the pinned source revision. The CMS updater
+fails closed on tracked or untracked checkout changes.
+
 Take and verify **consistent SQLite backups** of Gentoo /var/lib/sirus-ai-dual/input.sqlite3, the PDF ingestion database (with WAL state), Gentoo AI router files/service arguments, and Ubuntu's private CMS SQLite and site files. Use the scripts' existing private release backups; keep backup checksums, owner/modes and rollback instructions off the public website. Never put source PDFs, credentials or backups in GitHub.
 
-From the pinned checkout, inspect the two existing plan modes:
-- bash sirus-ai-dual-tunnel/gentoo/upgrade-in-place.sh --plan
-- bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com
+From the pinned checkout, inspect the two existing plan modes (run each on its
+matching host. Export the reviewed SHA and preserve it through `sudo` if
+needed; use the same value for both plan and apply:
+
+```sh
+export SIRUS_EXPECTED_COMMIT='REPLACE_WITH_REVIEWED_40_HEX_SHA'
+test "$(git rev-parse HEAD)" = "$SIRUS_EXPECTED_COMMIT"
+bash sirus-ai-dual-tunnel/gentoo/upgrade-in-place.sh --plan
+bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com
+```
 
 Check actual usage and read each plan. Do **not** use the original Gentoo/Ubuntu installers or Plesk/direct-Nginx scripts.
 

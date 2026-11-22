@@ -58,7 +58,7 @@ snapshot) to allow other admin components to subscribe without refreshing.
    `python3 -m unittest discover -s realtime/tests -p 'test_*.py' -v`,
    `bash realtime/install-ubuntu.sh --check`.
 3. Use the existing guarded CMS upgrade:
-   `bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com`.
+   `SIRUS_EXPECTED_COMMIT=<PIN> bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com`.
    After reviewing local diffs, apply with `--apply`. This preserves CMS
    SQLite/admin credentials and creates the reviewed rollback snapshot.
 4. `bash realtime/install-ubuntu.sh --plan` then interactive

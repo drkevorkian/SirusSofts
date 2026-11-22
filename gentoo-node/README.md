@@ -50,7 +50,8 @@ executor, plus tests.
 
 1. Upgrade the existing Hestia CMS to a tested feature commit with the
    established `deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan`
-   followed by `--apply`. When prompted, enter ONLY `UPGRADE CMS`
+   followed by `--apply`, setting `SIRUS_EXPECTED_COMMIT` to that clean
+   checkout's reviewed 40-character SHA for both commands. When prompted, enter ONLY `UPGRADE CMS`
    and press Enter; do not paste subsequent shell commands into the prompt.
    This installs `node-work.php`, `app/work_broker.php`, the
    administrator queue UI and preserves the existing CMS database.

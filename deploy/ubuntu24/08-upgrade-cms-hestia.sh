@@ -23,6 +23,16 @@ fi
   fail 'Live upgrade is restricted to the reviewed sirusweb/sirussofts.com installation'
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOP="$(cd "$HERE/../.." && pwd)"
+git -C "$TOP" rev-parse --show-toplevel >/dev/null 2>&1 ||
+  fail 'CMS source must come from a Git checkout'
+[[ -z "$(git -C "$TOP" status --porcelain --untracked-files=normal)" ]] ||
+  fail 'Source checkout has tracked or untracked changes'
+expected="$(printenv SIRUS_EXPECTED_COMMIT || true)"
+[[ "$expected" =~ ^[0-9a-f]{40}$ ]] ||
+  fail 'Set SIRUS_EXPECTED_COMMIT to the full reviewed commit SHA'
+actual="$(git -C "$TOP" rev-parse HEAD)"
+[[ "$actual" == "$expected" ]] ||
+  fail "Checkout $actual does not match approved commit $expected"
 SOURCE="$TOP/CMS"
 ROOT="/home/$user/web/$domain"
 DOCROOT="$ROOT/public_html"
@@ -79,6 +89,7 @@ while IFS= read -r -d '' source_file; do
 done < <(find "$SOURCE/app" "$SOURCE/bin" -type f -name '*.php' -print0)
 if [[ "$mode" == --plan ]]; then
   echo "PASS: Existing CMS, Hestia HTTP/HTTPS guards and private SQLite verified."
+  echo "Reviewed source commit: $actual"
   echo "Public code source: $SOURCE"
   echo "Installed code root: $DOCROOT"
   echo "Database preserved: $DB"

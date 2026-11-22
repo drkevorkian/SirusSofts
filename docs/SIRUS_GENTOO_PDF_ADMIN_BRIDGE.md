@@ -50,8 +50,9 @@ Verify signed Gentoo API locally, with the configured node key (no key output):
 
 ### Ubuntu rollout — after Gentoo bridge is confirmed
 
-The existing reviewed CMS upgrade helper
-deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com
+The existing reviewed CMS upgrade helper requires `SIRUS_EXPECTED_COMMIT` to
+match the clean, pinned checkout before either plan or apply:
+`SIRUS_EXPECTED_COMMIT=<reviewed-40-hex-SHA> bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com`.
 preflights the in-place upgrade and preserves a consistent SQLite snapshot
 and rollback copy when applying. Do not run any fresh system installers. The
 CMS update supplies CMS/app/ai_gentoo.php, modified admin and ai_training,

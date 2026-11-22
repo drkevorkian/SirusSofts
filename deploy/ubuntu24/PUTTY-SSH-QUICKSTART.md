@@ -210,10 +210,16 @@ a newer GitHub commit, run `php8.3 CMS/tests/smoke.php` and
 
 ```bash
 cd /root/SirusSofts
+export SIRUS_EXPECTED_COMMIT='REPLACE_WITH_REVIEWED_40_CHARACTER_MAIN_SHA'
+test "$(git rev-parse HEAD)" = "$SIRUS_EXPECTED_COMMIT"
 bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com
 bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --apply --user sirusweb --domain sirussofts.com
 bash deploy/ubuntu24/07-audit-cms-routing.sh --live --user sirusweb --domain sirussofts.com
 ```
+
+The plan and apply commands reject any tracked or untracked checkout changes
+and require `SIRUS_EXPECTED_COMMIT` to match `HEAD` exactly. Replace the
+placeholder with the reviewed full SHA from GitHub before running the block.
 
 The upgrade preserves the current CMS database and saves a consistent SQLite
 snapshot with the old code under the domain's protected `private/sirus-cms/releases`

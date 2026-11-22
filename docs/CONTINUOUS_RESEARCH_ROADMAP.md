@@ -247,7 +247,7 @@ This phase is separate from continuous inference.
 - [x] Run GitHub CI and confirm relevant tests pass.
 - [x] Review security and source-isolation boundaries.
 - [x] Prepare a pinned-commit deployment plan.
-- [ ] Run read-only deployment checks before changing installed services. **Partial (source):** A reviewed in-place deployment runbook exists; the operator must select and pin a green SHA for a maintenance window.
+- [ ] Run read-only deployment checks before changing installed services. **Partial (source, 2026-11-22):** The Gentoo and Hestia CMS updaters require an exact approved SHA; the CMS updater also rejects tracked or untracked checkout changes and prints the source commit in its read-only plan. Host-specific plans and backup checks still need to run on the live systems.
 - [ ] Use reviewed in-place upgrades rather than full server installers. **Partial (source):** Read-only --plan workflows exist; they have not been run on the live hosts.
 - [ ] Preserve the existing CMS, PDF library, AI databases, and model files. **Partial (source):** In-place upgrade scripts are prepared; no live upgrade has occurred.
 - [ ] Retain automatic rollback and database backups. **Partial (source):** Source changes leave originals untouched; deployed-state preservation needs real validation.

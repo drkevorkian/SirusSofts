@@ -95,6 +95,7 @@ cd /root/SirusSofts
 git status --short
 git fetch origin main
 git checkout VERIFIED_REVIEWED_COMMIT
+export SIRUS_EXPECTED_COMMIT="$(git rev-parse HEAD)"
 php8.3 CMS/tests/smoke.php
 node --check CMS/assets/cms.js
 bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com

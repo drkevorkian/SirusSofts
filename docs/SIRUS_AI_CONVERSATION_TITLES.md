@@ -50,7 +50,8 @@
 ## Safe deployment
 
 1. Update **Ubuntu** `/root/SirusSofts` to the fully reviewed and
-   GitHub-tested pinned commit. Do not run the main first-time installers.
+   GitHub-tested pinned commit and set `SIRUS_EXPECTED_COMMIT` to its exact
+   40-character SHA. Do not run the main first-time installers.
 2. Run
    `bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com`,
    then `--apply` only after reviewing the plan. It makes a consistent

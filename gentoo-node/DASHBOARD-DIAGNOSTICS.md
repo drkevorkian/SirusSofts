@@ -47,6 +47,7 @@ guarded deploy helper from the reviewed checkout:
 
 ```bash
 cd /root/SirusSofts
+export SIRUS_EXPECTED_COMMIT="$(git rev-parse HEAD)" # verify against the reviewed SHA first
 bash deploy/ubuntu24/08-upgrade-cms-hestia.sh --plan --user sirusweb --domain sirussofts.com
 ```
 

@@ -79,7 +79,8 @@ and reloads SSH. It does not create domains or touch the root CMS.
 A backup of the old SSH config remains available.
 
 **The Gentoo task history endpoint also requires a CMS code upgrade**.
-After the tested Git revision is checked out on Ubuntu, use the existing
+After the tested Git revision is checked out on Ubuntu, set
+`SIRUS_EXPECTED_COMMIT` to its reviewed 40-character SHA and use the existing
 guarded deploy/ubuntu24/08-upgrade-cms-hestia.sh with --plan and
 --apply, --user sirusweb --domain sirussofts.com. Type only
 UPGRADE CMS in its interactive prompt. This preserves CMS SQLite,
