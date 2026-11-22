@@ -139,6 +139,9 @@ function cms_ai_continuous_report_data(array $request,array $reply):array {
             'result_sha256'=>$pass['sha256'],
             'draft_notes'=>$pass['notes'],
             'inference_duration_ms'=>(int)($pass['duration_ms']??0),
+             'prompt_tokens'=>isset($pass['prompt_tokens'])?(int)$pass['prompt_tokens']:null,
+             'completion_tokens'=>isset($pass['completion_tokens'])?(int)$pass['completion_tokens']:null,
+             'model_generation_tps'=>isset($pass['generation_tps'])?(float)$pass['generation_tps']:null,
             'unreviewed'=>true,
         ];
     }
@@ -277,6 +280,18 @@ function cms_ai_continuous_panel(PDO $db):void {
         <?=cms_esc(isset($throughput['estimated_passes_per_hour'])?
             (string)$throughput['estimated_passes_per_hour'].' passes/hour':'not yet measured')?>.
         This estimate excludes queue delays, source reads, retries and GPU contention.</p>
+      <p>Research-model tokens reported by the local model server:
+        prompt <?=cms_esc(isset($throughput['prompt_tokens'])?
+          (string)$throughput['prompt_tokens']:'unknown')?> tokens
+        (<?=cms_esc((string)($throughput['prompt_token_samples']??0))?> measured passes);
+        generated <?=cms_esc(isset($throughput['completion_tokens'])?
+          (string)$throughput['completion_tokens']:'unknown')?> tokens
+        (<?=cms_esc((string)($throughput['completion_token_samples']??0))?> measured passes).
+        Measured output throughput:
+        <?=cms_esc(isset($throughput['observed_output_tps_inference_wall'])?
+          (string)$throughput['observed_output_tps_inference_wall']:'unknown')?> tokens/s
+        (inference-wall time, includes prefill; not isolated decoding speed).
+        Missing token counters are never derived from character counts.</p>
       <p>Queued research growth across available recent samples:
         <?=cms_esc((string)($info['queued_growth_last_samples']??0))?> jobs
         (positive means the queue grew). The latest 60 one-minute operational
@@ -520,7 +535,7 @@ function cms_ai_continuous_panel(PDO $db):void {
         Current extraction: <?=cms_esc((string)($histSource['extraction_status']??'?'))?>.</p>
       <h4>Recent jobs (latest 12)</h4>
       <div class="table-scroll"><table><thead><tr>
-        <th>Cycle</th><th>Source page / part</th><th>State</th><th>Passes</th><th>Retries / error</th>
+        <th>Cycle</th><th>Source page / part</th><th>State</th><th>Passes</th><th>Retries / error</th><th>Measured prompt / output tokens</th><th>Output tokens/s (inference-wall)</th>
       </tr></thead><tbody>
       <?php foreach(array_slice($histJobs,0,12) as $job):if(!is_array($job))continue;?>
       <tr><td><?=cms_esc((string)($job['cycle']??''))?></td>
@@ -530,7 +545,11 @@ function cms_ai_continuous_panel(PDO $db):void {
         <td><?=cms_esc((string)($job['pass_completed']??0))?> /
             <?=cms_esc((string)($job['passes']??0))?></td>
         <td><?=cms_esc((string)($job['attempts']??0))?>
-            <?=cms_esc((string)($job['error']??''))?></td></tr>
+            <?=cms_esc((string)($job['error']??''))?></td>
+        <td><?=cms_esc(isset($job['prompt_tokens'])?(string)$job['prompt_tokens']:'unknown')?> /
+            <?=cms_esc(isset($job['completion_tokens'])?(string)$job['completion_tokens']:'unknown')?></td>
+        <td><?=cms_esc(isset($job['observed_output_tps_inference_wall'])?
+            (string)$job['observed_output_tps_inference_wall']:'unknown')?></td></tr>
       <?php endforeach; ?></tbody></table></div>
       <h4>Recorded passes (8 per page)</h4>
       <p>This optional download includes **private, unreviewed model notes**.
@@ -557,7 +576,12 @@ function cms_ai_continuous_panel(PDO $db):void {
         <p>Source section revision: <code><?=cms_esc((string)($result['revision']??''))?></code>.
            Draft hash: <code><?=cms_esc((string)($result['sha256']??''))?></code>.
            Inference duration: <?=cms_esc((string)($result['duration_ms']??0))?> ms
-           (0 means not measured).</p>
+           (0 means not measured). Prompt tokens:
+           <?=cms_esc(isset($result['prompt_tokens'])?(string)$result['prompt_tokens']:'unknown')?>.
+           Output tokens:
+           <?=cms_esc(isset($result['completion_tokens'])?(string)$result['completion_tokens']:'unknown')?>.
+           Model-reported generation rate:
+           <?=cms_esc(isset($result['generation_tps'])?(string)$result['generation_tps']:'unknown')?> tokens/s.</p>
         <pre style="white-space:pre-wrap;overflow-wrap:anywhere"><?=cms_esc((string)($result['notes']??''))?></pre>
         <p><strong>Unreviewed AI-generated draft; verify against the original PDF.</strong></p>
       </details>
