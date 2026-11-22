@@ -127,13 +127,13 @@ For each selected document or document section:
 ## 6. Cross-Document Intelligence
 
 - [ ] Connect related facts across different manuals and knowledge sources. **Partial (source):** Only restricted same-property numeric PDF evidence is currently joined.
-- [ ] Identify repeated components, specifications, part numbers, and procedures. **Partial (source):** Numeric measurement labels only; no general part-number/procedure relationship index.
+- [ ] Identify repeated components, specifications, part numbers, and procedures. **Partial (source):** The new read-only original-PDF relationship explorer detects exact labeled part-number mentions across selected approved documents, plus procedural headings. It cannot yet resolve synonyms, actual shared-component compatibility, procedure bodies, or full-corpus relationships.
 - [ ] Compare manuals for conflicting torque specifications, electrical values, tolerances, and service procedures. **Partial (source):** Torque and other simple numeric lines are compared; service-procedure contradictions are not.
 - [x] Preserve model, year, engine, revision, and application boundaries.
 - [ ] Detect when apparently contradictory specifications actually apply to different equipment. **Partial (source):** Explicitly mismatched scope prevents false comparisons; the software does not infer equipment applicability.
-- [ ] Generate source-linked technical summaries.
-- [ ] Identify missing reference documents.
-- [ ] Maintain a searchable relationship index for parts, systems, and procedures.
+- [ ] Generate source-linked technical summaries. **Partial (source):** The offline relationship explorer groups exact original-PDF part citations, procedure headings and references by document. This is a limited inventory with source/page/part/hash, not yet a comprehensive technical summary or a validated model-generated explanation.
+- [ ] Identify missing reference documents. **Partial (source):** Exact extracted phrases such as 'refer to wiring diagram' become possible catalog-title gap candidates when no approved PDF title matches. This is not proof a manual is missing; internal sections, unapproved/unextracted and differently named documents remain possible.
+- [ ] Maintain a searchable relationship index for parts, systems, and procedures. **Partial (source):** On-demand read-only part-number grouping across 1–8 explicitly selected approved PDFs is available. Persistent full-corpus systems, procedure and application relationship indexing remains open.
 - [ ] Automatically revisit unresolved contradictions as new source material becomes available. **Partial (source):** Source revisions invalidate old candidates; complete automated re-adjudication of all open conflicts is not yet validated.
 
 ## 7. Resource and Performance Management
@@ -377,6 +377,12 @@ Once an individual private snapshot is selected, the operator can page through o
 The offline `retention-preview --before-unix` command reports how many closed-cycle, old-revision terminal jobs and their checkpointed passes exist in that one snapshot. Its output explicitly sets `pruning_permitted=false`: it is **not a deletion plan** and never modifies the live input DB, immutable events, original PDFs or model weights. It does not estimate trustworthy reclaimable bytes and does not establish that any supported original claim may be removed. Cold snapshots remain separate complete database copies, not a compacted/archived primary store.
 
 The reviewed Gentoo in-place upgrade source now includes both the existing private backup CLI and cold-history inspector in its allowlisted module list, subject to the existing pinned-commit checks and operator confirmation; no installer or service was executed here. A complete plan for selective archival, retained query indexes, authenticated storage, bounded total archive growth, and live recovery remains required before checking off the roadmap retention requirement.
+
+## Continued implementation: original-PDF relationship explorer (source only)
+
+The new [offline source-cited manual relationship explorer](MANUAL_RELATIONSHIPS.md) opens the independent private PDF-ingest catalog read-only and accepts up to eight explicitly selected SHA-256 source IDs. It scans bounded approved/reviewed original excerpts for labeled part numbers, procedure headings and explicit references to other kinds of manuals or diagrams. Every item retains exact source, page, part and quote checksum. Shared identifiers across documents are **unreviewed repeated mentions**, not statements of interchangeable components. Unmatched references are weak title-search hints, not verified missing files. Excerpts and result counts have explicit capacity limits and report incomplete coverage rather than claiming silent success. Synthetic tests cover exact joins, original quotation changes, unapproved manuals, path-like prompt injection and incomplete scan labeling.
+
+This advances requirements in Section 6 without checking them off: it lacks a persistent corpus-wide relationship graph, model/year/engine-specific part fitment, full procedural reasoning, diagram recognition, generated summaries validated against source and real-library acceptance. No file installation or model-weight training is performed.
 
 ## Phase E: Training — intentionally separate
 
