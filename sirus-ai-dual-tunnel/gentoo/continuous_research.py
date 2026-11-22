@@ -9,6 +9,7 @@ import hashlib
 from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -174,6 +175,12 @@ def init_schema(path):
         for column in ("duration_ms","output_chars"):
             if column not in columns:
                 db.execute(f"ALTER TABLE cr_results ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
+        # Real token telemetry is optional: old passes remain unknown, not zero.
+        for column,kind in (("prompt_tokens","INTEGER"),
+                            ("completion_tokens","INTEGER"),
+                            ("generation_tps","REAL")):
+            if column not in columns:
+                db.execute(f"ALTER TABLE cr_results ADD COLUMN {column} {kind}")
         cycles={row[1] for row in db.execute("PRAGMA table_info(cr_cycles)")}
         if "scope" not in cycles:
             db.execute("""ALTER TABLE cr_cycles ADD COLUMN scope TEXT
@@ -822,11 +829,25 @@ class ContinuousResearch:
             return f"[PDF page {lease['page']} part {lease['part']}]\n"+part
         return "[Previously stored research snapshot]\n"+part
 
-    def finish(self, lease, answer, worker="", *, duration_ms=0):
+    def finish(self, lease, answer, worker="", *, duration_ms=0, token_metrics=None):
         if not isinstance(answer,str) or not answer.strip() or len(answer)>24000:
             raise ValueError("Invalid or oversized research draft")
         if type(duration_ms) is not int or not 0<=duration_ms<=86400000:
             raise ValueError("Invalid inference duration")
+        if token_metrics is None:
+            token_metrics={}
+        if not isinstance(token_metrics,dict):
+            raise ValueError("Invalid token telemetry")
+        if set(token_metrics)-{"prompt_tokens","completion_tokens","generation_tps"}:
+            raise ValueError("Unknown token telemetry fields")
+        for key in ("prompt_tokens","completion_tokens"):
+            number=token_metrics.get(key)
+            if number is not None and (type(number) is not int or not 0<=number<=10_000_000):
+                raise ValueError("Invalid reported token count")
+        rate=token_metrics.get("generation_tps")
+        if rate is not None and (type(rate) not in (float,int) or
+            not math.isfinite(rate) or not 0<rate<=1_000_000):
+            raise ValueError("Invalid reported token rate")
         now=time.time()
         with connect(self.db_path) as db:
             db.execute("BEGIN IMMEDIATE")
@@ -841,10 +862,13 @@ class ContinuousResearch:
                 return False  # fenced or superseded worker cannot publish output
             pass_no=row["pass_completed"]+1
             db.execute("""INSERT INTO cr_results(job_id,pass_number,notes,sha256,
-                created,duration_ms,output_chars)
-                VALUES(?,?,?,?,?,?,?)""",(lease["id"],pass_no,answer.strip(),
-                                       digest(answer.strip()),now,duration_ms,
-                                       len(answer.strip())))
+                created,duration_ms,output_chars,prompt_tokens,completion_tokens,
+                generation_tps)
+                VALUES(?,?,?,?,?,?,?,?,?,?)""",(lease["id"],pass_no,answer.strip(),
+                    digest(answer.strip()),now,duration_ms,len(answer.strip()),
+                    token_metrics.get("prompt_tokens"),
+                    token_metrics.get("completion_tokens"),
+                    token_metrics.get("generation_tps")))
             state="completed" if pass_no>=row["passes"] else "queued"
             db.execute("""UPDATE cr_jobs SET pass_completed=?,state=?,token='',
                 lease_until=0,retry_at=0,attempts=0,worker=?,error='',updated=?
@@ -881,7 +905,8 @@ class ContinuousResearch:
     def run_once(self, infer):
         """Run one bounded pass. Caller provides existing local llama.cpp router.
 
-        infer(messages,target,model_id,job_id) -> (draft_text,worker_name).
+        infer(messages,target,model_id,job_id) -> (draft_text,worker_name)
+        or (draft_text,worker_name,measured_token_metrics).
         No untrusted text can select a URL, filesystem path or executable.
         """
         lease=self.claim()
@@ -910,10 +935,15 @@ class ContinuousResearch:
                 "This is one section, not the entire document. "
                 "Cite only its actual page or part. Unreviewed draft.")
             started=time.monotonic()
-            answer,worker=infer(messages,lease["target"],lease["model_id"],lease["id"])
+            returned=infer(messages,lease["target"],lease["model_id"],lease["id"])
+            if not isinstance(returned,(tuple,list)) or len(returned) not in (2,3):
+                raise ValueError("Invalid inference worker response")
+            answer,worker=returned[:2]
+            tokens=returned[2] if len(returned)==3 else None
             elapsed_ms=max(1,round((time.monotonic()-started)*1000))
             self.finish(lease,answer,worker,
-                        duration_ms=min(elapsed_ms,86400000))
+                        duration_ms=min(elapsed_ms,86400000),
+                        token_metrics=tokens)
         except Exception as exc:
             self.fail(lease,exc)
         finally:
@@ -960,7 +990,16 @@ class ContinuousResearch:
             jobs=db.execute("""SELECT j.id,j.cycle,j.state,j.pass_completed,
                 j.passes,j.attempts,j.worker,j.error,j.created,j.updated,
                 s.page,s.part,s.revision,s.source_revision,
-                c.actor cancelled_by,c.happened cancelled_at
+                c.actor cancelled_by,c.happened cancelled_at,
+                (SELECT sum(r.prompt_tokens) FROM cr_results r
+                 WHERE r.job_id=j.id) prompt_tokens,
+                (SELECT sum(r.completion_tokens) FROM cr_results r
+                 WHERE r.job_id=j.id) completion_tokens,
+                (SELECT sum(r.duration_ms) FROM cr_results r
+                 WHERE r.job_id=j.id AND r.completion_tokens IS NOT NULL
+                   AND r.duration_ms>0) known_output_duration_ms,
+                (SELECT sum(r.completion_tokens) FROM cr_results r
+                 WHERE r.job_id=j.id AND r.duration_ms>0) known_output_tokens
                 FROM cr_jobs j JOIN cr_sections s
                   ON s.slot=j.slot AND s.revision=j.revision
                 LEFT JOIN cr_job_cancellations c ON c.job_id=j.id
@@ -968,6 +1007,7 @@ class ContinuousResearch:
                 (source_id,)).fetchall()
             rows=db.execute("""SELECT r.job_id,r.pass_number,r.notes,r.sha256,
                 r.review_state,r.created,r.duration_ms,r.output_chars,
+                r.prompt_tokens,r.completion_tokens,r.generation_tps,
                 j.cycle,j.state,j.worker,j.passes,s.page,s.part,
                 s.revision,s.source_revision,s.current
                 FROM cr_results r JOIN cr_jobs j ON j.id=r.job_id
@@ -987,10 +1027,16 @@ class ContinuousResearch:
                 """+audit_scope+"""
                 ORDER BY e.id DESC LIMIT 20 OFFSET ?""",
                 (source_id,source_id,audit_offset)).fetchall()
+        job_list=[dict(j) for j in jobs]
+        for job in job_list:
+            ms=job.pop("known_output_duration_ms")
+            tokens=job.pop("known_output_tokens")
+            job["observed_output_tps_inference_wall"]=round(
+                tokens*1000/ms,2) if ms and tokens is not None else None
         return {"source":dict(source),"jobs_total":count,
                 "pass_results_total":pass_total,"offset":offset,
                 "limit":limit,"has_more":offset+len(rows)<pass_total,
-                "jobs":[dict(j) for j in jobs],
+                "jobs":job_list,
                 "passes":[dict(r) for r in rows],
                 "audit_total":audit_total,
                 "audit_offset":audit_offset,
@@ -1094,6 +1140,16 @@ class ContinuousResearch:
                 COALESCE(sum(duration_ms),0) total_ms,
                 COALESCE(sum(output_chars),0) total_chars
                 FROM cr_results WHERE duration_ms>0""").fetchone()
+            tokens=db.execute("""SELECT
+                count(prompt_tokens) prompt_samples,
+                count(completion_tokens) completion_samples,
+                sum(prompt_tokens) prompt_total,
+                sum(completion_tokens) completion_total,
+                sum(CASE WHEN completion_tokens IS NOT NULL AND duration_ms>0
+                    THEN completion_tokens END) output_tokens,
+                sum(CASE WHEN completion_tokens IS NOT NULL AND duration_ms>0
+                    THEN duration_ms END) output_duration_ms
+                FROM cr_results""").fetchone()
             completed_hour=db.execute("""SELECT count(*) FROM cr_results
                 WHERE created>=?""",(time.time()-3600,)).fetchone()[0]
             trend=db.execute("""SELECT minute,queued,leased,failed,
@@ -1110,6 +1166,14 @@ class ContinuousResearch:
                     "estimated_passes_per_hour":round(3600000*sample/
                         measured["total_ms"],1) if measured["total_ms"] else None,
                     "measured_output_characters":measured["total_chars"],
+                    "prompt_token_samples":tokens["prompt_samples"],
+                    "completion_token_samples":tokens["completion_samples"],
+                    "prompt_tokens":tokens["prompt_total"],
+                    "completion_tokens":tokens["completion_total"],
+                    "observed_output_tps_inference_wall":round(
+                        1000*tokens["output_tokens"]/tokens["output_duration_ms"],2)
+                        if tokens["output_duration_ms"] and tokens["output_tokens"] is not None
+                        else None,
                     "estimation":"inference-time-only; excludes queue delays, source IO, GPU contention and retries"}
         free_mib=free_memory_mib()
         load=os.getloadavg()[0]
