@@ -186,8 +186,8 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_keyset_pagination_and_pause_resume_controls(self):
         with sqlite3.connect(self.src) as db, sqlite3.connect(self.research) as metadata:
-            for ch in "efghi":
-                sha=ch*64
+            for ch in "01234":
+                sha="f"+ch*63
                 db.execute("INSERT INTO documents VALUES(?,?,?,?,?,?)",
                            (sha,sha,"approved",1,10,1))
                 db.execute("INSERT INTO excerpts VALUES(?,?,?,?)",(sha,1,1,REVERSE))
