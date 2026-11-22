@@ -8,13 +8,13 @@ mode="${1:---check}"
 here="$(cd "$(dirname "$0")" && pwd)"
 # All deployment stages use the SAME manifest: checking, backups,
 # installation, verification, and rollback must never diverge.
-dashboard_assets=(dashboard.py dashboard_live.py dashboard_live.js dashboard_health.py process_inspector.py process_actions.py)
+dashboard_assets=(dashboard.py dashboard_live.py dashboard_live.js dashboard_health.py process_inspector.py process_actions.py gpu_maintenance.py)
 for file in "${dashboard_assets[@]}"; do
   [[ -f "$here/$file" && ! -L "$here/$file" ]] || fail "Source missing: $file"
 done
 PYTHONDONTWRITEBYTECODE=1 python3 -B - "$here" <<'PY'
 import ast,pathlib,sys
-for name in ("dashboard.py","dashboard_live.py","dashboard_health.py","process_inspector.py","process_actions.py"):
+for name in ("dashboard.py","dashboard_live.py","dashboard_health.py","process_inspector.py","process_actions.py","gpu_maintenance.py"):
     ast.parse((pathlib.Path(sys.argv[1])/name).read_text(encoding="utf8"))
 print("PASS dashboard and live socket Python syntax")
 PY

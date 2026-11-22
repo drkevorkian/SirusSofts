@@ -115,3 +115,20 @@ handle does not establish GPU memory consumption**, and access to
 other users' `/proc/PID/fd` is often denied. The scanner prioritizes
 the top 96 processes by RSS and driver-reported NVIDIA owners. It does
 not claim exhaustive GPU-handle coverage of all processes.
+
+
+## Read-only VRAM accounting and reset-readiness view
+
+The private Gentoo dashboard now shows driver-wide VRAM used/total alongside
+NVIDIA **compute-process** allocations, any remaining non-attributed bytes
+when exactly one NVIDIA card is present, and the known fixed OpenRC worker
+service (`sirus-ai-amd` or `sirus-ai-nvidia`). These are not exhaustive
+owners: graphics, driver reservations, inaccessible processes and the bounded
+process table can account for the unexplained difference. On multi-NVIDIA
+systems no per-card attribution is inferred; AMD per-process bytes remain
+unknown. An inconsistent estimate is reported as such and never negative.
+
+It also lists hardware/operational blockers and an operator-only next step.
+**The reset action always remains disabled.** This is an eligibility
+assessment, not a claim that a GPU can be reset or VRAM flushed. It
+issues no OpenRC command, GPU reset, PCI mutation or process signal.

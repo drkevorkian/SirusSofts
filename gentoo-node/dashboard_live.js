@@ -101,6 +101,38 @@
     table.replaceChildren(fragment);
   }
 
+  function renderGpuMaintenance(rows) {
+    const target = byId("live-gpu-maintenance");
+    if (!target) return;
+    const items = Array.isArray(rows) ? rows.slice(0, 16) : [];
+    const container = document.createDocumentFragment();
+    for (const gpu of items) {
+      if (!gpu || typeof gpu !== "object") continue;
+      const panel = node("div");
+      panel.appendChild(node("strong", gpu.name || "GPU"));
+      panel.appendChild(node("p", "Driver VRAM: " + gb(gpu.vram_used_bytes) +
+        " / " + gb(gpu.vram_total_bytes)));
+      panel.appendChild(node("p", "NVIDIA compute processes reported: " +
+        gb(gpu.reported_nvidia_compute_bytes) +
+        "; not attributed by compute inventory: " +
+        gb(gpu.remaining_unattributed_bytes) +
+        " (" + (gpu.attribution || "unknown") + ")"));
+      panel.appendChild(node("p", "Workload service: " +
+        (gpu.worker_service || "not identified") + " (" +
+        (gpu.worker_reported_running ? "reported running" : "not reported running") + ")"));
+      panel.appendChild(node("p", "Next: " + (gpu.safe_next_step || "manual inspection")));
+      const details = node("details");
+      details.appendChild(node("summary", "Why GPU reset is disabled"));
+      for (const reason of (Array.isArray(gpu.reset_blockers) ? gpu.reset_blockers : []))
+        details.appendChild(node("p", reason));
+      panel.appendChild(details);
+      container.appendChild(panel);
+    }
+    if (!container.childNodes.length)
+      container.appendChild(node("p", "No GPU readiness data available"));
+    target.replaceChildren(container);
+  }
+
   function renderProcesses(info) {
     const tbody = byId("live-process-rows");
     if (!tbody) return;
@@ -246,7 +278,7 @@
     }
   }
 
-  let lastGpu = "", lastJobs = "", lastGraph = "", lastServices = "", lastProcesses = "";
+  let lastGpu = "", lastJobs = "", lastGraph = "", lastServices = "", lastProcesses = "", lastMaintenance = "";
   function render(data) {
     if (!data || data.type !== "snapshot") return;
     const m = data.metrics || {};
@@ -267,6 +299,11 @@
     if (processes !== lastProcesses) {
       renderProcesses(m.process_inventory || {});
       lastProcesses = processes;
+    }
+    const maintenance = JSON.stringify(m.gpu_maintenance || []);
+    if (maintenance !== lastMaintenance) {
+      renderGpuMaintenance(m.gpu_maintenance || []);
+      lastMaintenance = maintenance;
     }
     const gpus = JSON.stringify(m.gpus || []);
     const jobs = JSON.stringify(data.jobs || []);

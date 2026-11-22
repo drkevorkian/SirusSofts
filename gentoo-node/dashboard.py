@@ -24,6 +24,7 @@ import dashboard_live
 import pdf_admin
 import process_inspector
 import process_actions
+import gpu_maintenance
 
 HOST, PORT = "127.0.0.1", 18080
 AUTH = "/etc/sirus-gentoo-node/dashboard.auth"
@@ -124,6 +125,10 @@ def live_loop(server, stop: threading.Event):
                     # Process inventory is private to the Basic-authenticated
                     # dashboard; do not add sensitive PID data to Ubuntu heartbeats.
                     metrics['process_inventory'] = process_inspector.inventory()
+                    metrics['gpu_maintenance'] = gpu_maintenance.overview(
+                        metrics.get("gpus", []),
+                        metrics["process_inventory"],
+                        metrics.get("services", []))
                     changed = True
             except (OSError, ValueError, TypeError) as error:
                 print("Live metrics failed:", type(error).__name__, flush=True)
@@ -301,6 +306,12 @@ assigns jobs and stores the authoritative task history.
 <thead><tr><th>GPU</th><th>Usage</th><th>Temperature</th><th>VRAM</th></tr></thead>
 <tbody id="live-gpu-rows">{gpu_rows or '<tr><td colspan="4">No GPUs found</td></tr>'}</tbody>
 </table></div></section>
+<section><h2>GPU memory accounting and release planning</h2>
+<p class="muted">This is a read-only analysis. NVIDIA allocations are
+only partially observable; AMD per-process VRAM is not measured here.
+Reset controls stay disabled until independent maintenance safeguards exist.</p>
+<div id="live-gpu-maintenance"><p>Collecting reset-readiness and
+unattributed-memory information.</p></div></section>
 <section><h2>Process and VRAM ownership (top 48)</h2>
 <p class="muted">Read-only process sampling. VRAM attribution covers reported
 NVIDIA compute clients only; AMD and NVIDIA graphics allocations may be unknown.
