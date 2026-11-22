@@ -29,7 +29,7 @@ class TestKnowledge(unittest.TestCase):
             self.assertEqual(reply[1:],messages)
             self.assertEqual(k.augment_messages(messages,"coding"),messages)
     def test_expanded_expertise(self):
-        self.assertEqual(set(kb.PROFILES), {"auto","coding","science","physics","time","relativity","finance","mechanics"})
+        self.assertEqual(set(kb.PROFILES), {"auto","coding","science","mathematics","physics","time","relativity","finance","mechanics"})
         with tempfile.TemporaryDirectory() as td:
             f=Path(td,"index.jsonl")
             doc=self.record("Clutch primary weights")
