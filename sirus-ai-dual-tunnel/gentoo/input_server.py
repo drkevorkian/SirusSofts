@@ -641,6 +641,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not verify_research_admin(self.headers,self.path,b"",self.server.engine.db):
                 return self.respond(403,{'error':'Administrative bridge authorization required'})
             self.respond(200,self.server.engine.evidence.status())
+        elif self.path == '/api/in/research/procedures':
+            if not verify_research_admin(self.headers,self.path,b"",self.server.engine.db):
+                return self.respond(403,{'error':'Administrative bridge authorization required'})
+            from procedure_review_admin import overview
+            try:
+                self.respond(200,overview(
+                    queue=MANUAL_FTS_INDEX.with_name("procedure_reviews.sqlite3"),
+                    source=self.server.engine.continuous.source,
+                    index=MANUAL_FTS_INDEX.with_name("manual_relationships.sqlite3"),
+                    research_db=self.server.engine.db))
+            except (ValueError,OSError,sqlite3.Error):
+                self.respond(503,{'error':'Private procedure review unavailable'})
         elif self.path.startswith('/api/in/research/manuals'):
             from urllib.parse import parse_qs
             parsed=urlsplit(self.path)
@@ -670,8 +682,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         continuous_control=self.path=='/api/in/research/continuous/control'
         continuous_history=self.path=='/api/in/research/continuous/history'
         evidence_control=self.path=='/api/in/research/evidence/control'
+        procedure_control=self.path=='/api/in/research/procedures/control'
         research_cancel=re.fullmatch(r'/api/in/research/[a-f0-9]{32}/cancel',self.path)
-        if self.path!='/api/in/jobs' and not research_create and not research_cancel and not continuous_control and not continuous_history and not evidence_control:
+        if self.path!='/api/in/jobs' and not research_create and not research_cancel and not continuous_control and not continuous_history and not evidence_control and not procedure_control:
             return self.respond(404, {'error': 'Not found'})
         origin = self.headers.get('Origin')
         if origin and origin != 'https://sirussofts.com':
@@ -688,7 +701,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.respond(413, {'error': 'Request too large'})
         try:
             raw_request=self.rfile.read(n)
-            if continuous_control or continuous_history or evidence_control:
+            if continuous_control or continuous_history or evidence_control or procedure_control:
                 if not verify_research_admin(self.headers,self.path,raw_request,
                                              self.server.engine.db):
                     self.respond(403,{'error':'Administrative bridge authorization required'})
@@ -702,6 +715,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.respond(200,self.server.engine.continuous.history(
                     data.get('source_id'),data.get('offset',0),
                     audit_offset=data.get('audit_offset',0)))
+                return
+            if procedure_control:
+                from procedure_review_admin import control
+                self.respond(200,control(data,
+                    queue=MANUAL_FTS_INDEX.with_name("procedure_reviews.sqlite3"),
+                    source=self.server.engine.continuous.source,
+                    index=MANUAL_FTS_INDEX.with_name("manual_relationships.sqlite3"),
+                    research_db=self.server.engine.db))
                 return
             if evidence_control:
                 if data.get('local_only') is not True:

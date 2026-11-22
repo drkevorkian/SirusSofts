@@ -57,7 +57,7 @@ class ResearchBridgeTests(unittest.TestCase):
         hdr2=self.headers(nonce="b"*32)
         self.assertTrue(verify(hdr2,self.path,self.raw,self.db,
                                key_path=self.key,now=self.now))
-        self.assertEqual(len(ADMIN_ROUTES),5)
+        self.assertEqual(len(ADMIN_ROUTES),7)
 
     def test_tampered_payload_wrong_path_and_missing_auth_rejected(self):
         hdr=self.headers()
@@ -126,11 +126,13 @@ class ResearchBridgeTests(unittest.TestCase):
         base=f"http://127.0.0.1:{server.server_address[1]}"
         try:
             for route in ("/api/in/research/evidence",
-                          "/api/in/research/continuous"):
+                          "/api/in/research/continuous",
+                          "/api/in/research/procedures"):
                 with self.assertRaises(urllib.error.HTTPError) as exc:
                     urllib.request.urlopen(base+route,timeout=3)
                 self.assertEqual(exc.exception.code,403)
             for route in ("/api/in/research/evidence/control",
+                          "/api/in/research/procedures/control",
                           "/api/in/research/continuous/control",
                           "/api/in/research/continuous/history"):
                 req=urllib.request.Request(base+route,method="POST",
@@ -156,6 +158,21 @@ class ResearchBridgeTests(unittest.TestCase):
                                key_path=self.key,now=self.now))
         self.assertFalse(verify(hdr,path,request,self.db,
                                 key_path=self.key,now=self.now))
+
+    def test_new_private_procedure_route_signature_is_bound_and_replay_protected(self):
+        for route in ("/api/in/research/procedures",
+                      "/api/in/research/procedures/control"):
+            raw = b"" if route.endswith("/procedures") else b'{"local_only":true,"action":"detail","id":"'+b"a"*64+b'"}'
+            nonce = "e"*32 if not raw else "d"*32
+            hdr = self.headers(path=route,body=raw,nonce=nonce)
+            self.assertFalse(verify({},route,raw,self.db,key_path=self.key,now=self.now))
+            self.assertFalse(verify(hdr,route,raw+b" ",self.db,
+                                    key_path=self.key,now=self.now))
+            self.assertTrue(verify(hdr,route,raw,self.db,
+                                   key_path=self.key,now=self.now))
+            self.assertFalse(verify(hdr,route,raw,self.db,
+                                    key_path=self.key,now=self.now))
+        self.assertNotIn("/api/in/research/procedures/debug",ADMIN_ROUTES)
 
     def test_unsigned_admin_payload_cannot_bypass_route_authentication(self):
         # The JSON actor string is not authorization. A valid HMAC is mandatory.

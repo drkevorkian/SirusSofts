@@ -25,6 +25,8 @@
 
 **Overall source checklist: 74 / 139 checked (53.2%).**
 
+**2026-11-22 signed administrator procedure review UI (source):** Added a CMS admin-only review panel with existing session, CSRF, rate limits and HMAC-signed Gentoo bridge. Administrators can inspect current original-PDF citations and declared equipment scope, opt in/pause/resume and explicitly accept/reject a candidate with exact evidence hash, reason and confirmation. Gentoo persists immutable decision history; acceptance only registers an UNVERIFIED private recheck target. Semantic adjudication, independent applicability validation, second-reviewer policy, live deployment and real corpus acceptance remain open. **74/139 unchanged.** See [Manual Relationships](MANUAL_RELATIONSHIPS.md).
+
 **2026-11-22 opt-in related-procedure discovery increment (source):** The private idle research loop can now scan bounded candidate peers for an explicitly operator-seeded approved-PDF procedure heading. It requires exact matching full six-part CMS-admin-declared scope on both originals, checks current index/source citations, and preserves suggestions independently of registered review jobs. A private operator must expressly accept each live-revalidated suggestion. No filenames/LLM text determine applicability, no automatic promotion or verified repairs occur, and no unseeded corpus scan starts. This remains partial progress; semantic cross-manual discovery, attested applicability, administrator UI and real-library acceptance are still open. **74/139 unchanged.** See [Manual Relationships](MANUAL_RELATIONSHIPS.md).
 
 
@@ -128,7 +130,7 @@ For each selected document or document section:
 - [x] Assign verification states: unreviewed, supported, disputed, rejected, and superseded.
 - [x] Require source-backed evidence before promoting new factual knowledge.
 - [x] Maintain historical versions and reversal capability.
-- [ ] Preserve human review controls for safety-critical technical procedures. **Partial (source):** Admin-only original-source confirmation now binds the selected application scope and invalidates human approvals when that scope changes; procedure-specific safety rules and second-reviewer policy are still missing.
+- [ ] Preserve human review controls for safety-critical technical procedures. **Partial (source):** Original-source review binds application scope and invalidates changed approvals; a signed CMS procedure-suggestion panel now requires fresh original citation checks, explicit admin decision, typed confirmation, recorded reason and immutable audit. Acceptance is only for unverified rechecking, not repair approval. Procedure-specific safety rules, second-reviewer policy and live acceptance remain open.
 - [ ] Make verified knowledge available through the existing retrieval system.
 - [x] Avoid overwriting original documents or extracted source material.
 - [ ] Detect circular references and unsupported generated claims. **Partial (source):** Model-generated drafts cannot become evidence; cross-source circularity and independent-authorship detection remain.
@@ -146,7 +148,7 @@ For each selected document or document section:
 - [ ] Generate source-linked technical summaries. **Partial (source):** The offline relationship explorer groups exact original-PDF part citations, procedure headings and references by document. This is a limited inventory with source/page/part/hash, not yet a comprehensive technical summary or a validated model-generated explanation.
 - [ ] Identify missing reference documents. **Partial (source):** Exact extracted phrases such as 'refer to wiring diagram' become possible catalog-title gap candidates when no approved PDF title matches. This is not proof a manual is missing; internal sections, unapproved/unextracted and differently named documents remain possible.
 - [ ] Maintain a searchable relationship index for parts, systems, and procedures. **Partial (source):** A persistent separate private SQLite index now incrementally records exact part numbers, system headings, procedure headings and manual references from approved original PDF excerpts; bounded source-scoped searches recheck original quotations and revoke stale approvals. Full semantic/system linkage, corpus-wide applicability and real-library acceptance remain open; bounded opt-in indexing is now scheduled on the private idle research inventory loop.
-- [ ] Automatically revisit unresolved contradictions as new source material becomes available. **Partial (source, 2026-11-22):** Explicitly registered reviews persist with periodic source-cited rechecks and historical invalidation. An opt-in heading-seeded scanner now stages unreviewed cross-PDF ordering suggestions for operator acceptance, with no inferred model/year applicability. Whole-library conflict discovery, semantic adjudication and live corpus validation remain open.
+- [ ] Automatically revisit unresolved contradictions as new source material becomes available. **Partial (source, 2026-11-22):** Registered reviews persist with periodic source-cited rechecks; opt-in discovery stages unreviewed cross-PDF suggestions for signed CMS-admin acceptance/rejection. Inferred fitment, automatic evidence promotion, whole-library discovery, semantic adjudication and live acceptance remain open.
 
 ## 7. Resource and Performance Management
 

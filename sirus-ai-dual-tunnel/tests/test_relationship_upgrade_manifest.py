@@ -16,6 +16,7 @@ class ManifestTests(unittest.TestCase):
             "manual_relationship_index.py", "manual_relationship_context.py",
             "manual_relationship_compare.py", "manual_procedure_dependencies.py",
             "procedure_review_queue.py", "procedure_discovery.py",
+            "procedure_review_admin.py",
             "relationship_scheduler.py",
             "feasibility_review.py", "research_evidence.py",
         }

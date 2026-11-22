@@ -44,7 +44,9 @@ function cms_ai_admin_signature(string $key,string $timestamp,string $nonce,
                         '/api/in/research/evidence',
                         '/api/in/research/continuous/control',
                         '/api/in/research/continuous/history',
-                        '/api/in/research/evidence/control'],true)||
+                        '/api/in/research/evidence/control',
+       '/api/in/research/procedures',
+       '/api/in/research/procedures/control'],true)||
        !preg_match('/^[0-9]{10,11}$/D',$timestamp)||
        !preg_match('/^[a-f0-9]{32}$/D',$nonce))
         throw new InvalidArgumentException('Invalid private research bridge signature input.');
@@ -73,7 +75,9 @@ function cms_ai_api_upstream(string $kind,string $path,?array $payload=null):arr
                        '/api/in/research/evidence',
                        '/api/in/research/continuous/control',
                        '/api/in/research/continuous/history',
-                       '/api/in/research/evidence/control'],true)){
+                       '/api/in/research/evidence/control',
+                       '/api/in/research/procedures',
+                       '/api/in/research/procedures/control'],true)){
         cms_need_admin();
         if((str_ends_with($path,'/control')||str_ends_with($path,'/history'))
             &&$body===null)

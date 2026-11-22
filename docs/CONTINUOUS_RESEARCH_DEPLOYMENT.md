@@ -152,3 +152,8 @@ revision scope, reviewed approved status, index synchronization and a
 real small-corpus trial before enabling any live seed. Preserve private
 SQLite and original-PDF backups. This is a GitHub source addition only;
 it has not been installed or trialed on Ubuntu/Gentoo.
+
+
+## CMS signed administrator procedure review (source only, not deployed)
+
+The /admin/ai PHP panel signs GET /api/in/research/procedures and POST /api/in/research/procedures/control over the existing restricted Gentoo tunnel with the separate, privately provisioned research-admin HMAC key. The new procedure_review_admin.py module ships in the Gentoo reviewed in-place upgrade manifest. The panel never reads Gentoo PDF or SQLite file paths directly. Before any approved maintenance window, pin a green reviewed commit, verify independent WAL-consistent CMS/ingest/research/review backups, provision the secret with correct permissions, and test login, CSRF, replay rejection, original manual citations, application-scope revisions, and explicit accept/reject on a small controlled corpus. No legacy full installers should be run and no deployment has occurred.

@@ -22,6 +22,8 @@ ADMIN_ROUTES=frozenset({
     "/api/in/research/continuous/control",
     "/api/in/research/continuous/history",
     "/api/in/research/evidence/control",
+    "/api/in/research/procedures",
+    "/api/in/research/procedures/control",
 })
 KEY_FILE=Path("/etc/sirus-ai-dual/research-admin.key")
 _NONCE=re.compile(r"[0-9a-f]{32}\Z")

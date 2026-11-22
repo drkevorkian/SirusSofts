@@ -3,6 +3,7 @@ declare(strict_types=1);
 if(!defined('SIRUS_CMS_BOOTSTRAPPED')){http_response_code(404);exit;}
 require_once __DIR__.'/ai_imports.php';
 require_once __DIR__.'/ai_continuous.php';
+require_once __DIR__.'/ai_procedures.php';
 
 /** Private curated knowledge; no crawlers, execution, or model training in PHP. */
 function cms_ai_expertise():array {
@@ -127,6 +128,7 @@ function cms_ai_post(PDO $db,string $action):never {
     if($action==='ai_continuous')cms_ai_continuous_post($db,$_POST);
     if($action==='ai_continuous_export')cms_ai_continuous_export($db,$_POST);
     if($action==='ai_evidence')cms_ai_evidence_post($db,$_POST);
+    if($action==='ai_procedure_review')cms_ai_procedures_post($db,$_POST);
     if(str_starts_with($action,'export_'))cms_ai_export($db,substr($action,7));
     if(in_array($action,['ai_upload_pdfs','ai_download_pdf','ai_research_settings','ai_export_research_config','ai_import_manual_draft','ai_approve_manual_batch'],true))
         cms_ai_import_post($db,$action);
@@ -321,6 +323,7 @@ function cms_ai_page(PDO $db,?string $error=null):void {
     <?php cms_ai_learning_panel($db); ?>
     <?php cms_ai_continuous_panel($db); ?>
     <?php cms_ai_evidence_panel($db); ?>
+    <?php cms_ai_procedures_panel($db); ?>
     <?php cms_gentoo_pdf_panel($db); ?>
     <?php cms_ai_import_panel($db); ?>
     <div class="admin-panel"><h2>Profiles</h2>

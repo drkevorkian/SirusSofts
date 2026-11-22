@@ -430,3 +430,12 @@ determine what a manual actually applies to, semantically equate different
 instructions, approve a contradiction, or schedule production repair work.
 Real Gentoo PDF-corpus acceptance, administrator UI, cross-source scope
 attestation and operational load tests remain open.
+
+
+## Authenticated administrator review of procedural suggestions (source only)
+
+The CMS /admin/ai page now includes a private cross-manual procedure review panel. It reuses CMS administrator authentication, central POST CSRF, rate limiting and audit, and the strictly fixed-route Gentoo HMAC bridge with a 32-byte key, timestamp and replay-resistant nonce. The only new Gentoo endpoints are GET /api/in/research/procedures and POST /api/in/research/procedures/control; neither exposes public PDF files, arbitrary URLs, SQL, scripts or model training.
+
+Administrators can explicitly seed a PDF and exact heading, pause or resume discovery, inspect revalidated original PDF page/part/quote/hash evidence and declared scope, and explicitly accept a suggestion for continued UNVERIFIED review or reject that suggestion. Decisions require a current source evidence fingerprint, review reason and exact typed confirmation. Gentoo rechecks approved originals, relationship index, heading uniqueness and CMS-admin scope before an action. Immutable private Gentoo decision records preserve actor, reason, evidence hash and any accepted review target. CMS also audits each action. Rejection does not certify that an apparent conflict was resolved; acceptance does not approve a repair, change original knowledge or train a model.
+
+All original-source text and comments in the CMS panel are HTML escaped. Stale evidence suppresses the decision forms; the backend independently revalidates at submission. This is not an atomic read transaction across separate source/index/administrator-scope databases, so a subsequent revision still requires rechecking. Neither host has been updated; real-PDF-corpus review, independent vehicle applicability validation and second-reviewer policies remain open.

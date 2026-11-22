@@ -420,3 +420,8 @@ The Evidence panel has a dedicated recent human-supported original-quotation fee
 ### Private database capacity and recent resource history
 
 The Continuous Research admin panel includes an optional private input SQLite footprint budget (`max_database_mib`, default 0) and reports actual SQLite/WAL/SHM usage, Python input-service resident memory and up to 60 recent minute-level queue/resource snapshots. Diagnostic samples are retained seven days, not included in factual model evidence, and do not delete immutable claim histories or unreviewed research results. A budget exceedance blocks new autonomous research scheduling, **not** normal chat or active inference. This is an admission guard, not an automatic archive, and it cannot guarantee available physical disk capacity. A separate trusted-operator private snapshot/verification/new-file restore utility is documented in `docs/CONTINUOUS_RESEARCH_DEPLOYMENT.md`; it is not exposed through the public CMS and remains manual.
+
+
+## Original-PDF procedure suggestions (source only, not deployed)
+
+The administrator-only /admin/ai panel provides opt-in procedure-heading discovery, original page/part/quote citations and operator accept/reject actions with confirmation and audit. Accepted suggestions enter a private UNVERIFIED recheck queue, not training or approved repair knowledge. CMS uses the existing signed local AI tunnel, admin login, CSRF and rate limiting, and does not read private Gentoo PDF files directly. The matching separately provisioned research-admin key and approved in-place upgrades are required on both servers. See docs/MANUAL_RELATIONSHIPS.md.
