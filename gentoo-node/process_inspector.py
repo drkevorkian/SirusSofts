@@ -90,6 +90,29 @@ def nvidia_memory(binary=None,runner=subprocess.run):
     except (OSError,ValueError,subprocess.SubprocessError):
         return None
 
+def gpu_handles(pid, proc_root, limit=128):
+    """Report open GPU device handles, not GPU memory ownership.
+
+    Only scan a bounded subset of process FDs; inaccessible processes are
+    unknown. A matching handle does not imply active GPU computation.
+    """
+    directory=Path(proc_root)/str(pid)/"fd"
+    devices=set()
+    try:
+        for count,entry in enumerate(directory.iterdir()):
+            if count>=limit:
+                return sorted(devices)[:6], "partial"
+            try:
+                target=os.readlink(entry)
+                if re.fullmatch(r"/dev/dri/(?:card|renderD)[0-9]{1,3}", target) or (
+                    re.fullmatch(r"/dev/nvidia[0-9]{1,3}", target)):
+                    devices.add(target)
+            except OSError:
+                continue
+    except OSError:
+        return [], "unavailable"
+    return sorted(devices)[:6], "observed"
+
 def inventory(proc_root=Path("/proc"),affinity=os.sched_getaffinity,
               gpu_provider=nvidia_memory):
     try:
@@ -112,14 +135,26 @@ def inventory(proc_root=Path("/proc"),affinity=os.sched_getaffinity,
             if row["pid"] in owners:
                 row["vram_bytes"]=owners[row["pid"]]
                 row["vram_attribution"]="nvidia-compute-only"
+    # Probe only the largest-RSS candidates and driver-reported NVIDIA
+    # compute PIDs to cap procfs FD operations during each 10-second refresh.
+    candidates=sorted(rows,key=lambda x:x["rss_bytes"],reverse=True)[:96]
+    for row in rows:
+        if row["vram_bytes"] is not None and row not in candidates:
+            candidates.append(row)
+    for row in candidates[:128]:
+        row["gpu_handles"],row["gpu_handle_scan"]=gpu_handles(row["pid"],proc_root)
+    for row in rows:
+        row.setdefault("gpu_handles",[])
+        row.setdefault("gpu_handle_scan","not-scanned")
     for row in rows:
         row["control_allowed"] = (os.geteuid()!=0 and row["uid"]==os.geteuid()
                                   and row["importance"]!="protected"
                                   and row["pid"]!=os.getpid())
-    rows.sort(key=lambda x:(x["vram_bytes"] or 0,x["rss_bytes"]),reverse=True)
+    rows.sort(key=lambda x:(x["vram_bytes"] or 0,bool(x["gpu_handles"]),x["rss_bytes"]),reverse=True)
     return {"processes":rows[:MAX_ROWS],"scanned":len(rows),
             "partial":len(pids)>MAX_PIDS or len(rows)<min(len(pids),MAX_PIDS),
             "gpu_attribution":"nvidia-compute-only" if owners is not None else "unknown",
             "notes":["AMD per-process VRAM is not reliably exposed by standard amdgpu sysfs",
                      "NVIDIA graphics allocations and unreported GPU clients may be missing",
+                     "GPU device FD scan is bounded and may be incomplete or permission-denied",
                      "Importance labels are advisory, not permission to stop a process"]}

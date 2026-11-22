@@ -46,6 +46,20 @@ class ProcessInventoryTests(unittest.TestCase):
                          {50:125*1048576})
         self.assertEqual(runner.call_args.kwargs["timeout"],2)
         self.assertNotIn("shell",runner.call_args.kwargs)
+    def test_gpu_fd_observation_is_not_vram_measurement(self):
+        self.add(50,"worker",1001,20)
+        fd=self.root/"50"/"fd"
+        fd.mkdir()
+        (fd/"3").symlink_to("/dev/dri/renderD128")
+        (fd/"4").symlink_to("/dev/nvidia0")
+        (fd/"5").symlink_to("/etc/passwd")
+        result=inspect.inventory(self.root,affinity=lambda pid:{0,1},
+                                 gpu_provider=lambda:None)
+        row=result["processes"][0]
+        self.assertEqual(row["gpu_handles"],["/dev/dri/renderD128","/dev/nvidia0"])
+        self.assertEqual(row["gpu_handle_scan"],"observed")
+        self.assertIsNone(row["vram_bytes"])
+
     def test_dashboard_contains_readonly_table(self):
         html=dashboard.page({"gpus":[],"process_inventory":{"processes":[]}},
              {"node_id":"test","ram_bytes":1000,"cpu_threads":2},

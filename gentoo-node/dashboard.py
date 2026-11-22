@@ -239,7 +239,7 @@ def page(m: dict, hardware: dict, jobs: list, graph: str, sync: str) -> bytes:
         cores=entry.get("affinity",[])
         process_rows+=("<tr><td>"+e(entry.get("pid",""))+"</td><td>"+
             e(entry.get("name",""))+"</td><td>"+e(entry.get("importance","unknown"))+
-            "</td><td>"+e(bytes_gib(vram))+"</td><td>"+e(bytes_gib(ram))+
+            "</td><td>"+e(bytes_gib(vram))+"</td><td>"+e(", ".join(entry.get("gpu_handles",[])) or "unknown")+"</td><td>"+e(bytes_gib(ram))+
             "</td><td>"+e(len(cores))+"</td><td>Refresh for controls</td></tr>")
     rows=""
     for job in jobs[:40]:
@@ -304,13 +304,13 @@ assigns jobs and stores the authoritative task history.
 <section><h2>Process and VRAM ownership (top 48)</h2>
 <p class="muted">Read-only process sampling. VRAM attribution covers reported
 NVIDIA compute clients only; AMD and NVIDIA graphics allocations may be unknown.
-A zero or missing process reading does not mean the GPU is empty. Importance is
+A zero or missing process reading does not mean the GPU is empty. GPU handles indicate open device files, not measured VRAM usage. Importance is
 a caution label, not permission to terminate an application.</p>
 <p class="muted" id="live-process-coverage">Process details refresh every 10 seconds.
 Driver reset is unavailable without a separately approved privileged controller.</p>
 <div class="wrap"><table><thead><tr><th>PID</th><th>Name</th><th>Importance</th>
-<th>Attributed VRAM</th><th>RAM resident</th><th>Allowed logical CPUs</th><th>Controls</th></tr></thead>
-<tbody id="live-process-rows">{process_rows or '<tr><td colspan="7">Collecting process inventory</td></tr>'}</tbody>
+<th>Attributed VRAM</th><th>GPU handles</th><th>RAM resident</th><th>Allowed logical CPUs</th><th>Controls</th></tr></thead>
+<tbody id="live-process-rows">{process_rows or '<tr><td colspan="8">Collecting process inventory</td></tr>'}</tbody>
 </table></div><p class="muted">Process controls are restricted to the
 dashboard service account. Termination requests SIGTERM only. CPU core
 limits set scheduler affinity, not utilization. Driver reset/VRAM flush

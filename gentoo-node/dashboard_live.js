@@ -111,6 +111,7 @@
       const row = node("tr");
       for (const value of [proc.pid, proc.name || "unknown",
         proc.importance || "unknown", gb(proc.vram_bytes),
+        Array.isArray(proc.gpu_handles) ? (proc.gpu_handles.join(", ") || "unknown") : "unknown",
         gb(proc.rss_bytes), Array.isArray(proc.affinity) ? proc.affinity.length : "unknown"]) {
         row.appendChild(node("td", value));
       }
@@ -130,7 +131,7 @@
     if (!fragment.childNodes.length) {
       const row = node("tr");
       const cell = node("td", "No readable process records");
-      cell.colSpan = 7;
+      cell.colSpan = 8;
       row.appendChild(cell);
       fragment.appendChild(row);
     }

@@ -102,3 +102,16 @@ After deployment, verify Basic auth, Origin/CSRF and replay rejections,
 same-UID and cross-UID action denial, PID reuse protection, service health
 after a benign CPU-affinity trial, driver telemetry limitations, and Ubuntu
 CMS routing. Never use a real system service as the first terminate test.
+
+
+## GPU-device handle inspection
+
+A bounded read-only scan of up to 128 file descriptors for up to 128
+candidate processes supplements vendor-reported NVIDIA VRAM. The table
+lists known open `/dev/dri/card*`, `/dev/dri/renderD*` and `/dev/nvidiaN`
+handles. This can identify potential clients of AMD and NVIDIA drivers,
+including processes whose VRAM is otherwise unknown, but **an open
+handle does not establish GPU memory consumption**, and access to
+other users' `/proc/PID/fd` is often denied. The scanner prioritizes
+the top 96 processes by RSS and driver-reported NVIDIA owners. It does
+not claim exhaustive GPU-handle coverage of all processes.
