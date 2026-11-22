@@ -23,6 +23,7 @@ import client
 import dashboard_live
 import pdf_admin
 import process_inspector
+import process_actions
 
 HOST, PORT = "127.0.0.1", 18080
 AUTH = "/etc/sirus-gentoo-node/dashboard.auth"
@@ -239,7 +240,7 @@ def page(m: dict, hardware: dict, jobs: list, graph: str, sync: str) -> bytes:
         process_rows+=("<tr><td>"+e(entry.get("pid",""))+"</td><td>"+
             e(entry.get("name",""))+"</td><td>"+e(entry.get("importance","unknown"))+
             "</td><td>"+e(bytes_gib(vram))+"</td><td>"+e(bytes_gib(ram))+
-            "</td><td>"+e(len(cores))+"</td></tr>")
+            "</td><td>"+e(len(cores))+"</td><td>Refresh for controls</td></tr>")
     rows=""
     for job in jobs[:40]:
         if not isinstance(job,dict):
@@ -308,9 +309,15 @@ a caution label, not permission to terminate an application.</p>
 <p class="muted" id="live-process-coverage">Process details refresh every 10 seconds.
 Driver reset is unavailable without a separately approved privileged controller.</p>
 <div class="wrap"><table><thead><tr><th>PID</th><th>Name</th><th>Importance</th>
-<th>Attributed VRAM</th><th>RAM resident</th><th>Allowed logical CPUs</th></tr></thead>
-<tbody id="live-process-rows">{process_rows or '<tr><td colspan="6">Collecting process inventory</td></tr>'}</tbody>
-</table></div></section>
+<th>Attributed VRAM</th><th>RAM resident</th><th>Allowed logical CPUs</th><th>Controls</th></tr></thead>
+<tbody id="live-process-rows">{process_rows or '<tr><td colspan="7">Collecting process inventory</td></tr>'}</tbody>
+</table></div><p class="muted">Process controls are restricted to the
+dashboard service account. Termination requests SIGTERM only. CPU core
+limits set scheduler affinity, not utilization. Driver reset/VRAM flush
+is unavailable here because it requires privileged maintenance and may
+interrupt active inference or the display server.</p>
+<p id="live-process-action-status" role="status" aria-live="polite"></p>
+</section>
 <section><h2>Previous tasks</h2><p class="muted" id="live-history-status">{e(sync)}</p>
 <div class="wrap"><table><thead><tr><th>ID</th><th>Kind</th><th>Status</th>
 <th>Attempts</th><th>Updated</th><th>Result</th></tr></thead>
@@ -358,6 +365,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
+        if self.path=="/process/control":
+            return self._process_control()
         # The website PHP administrator proxies through Ubuntu's loopback SSH
         # tunnel. A node-scoped, HMAC-signed request is mandatory here; Basic
         # dashboard passwords and public browser requests are not sufficient.
@@ -387,6 +396,63 @@ class Handler(BaseHTTPRequestHandler):
             print("Gentoo PDF control unavailable:",type(error).__name__,flush=True)
             return self.send(503,b'{"ok":false,"error":"Gentoo PDF database unavailable"}',
                              "application/json; charset=utf-8")
+
+    def _process_control(self):
+        # Public requests cannot administer processes. Only existing Basic
+        # authentication plus a one-use, short-lived scoped token and
+        # same-origin browser request may reach the unprivileged controller.
+        host=self.headers.get("Host","").lower()
+        origin=self.headers.get("Origin","")
+        if host not in dashboard_live.ALLOWED_ORIGINS or origin!=dashboard_live.ALLOWED_ORIGINS[host]:
+            return self.send(403,b'{"ok":false,"error":"Origin rejected"}',
+                             "application/json; charset=utf-8")
+        if self.headers.get("Sec-Fetch-Site","") not in ("","same-origin"):
+            return self.send(403,b'{"ok":false,"error":"Cross-site request"}',
+                             "application/json; charset=utf-8")
+        auth=self.headers.get("Authorization","")
+        try:
+            if not auth.startswith("Basic ") or len(auth)>512:
+                raise ValueError("Missing credentials")
+            username,password=base64.b64decode(auth[6:],validate=True).decode().split(":",1)
+            if not(hmac.compare_digest(username,"admin") and
+                   verify(password,self.server.secret)):
+                raise ValueError("Invalid credentials")
+        except (ValueError,UnicodeError):
+            return self.send(401,b'{"ok":false,"error":"Admin authentication required"}',
+                             "application/json; charset=utf-8",True)
+        length=self.headers.get("Content-Length","")
+        if (self.headers.get("Transfer-Encoding") or
+                self.headers.get("Content-Type","").split(";")[0].strip().lower()!="application/json"
+                or not length.isdecimal() or not 0<int(length)<=2048):
+            return self.send(413,b'{"ok":false,"error":"Invalid request size or type"}',
+                             "application/json; charset=utf-8")
+        token=self.headers.get("X-Sirus-Control-Token","")
+        if not dashboard_live.verify_token("process-control:"+self.server.secret,token):
+            return self.send(403,b'{"ok":false,"error":"Control token rejected"}',
+                             "application/json; charset=utf-8")
+        # Fail closed if the normal process-control guard was not initialized.
+        if not hasattr(self.server,"control_lock") or not hasattr(self.server,"used_control_tokens"):
+            return self.send(503,b'{"ok":false,"error":"Controls unavailable"}',
+                             "application/json; charset=utf-8")
+        marker=hashlib.sha256(token.encode()).hexdigest()
+        now=time.monotonic()
+        with self.server.control_lock:
+            used=self.server.used_control_tokens
+            for key,expires in list(used.items()):
+                if expires<now: del used[key]
+            if marker in used or len(used)>=256:
+                return self.send(403,b'{"ok":false,"error":"Replay or rate limit"}',
+                                 "application/json; charset=utf-8")
+            used[marker]=now+100
+        try:
+            payload=json.loads(self.rfile.read(int(length)))
+            result=process_actions.execute(payload)
+            data=json.dumps(result,separators=(",",":")).encode()
+            return self.send(200,data,"application/json; charset=utf-8")
+        except (process_actions.ControlError,ValueError,TypeError,OSError) as error:
+            # No untrusted commands or process arguments are sent to logs.
+            data=json.dumps({"ok":False,"error":str(error)[:140]}).encode()
+            return self.send(403,data,"application/json; charset=utf-8")
 
     def do_GET(self):
         uri=urlsplit(self.path).path
@@ -420,7 +486,8 @@ class Handler(BaseHTTPRequestHandler):
             if query:
                 return self.send(400,b"Unknown live-token query",
                                  "text/plain; charset=utf-8")
-            data=json.dumps({"token":dashboard_live.new_token(self.server.secret)},
+            data=json.dumps({"token":dashboard_live.new_token(self.server.secret),
+                             "control_token":dashboard_live.new_token("process-control:"+self.server.secret)},
                             separators=(",",":")).encode()
             return self.send(200,data,"application/json; charset=utf-8")
         if uri=="/dashboard_live.js":
@@ -467,6 +534,8 @@ def main(argv=None):
     server.pdf_key=client.load_key(config["key_file"])
     server.live_state=dashboard_live.LiveState()
     server.live_slots=threading.BoundedSemaphore(dashboard_live.MAX_CONNECTIONS)
+    server.control_lock=threading.Lock()
+    server.used_control_tokens={}
     threading.Thread(target=live_loop,args=(server,stop),daemon=True).start()
     print("Gentoo dashboard WebSocket listening on loopback-only port",PORT,flush=True)
     try:

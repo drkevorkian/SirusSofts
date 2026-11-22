@@ -15,7 +15,7 @@ NODE_DIR = Path(__file__).resolve().parents[1]
 INSTALLER = NODE_DIR / "install-dashboard-live.sh"
 REQUIRED = {
     "dashboard.py", "dashboard_live.py", "dashboard_live.js", "dashboard_health.py",
-    "process_inspector.py"
+    "process_inspector.py", "process_actions.py"
 }
 
 

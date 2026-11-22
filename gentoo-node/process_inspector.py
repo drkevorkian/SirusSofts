@@ -112,6 +112,10 @@ def inventory(proc_root=Path("/proc"),affinity=os.sched_getaffinity,
             if row["pid"] in owners:
                 row["vram_bytes"]=owners[row["pid"]]
                 row["vram_attribution"]="nvidia-compute-only"
+    for row in rows:
+        row["control_allowed"] = (os.geteuid()!=0 and row["uid"]==os.geteuid()
+                                  and row["importance"]!="protected"
+                                  and row["pid"]!=os.getpid())
     rows.sort(key=lambda x:(x["vram_bytes"] or 0,x["rss_bytes"]),reverse=True)
     return {"processes":rows[:MAX_ROWS],"scanned":len(rows),
             "partial":len(pids)>MAX_PIDS or len(rows)<min(len(pids),MAX_PIDS),

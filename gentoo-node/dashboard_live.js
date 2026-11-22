@@ -114,12 +114,23 @@
         gb(proc.rss_bytes), Array.isArray(proc.affinity) ? proc.affinity.length : "unknown"]) {
         row.appendChild(node("td", value));
       }
+      const actionCell = node("td");
+      if (proc.control_allowed && Number.isInteger(proc.start_ticks)) {
+        const coreButton = node("button", "Set cores");
+        coreButton.type = "button";
+        coreButton.addEventListener("click", () => { void controlProcess(proc, "set_cpu_cores"); });
+        const stopButton = node("button", "Terminate");
+        stopButton.type = "button";
+        stopButton.addEventListener("click", () => { void controlProcess(proc, "terminate"); });
+        actionCell.append(coreButton, node("span", " "), stopButton);
+      } else actionCell.textContent = "Protected / other user";
+      row.appendChild(actionCell);
       fragment.appendChild(row);
     }
     if (!fragment.childNodes.length) {
       const row = node("tr");
       const cell = node("td", "No readable process records");
-      cell.colSpan = 6;
+      cell.colSpan = 7;
       row.appendChild(cell);
       fragment.appendChild(row);
     }
@@ -128,6 +139,53 @@
       " processes; " + (info?.partial ? "partial inventory" : "accessible inventory") +
       "; GPU ownership: " + String(info?.gpu_attribution || "unknown") +
       ". Driver reset and process changes require a separate restricted control path.");
+  }
+
+  async function controlProcess(proc, action) {
+    if (!proc.control_allowed || !Number.isInteger(proc.pid) ||
+        !Number.isInteger(proc.start_ticks)) return;
+    const workload = proc.importance === "workload";
+    const label = "PID " + proc.pid + " (" + proc.name + ")";
+    let cores = null;
+    let confirmation = "";
+    if (action === "set_cpu_cores") {
+      const raw = window.prompt("Number of logical CPUs allowed for " + label +
+        ". Current affinity " + (proc.affinity?.length ?? "unknown") + ".", "2");
+      if (raw === null) return;
+      if (!/^[0-9]{1,3}$/.test(raw) || Number(raw) < 1 || Number(raw) > 256) {
+        metric("live-process-action-status", "Invalid core count");
+        return;
+      }
+      cores = Number(raw);
+      confirmation = workload ? "SET CORES WORKLOAD" : "SET CORES";
+    } else if (action === "terminate") {
+      if (!window.confirm("Request SIGTERM for " + label +
+          "? This may end an active task and release unsaved work.")) return;
+      confirmation = workload ? "TERMINATE WORKLOAD" : "TERMINATE";
+    } else return;
+    try {
+      const auth = await fetch(new URL("live-token", base), {
+        credentials: "same-origin", cache: "no-store", redirect: "error"
+      });
+      if (!auth.ok) throw new Error("Dashboard authentication unavailable");
+      const tokens = await auth.json();
+      if (typeof tokens.control_token !== "string") throw new Error("Control token unavailable");
+      const result = await fetch(new URL("process/control", base), {
+        method: "POST", credentials: "same-origin", cache: "no-store",
+        redirect: "error", headers: {
+          "Content-Type": "application/json",
+          "X-Sirus-Control-Token": tokens.control_token
+        },
+        body: JSON.stringify({action, pid:proc.pid, start_ticks:proc.start_ticks,
+                              confirmation, cores})
+      });
+      const body = await result.json();
+      metric("live-process-action-status", result.ok && body.ok
+        ? String(body.notice || "Action requested")
+        : "Action refused: " + String(body.error || result.status));
+    } catch {
+      metric("live-process-action-status", "Process control unavailable; no action confirmed");
+    }
   }
 
   function renderJobs(jobs) {
