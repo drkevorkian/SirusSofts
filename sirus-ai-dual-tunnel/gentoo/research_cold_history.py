@@ -67,6 +67,66 @@ def catalog(archive_directory):
             "total":len(rows), "complete_scan":True, "no_live_writes":True}
 
 
+def locate_source(archive_directory, source_id):
+    """Find every verified cold snapshot containing one exact source ID.
+
+    Individual snapshots are independent points in time; identical old pass
+    rows in successive snapshots are not counted as independent evidence.
+    """
+    if not isinstance(source_id,str) or not SOURCE_ID.fullmatch(source_id):
+        raise ValueError("Invalid original source identifier")
+    listing=catalog(archive_directory)  # verifies every file, fails on corruption
+    directory=Path(archive_directory)
+    matches=[]
+    for row in listing["snapshots"]:
+        with _readonly(directory/row["archive"]) as db:
+            source=db.execute("""SELECT id,kind,revision,content_sha,
+                extraction_status,eligible,present FROM cr_sources
+                WHERE id=?""",(source_id,)).fetchone()
+            if source is None:
+                continue
+            count=db.execute("""SELECT count(*) FROM cr_jobs j
+                JOIN cr_sections s ON s.slot=j.slot AND s.revision=j.revision
+                WHERE s.source_id=?""",(source_id,)).fetchone()[0]
+            passes=db.execute("""SELECT count(*) FROM cr_results r
+                JOIN cr_jobs j ON j.id=r.job_id
+                JOIN cr_sections s ON s.slot=j.slot AND s.revision=j.revision
+                WHERE s.source_id=?""",(source_id,)).fetchone()[0]
+            matches.append({"archive":row["archive"],
+                            "archive_sha256":row["sha256"],
+                            "source":dict(source),
+                            "jobs":count,"passes":passes})
+    return {"kind":"private-cold-source-locator-v1",
+            "source_id":source_id,"snapshots_checked":listing["total"],
+            "matches":matches,"count":len(matches),
+            "repeated_snapshots_not_independent_evidence":True,
+            "complete_scan":True,"no_live_writes":True}
+
+
+def locate_job(archive_directory, job_id):
+    """Find exactly one historic job across snapshots, without exposing notes."""
+    if not isinstance(job_id,str) or not JOB_ID.fullmatch(job_id):
+        raise ValueError("Invalid historic job identifier")
+    listing=catalog(archive_directory)
+    directory=Path(archive_directory)
+    matches=[]
+    for row in listing["snapshots"]:
+        with _readonly(directory/row["archive"]) as db:
+            job=db.execute("""SELECT j.id,j.cycle,j.state,j.pass_completed,
+                j.passes,s.source_id,s.source_revision,s.page,s.part
+                FROM cr_jobs j JOIN cr_sections s
+                ON s.slot=j.slot AND s.revision=j.revision WHERE j.id=?""",
+                (job_id,)).fetchone()
+            if job is not None:
+                matches.append({"archive":row["archive"],
+                                "archive_sha256":row["sha256"],
+                                "job":dict(job)})
+    return {"kind":"private-cold-job-locator-v1",
+            "job_id":job_id,"snapshots_checked":listing["total"],
+            "matches":matches,"count":len(matches),
+            "complete_scan":True,"no_live_writes":True}
+
+
 def source_history(snapshot, source_id, *, offset=0, audit_offset=0,
                    show_private_drafts=False):
     """Return independently paged source history from exactly one verified snapshot.
@@ -239,6 +299,12 @@ def main():
     command=parser.add_subparsers(dest="command",required=True)
     listing=command.add_parser("catalog")
     listing.add_argument("--directory",type=Path,required=True)
+    source_locator=command.add_parser("locate-source")
+    source_locator.add_argument("--directory",type=Path,required=True)
+    source_locator.add_argument("--source-id",required=True)
+    job_locator=command.add_parser("locate-job")
+    job_locator.add_argument("--directory",type=Path,required=True)
+    job_locator.add_argument("--job-id",required=True)
     source=command.add_parser("source-history")
     source.add_argument("--archive",type=Path,required=True)
     source.add_argument("--source-id",required=True)
@@ -255,6 +321,10 @@ def main():
     args=parser.parse_args()
     if args.command=="catalog":
         data=catalog(args.directory)
+    elif args.command=="locate-source":
+        data=locate_source(args.directory,args.source_id)
+    elif args.command=="locate-job":
+        data=locate_job(args.directory,args.job_id)
     elif args.command=="source-history":
         data=source_history(args.archive,args.source_id,offset=args.offset,
                             audit_offset=args.audit_offset,
