@@ -4,11 +4,13 @@ from pathlib import Path
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"gentoo"))
 import input_server as ai
 from research_archive import archive_snapshot, verify_snapshot, restore_into_new_file
+from continuous_research import ContinuousResearch, LEASE_SECONDS
 
 
 class ArchiveTests(unittest.TestCase):
@@ -83,6 +85,51 @@ class ArchiveTests(unittest.TestCase):
             verify_snapshot(file)
         with self.assertRaises(ValueError):
             verify_snapshot(self.archive/"does-not-exist.sqlite3")
+
+    def test_corrupt_live_database_recovers_interrupted_queue_from_verified_copy(self):
+        source=self.base/"pdf-ingest.sqlite3"
+        with sqlite3.connect(source) as db:
+            db.executescript("""
+                CREATE TABLE documents(sha256 TEXT PRIMARY KEY,filename TEXT,
+                    status TEXT,reviewed INTEGER,pages INTEGER,excerpts INTEGER,
+                    updated_at INTEGER);
+                CREATE TABLE excerpts(sha256 TEXT,page INTEGER,part INTEGER,text TEXT,
+                    PRIMARY KEY(sha256,page,part));
+            """)
+            db.execute("INSERT INTO documents VALUES(?,?,?,?,?,?,?)",
+                       ("a"*64,"approved.pdf","approved",1,1,1,1))
+            db.execute("INSERT INTO excerpts VALUES(?,?,?,?)",
+                       ("a"*64,1,1,"An approved source excerpt for recovery."))
+        engine=ContinuousResearch(self.db,source,self.base/"relationships.sqlite3")
+        engine.inventory()
+        engine.control("enable")
+        interrupted=engine.claim()
+        self.assertIsNotNone(interrupted)
+        created=archive_snapshot(self.db,self.archive)
+        archived=self.archive/created["archive"]
+
+        # Simulate an unreadable live input DB after the verified backup.
+        self.db.write_bytes(b"corrupted SQLite database")
+        recovery_dir=self.base/"recovered"
+        recovery_dir.mkdir(mode=0o700)
+        recovered_path=recovery_dir/"input.sqlite3"
+        recovery=restore_into_new_file(archived,recovered_path)
+        self.assertTrue(recovery["verified"])
+        self.assertTrue(recovery["replaced_existing"] is False)
+
+        restarted=ContinuousResearch(recovered_path,source,
+                                     self.base/"relationships.sqlite3")
+        recovery_time=time.time()+LEASE_SECONDS+20
+        self.assertIsNone(restarted.claim(now=recovery_time))
+        resumed=restarted.claim(now=recovery_time+20)
+        self.assertIsNotNone(resumed)
+        self.assertEqual(resumed["id"],interrupted["id"])
+        self.assertNotEqual(resumed["token"],interrupted["token"])
+        self.assertTrue(restarted.finish(resumed,"Recovered unreviewed draft","cpu"))
+        history=restarted.history("pdf:"+"a"*64)
+        self.assertEqual(history["passes"][0]["notes"],"Recovered unreviewed draft")
+        self.assertEqual(history["passes"][0]["review_state"],"unreviewed")
+        self.assertTrue(verify_snapshot(archived)["verified"])
 
     def test_private_permissions_and_symlinks_fail_closed(self):
         self.archive.mkdir(mode=0o700)

@@ -207,3 +207,11 @@ interactive-queue, resource, quiet-hour and energy admission. Higher
 concurrency can increase GPU/CPU contention and the daily energy estimate.
 Validate model-server behavior and interactive response time on Gentoo before
 raising the production setting.
+
+The source test suite also covers a simulated corrupt live research database:
+it archives a leased job, overwrites the test DB with invalid bytes, verifies a
+private snapshot, restores to a new path, recreates the scheduler and resumes
+the job after lease recovery and retry backoff. This validates the recovery
+copy flow in synthetic SQLite only. Use the separate Gentoo and CMS backup
+plans and verify restored data in an approved recovery environment before
+depending on host recovery. No live database recovery test has occurred.
