@@ -61,11 +61,24 @@ $db->prepare('INSERT INTO cms_ai_examples(profile,prompt,response,split,reviewed
 ai_assert(count(iterator_to_array(cms_ai_export_records($db,'knowledge')))===1,'reviewed RAG export only');
 ai_assert(count(iterator_to_array(cms_ai_export_records($db,'train')))===1,'training export only');
 ai_assert(count(iterator_to_array(cms_ai_export_records($db,'eval')))===0,'no train/eval leakage');
+
+$readiness=cms_ai_learning_readiness($db);
+$timeRow=array_values(array_filter($readiness,static fn(array $row):bool=>$row['profile']==='time'))[0];
+ai_assert($timeRow['training']===1&&$timeRow['evaluation']===0,'readiness reflects reviewed split');
+ai_assert($timeRow['shared_prompts']===0,'no overlap until evaluation added');
+$db->prepare('INSERT INTO cms_ai_examples(profile,prompt,response,split,reviewed,created_at) VALUES(?,?,?,?,?,?)')
+   ->execute(['time','Compute gamma','Known answer','eval',1,cms_now()]);
+$readiness=cms_ai_learning_readiness($db);
+$timeRow=array_values(array_filter($readiness,static fn(array $row):bool=>$row['profile']==='time'))[0];
+ai_assert($timeRow['evaluation']===1&&$timeRow['shared_prompts']===1,
+    'training/evaluation overlap visible before training');
 $db->exec("UPDATE cms_ai_profiles SET enabled=0 WHERE slug='physics'");
 ai_assert(count(iterator_to_array(cms_ai_export_records($db,'knowledge')))===0,'disabled source excluded');
 $_SESSION=['cms_admin_id'=>1,'cms_username'=>'tester'];
 ob_start();cms_ai_page($db);$html=(string)ob_get_clean();
 ai_assert(str_contains($html,'AI Knowledge &amp; Training'),'admin renders');
+ai_assert(str_contains($html,'Continuous learning readiness'),'learning UI rendered');
+ai_assert(str_contains($html,'No automatic model-weight training is active'),'status is explicit');
 ai_assert(!str_contains($html,'SECRET'),'body content not exposed on listing');
 // Simulate a populated 2026 three-profile installation and verify preservation.
 $legacy=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
