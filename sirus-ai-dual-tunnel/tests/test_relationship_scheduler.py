@@ -26,5 +26,24 @@ class ScheduleTests(unittest.TestCase):
             sched.index_if_idle(enabled="yes",interactive=False,
                 source=Path("/a"),index=Path("/b"))
 
+
+    def test_review_recheck_is_chat_first_and_bounded(self):
+        runner=Mock(return_value={"status":"monitoring","current_candidate_count":2})
+        for enabled,chat in ((False,False),(False,True),(True,True)):
+            result=sched.recheck_if_idle(enabled=enabled,interactive=chat,
+                source=Path("/pdf"),index=Path("/idx"),queue=Path("/queue"),run=runner)
+            self.assertTrue(result["skipped"])
+        runner.assert_not_called()
+        result=sched.recheck_if_idle(enabled=True,interactive=False,
+            source=Path("/pdf"),index=Path("/idx"),queue=Path("/queue"),run=runner)
+        self.assertEqual(result["status"],"monitoring")
+        runner.assert_called_once_with(queue=Path("/queue"),
+            source=Path("/pdf"),index=Path("/idx"))
+
+    def test_review_recheck_rejects_implicit_state(self):
+        with self.assertRaises(ValueError):
+            sched.recheck_if_idle(enabled=1,interactive=False,
+                queue=Path("/q"),source=Path("/s"),index=Path("/i"))
+
 if __name__=="__main__":
     unittest.main()

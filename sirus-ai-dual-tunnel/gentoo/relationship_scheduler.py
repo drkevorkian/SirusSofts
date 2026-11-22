@@ -13,3 +13,18 @@ def index_if_idle(*, enabled, interactive, source, index, run=index_relationship
     if not enabled or interactive:
         return {"skipped": True, "reason": "disabled" if not enabled else "interactive"}
     return run(source=source, index=index, batch=4)
+
+
+from procedure_review_queue import tick as recheck_registered
+
+def recheck_if_idle(*, enabled, interactive, source, index, queue, run=recheck_registered):
+    """Recheck one registered procedural comparison after chat-first index work.
+
+    Never invent a model/year scope or register a cross-document comparison.
+    This is only a private source recheck, not an inference or repair operation.
+    """
+    if type(enabled) is not bool or type(interactive) is not bool:
+        raise ValueError("Controller and chat state must be explicit booleans")
+    if not enabled or interactive:
+        return {"skipped": True, "reason": "disabled" if not enabled else "interactive"}
+    return run(queue=queue, source=source, index=index)

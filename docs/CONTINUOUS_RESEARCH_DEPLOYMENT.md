@@ -113,3 +113,22 @@ Disable the new controller before any rollback. Use private release backups to r
 Verify private Gentoo health on 127.0.0.1:18082, Ubuntu loopback proxy, existing interactive chat, one-off 1–100-pass research, retrieved/manual citations, CMS admin, outbox delivery and Hestia routing. Never expose Gentoo input routes, raw draft content or storage metadata as unauthenticated public URLs.
 
 **Still required before broad rollout:** real-library coverage reconciliation, 100-pass process-kill recovery, human adjudication of source independence and technical context, chat latency SLAs, VRAM/process-specific admission and energy caps, archived retention/restore policy, reviewed-claim retrieval integration and an explicitly approved source-format expansion. Automatic claim promotion, automatic knowledge export and model training remain disabled.
+
+
+## Offline procedural-review queue integration (not deployed)
+
+The approved Gentoo in-place source manifest now includes
+`procedure_review_queue.py`. Its SQLite database
+`/srv/sirussofts/storage/rag/procedure_reviews.sqlite3` is created **only
+when an operator explicitly registers** a reviewed comparison. It resides
+outside the web root and is not a replacement for the original PDF ingest,
+manual relationship index, or continuous research database.
+
+After an approved pinned-source in-place upgrade and private backup, validate
+that the local AI input worker can load the queue module and that no review
+targets are registered unexpectedly. Enabling Continuous Research admits one
+due recheck per idle inventory iteration, after derived index synchronization.
+No additional public route, network listener, worker service or model weight
+operation is introduced. Run the documented unit tests and a small
+administrator-selected reviewed-manual trial before considering wider use;
+never claim the source-only result is installed merely because CI is green.

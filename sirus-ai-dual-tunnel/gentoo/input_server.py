@@ -46,7 +46,8 @@ from knowledge import KnowledgeManager,PROFILES
 from continuous_research import ContinuousResearch, init_schema as init_continuous_schema
 from research_evidence import EvidenceLedger, init_schema as init_evidence_schema
 from research_admin_auth import verify as verify_research_admin, init_schema as init_admin_auth_schema
-from relationship_scheduler import index_if_idle as index_relationships_if_idle
+from relationship_scheduler import (index_if_idle as index_relationships_if_idle,
+                                    recheck_if_idle as recheck_procedures_if_idle)
 from manual_rag import INDEX as MANUAL_FTS_INDEX
 from research_loop import (validated_spec, read_source, pass_messages,
                            list_local_manuals, pdf_segments)
@@ -498,6 +499,14 @@ class Engine:
                         enabled=enabled,interactive=interactive,
                         source=self.continuous.source,
                         index=MANUAL_FTS_INDEX.with_name("manual_relationships.sqlite3"))
+                    # Explicitly registered review targets only; one due
+                    # citation check per idle inventory pass, never model
+                    # inference or implicit cross-vehicle source expansion.
+                    recheck_procedures_if_idle(
+                        enabled=enabled,interactive=interactive,
+                        source=self.continuous.source,
+                        index=MANUAL_FTS_INDEX.with_name("manual_relationships.sqlite3"),
+                        queue=MANUAL_FTS_INDEX.with_name("procedure_reviews.sqlite3"))
             except (OSError,sqlite3.Error,RuntimeError,ValueError) as exc:
                 # Never leak private PDF text or paths to shared service logs.
                 print("Continuous inventory unavailable:",type(exc).__name__,file=sys.stderr)

@@ -279,3 +279,76 @@ Synthetic regression coverage lives in
 the dependency-manifest test. Full procedural semantics, verified application
 scope, lifecycle tracking and automatic revisiting of unresolved dependency
 candidates remain **unchecked roadmap requirements**.
+
+
+## Persistent operator-scoped procedure review queue (source-only)
+
+`sirus-ai-dual-tunnel/gentoo/procedure_review_queue.py` stores **only explicitly
+registered** 1–8-source selections, each with exact procedure headings and
+full operator-declared manufacturer/model/year/engine/revision/application.
+Registration does not search for additional documents or assert applicability.
+The separate private SQLite file is
+`/srv/sirussofts/storage/rag/procedure_reviews.sqlite3` (owner-only file inside
+the existing private RAG directory). The existing original ingest database,
+relationship index, research result ledger and model weights are unchanged.
+
+A `tick` claims **at most one due registered review** with a bounded durable
+120-second lease. The original source PDF procedure reviewer rechecks the
+selected heading, current approval, original excerpt and index. Successful
+observations are rescheduled after **one hour**; incomplete/stale/revoked
+results are marked `blocked` and retried after **five minutes**. An
+expired lease can be recovered on another tick; lease fencing rejects an
+older worker after ownership changes. No new inference request is scheduled.
+
+A change creates an **append-only, versioned observation** with a bounded
+source-cited snapshot and identifiers of new, no-longer-observed and
+evidence-changed candidates. Identical rechecks update the last-checked
+timestamp but **do not duplicate history**. A revoked source, incomplete
+index, changed quotation, ambiguous procedure heading, or exceeded bound
+clears the **current** candidate count; older snapshots remain explicitly
+historical and unverified, never promoted into active or approved evidence.
+There is no automatic dismissal, confirmation, training export, or claim
+promotion. A candidate disappearing is **not proof that a conflict was
+resolved**. All displayed counts describe previous observations, not
+instantaneous current source truth.
+
+When Continuous Research is **running** and interactive chat is idle, the
+existing Gentoo 30-second inventory worker first refreshes the derived index
+and then admits **one due procedural recheck**. Disabled/paused research or
+queued/running interactive chat means no recheck. This is admission-time
+deferral; a newly arriving chat cannot interrupt an already in-flight
+bounded SQLite/source check. Long queues may take longer than one hour to
+cycle. No service, model, credential, API endpoint or public page is added.
+
+Operator CLI examples, after a separately reviewed and approved in-place
+upgrade (replace placeholders with real private paths and approved IDs):
+
+```bash
+# Register a JSON request accepted by manual_procedure_dependencies.py
+python3 sirus-ai-dual-tunnel/gentoo/procedure_review_queue.py \
+  --queue /srv/sirussofts/storage/rag/procedure_reviews.sqlite3 \
+  --source /srv/sirussofts/storage/databases/pdf_ingest.sqlite3 \
+  --index /srv/sirussofts/storage/rag/manual_relationships.sqlite3 \
+  register < /private/operator_selection.json
+
+# Inspect metadata and history; historical citations are deliberately opt-in
+python3 sirus-ai-dual-tunnel/gentoo/procedure_review_queue.py \
+  --queue /srv/sirussofts/storage/rag/procedure_reviews.sqlite3 list
+
+python3 sirus-ai-dual-tunnel/gentoo/procedure_review_queue.py \
+  --queue /srv/sirussofts/storage/rag/procedure_reviews.sqlite3 \
+  history --id <64-character-review-id> --include-evidence
+
+# Force the next eligible idle cycle to re-examine one known selection
+python3 sirus-ai-dual-tunnel/gentoo/procedure_review_queue.py \
+  --queue /srv/sirussofts/storage/rag/procedure_reviews.sqlite3 \
+  recheck --id <64-character-review-id>
+```
+
+The CLI is a **private local operator tool** without a web-admin route or
+new authentication system. Keep the JSON inputs, candidate citations and
+SQLite database off web roots and public GitHub. No operator registration
+has been performed against the real library, nor has the queue been deployed
+to Gentoo/Ubuntu. Human review, approved application-scope evidence,
+complete semantic procedure understanding, real source-corpus acceptance,
+cross-document discovery, and operational load testing remain open.
