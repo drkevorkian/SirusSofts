@@ -68,9 +68,12 @@ and require independent approval plus original-source rechecks before training.
 Train/evaluation candidates are separated by a deterministic hash of the
 **original PDF source ID**, not by randomly splitting passages from the same
 book. Small libraries can produce zero held-out examples and are **not
-evaluation-ready**. The candidate JSONL format can be parsed by the existing
-offline QLoRA dataset validator, but no autonomous integration or training is
-enabled. The current QLoRA runner requires a separate compatible local CUDA
+evaluation-ready**. The candidate JSONL uses the same basic user/assistant shape as CMS
+examples, but the offline QLoRA reader **intentionally rejects any row with
+the `candidate_only` marker**, even under its explicit `--run` option.
+An operator must independently review and approve examples through the
+separate curated CMS dataset workflow; raw research candidates are not training
+input. No autonomous training is enabled. The current QLoRA runner requires a separate compatible local CUDA
 fine-tuning environment and explicit opt-in; the existing local GPU setup's
 training capacity has not been established.
 
@@ -161,6 +164,8 @@ execute programming solutions, or calculate statistical confidence. In
 particular, a correct synthetic test score does not imply the real local model
 has improved. A real evaluation requires independent model runs over whole
 held-out manuals, which have **not** occurred.
+
+The QLoRA runner also rejects the reviewed-exporter's `candidate_only` rows. This is a defensive input gate; it is **not a cryptographic proof of training approval** if someone deliberately edits a dataset. Independent review, authenticated versioning and explicit operator approval remain required.
 
 The benchmark remains an incomplete portion of the open Phase E requirement,
 not a checked-off multi-domain proficiency evaluation. Run its synthetic tests
