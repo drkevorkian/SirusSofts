@@ -8,6 +8,7 @@ No API, CMS database, original PDF, or research state is modified.
 """
 import argparse
 from collections import defaultdict
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -61,7 +62,7 @@ def _catalog(root):
     if (root / 'databases').is_symlink() or db_path.is_symlink() or not db_path.is_file():
         raise ValueError("Private PDF ingest SQLite catalog unavailable")
     url = 'file:' + quote(str(db_path), safe='/') + '?mode=ro'
-    with sqlite3.connect(url, uri=True, timeout=15) as db:
+    with closing(sqlite3.connect(url, uri=True, timeout=15)) as db:
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA query_only=ON')
         documents = db.execute('''SELECT sha256, filename, object_rel, bytes, status
@@ -99,7 +100,11 @@ def _inbox(root):
     staged = defaultdict(list)
     problems = []
     scanned = 0
-    for directory, subdirs, files in os.walk(inbox, followlinks=False):
+    def on_walk_error(exc):
+        problems.append({'type': 'unreadable_inbox_directory',
+                         'path': str(exc.filename or inbox)})
+
+    for directory, subdirs, files in os.walk(inbox, followlinks=False, onerror=on_walk_error):
         for dirname in list(subdirs):
             if (Path(directory) / dirname).is_symlink():
                 subdirs.remove(dirname)
