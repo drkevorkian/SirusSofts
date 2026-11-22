@@ -20,7 +20,7 @@ class ProcessInventoryTests(unittest.TestCase):
     def add(self,pid,name,uid,rss):
         folder=self.root/str(pid);folder.mkdir()
         (folder/"stat").write_text(stat(pid,name))
-        (folder/"status").write_text(f"Uid:\\t{uid}\\nVmRSS:\\t{rss} kB\\nThreads:\\t3\\n")
+        (folder/"status").write_text(f"Uid:\t{uid}\nVmRSS:\t{rss} kB\nThreads:\t3\n")
     def test_ranked_vram_and_unknown_memory(self):
         self.add(1,"init",0,500)
         self.add(50,"llama-server",1001,400)
@@ -41,7 +41,7 @@ class ProcessInventoryTests(unittest.TestCase):
         self.assertEqual(result["gpu_attribution"],"unknown")
     def test_nvidia_no_shell_and_bounded_timeout(self):
         binary=self.root/"nvidia-smi";binary.write_text("")
-        runner=Mock(return_value=Mock(returncode=0,stdout="50, 123\\n50, 2\\n"))
+        runner=Mock(return_value=Mock(returncode=0,stdout="50, 123\n50, 2\n"))
         self.assertEqual(inspect.nvidia_memory(str(binary),runner=runner),
                          {50:125*1048576})
         self.assertEqual(runner.call_args.kwargs["timeout"],2)
