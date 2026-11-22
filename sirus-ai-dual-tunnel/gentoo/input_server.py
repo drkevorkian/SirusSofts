@@ -9,6 +9,7 @@ from contextlib import contextmanager
 import hashlib
 import http.server
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -224,7 +225,25 @@ def add_completed_events(con, job_id, answer, worker):
     add_event(con, job_id, seq, 'completed', '', worker)
 
 
-def chat(url, messages, timeout=None, model_id=DEFAULT_MODEL, max_tokens=None):
+def model_token_metrics(response):
+    """Capture only real usage supplied by the local llama.cpp response."""
+    usage=response.get("usage") if isinstance(response.get("usage"),dict) else {}
+    timings=response.get("timings") if isinstance(response.get("timings"),dict) else {}
+    def count(usage_key,timing_key):
+        value=usage.get(usage_key)
+        if value is None:
+            value=timings.get(timing_key)
+        return value if type(value) is int and 0<=value<=10_000_000 else None
+    rate=timings.get("predicted_per_second")
+    if type(rate) not in (int,float) or not math.isfinite(rate) or not 0<rate<=1_000_000:
+        rate=None
+    return {"prompt_tokens":count("prompt_tokens","prompt_n"),
+            "completion_tokens":count("completion_tokens","predicted_n"),
+            "generation_tps":rate}
+
+
+def chat(url, messages, timeout=None, model_id=DEFAULT_MODEL, max_tokens=None,
+         *, include_metrics=False):
     # Context capacity is chosen by the model server, not fixed to 768 tokens here.
     # Long generations need a configurable timeout; this is not an output cap.
     if timeout is None:
@@ -245,7 +264,8 @@ def chat(url, messages, timeout=None, model_id=DEFAULT_MODEL, max_tokens=None):
     payload=json.dumps(request).encode()
     with local_open(url + '/v1/chat/completions', data=payload, timeout=timeout) as r:
         data = json.load(r)
-    return str(data['choices'][0]['message']['content'])
+    content=str(data['choices'][0]['message']['content'])
+    return (content,model_token_metrics(data)) if include_metrics else content
 
 
 class Engine:
@@ -482,7 +502,9 @@ class Engine:
 
     def _continuous_infer(self, messages, target, model_id, job_id):
         worker, endpoint = choose_worker(job_id,target,self.gpu_percent,model_id=model_id)
-        return chat(endpoint,messages,model_id=model_id,max_tokens=2048), worker
+        content,metrics=chat(endpoint,messages,model_id=model_id,max_tokens=2048,
+                             include_metrics=True)
+        return content,worker,metrics
 
     def research_loop(self):
         while not self.stop.is_set():
