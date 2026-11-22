@@ -233,6 +233,70 @@ function cms_ai_profile_permissions_panel(PDO $db):void {
       </div><?php
 }
 
+/**
+ * Display-only readiness accounting for iterative learning.
+ * No external trainer is invoked and no source or generated answer is trusted here.
+ */
+function cms_ai_learning_readiness(PDO $db):array {
+    $profiles=$db->query('SELECT slug,title,enabled FROM cms_ai_profiles ORDER BY slug')
+        ->fetchAll(PDO::FETCH_ASSOC);
+    $examples=$db->prepare("SELECT
+        COALESCE(SUM(CASE WHEN reviewed=1 AND split='train' THEN 1 ELSE 0 END),0) AS training,
+        COALESCE(SUM(CASE WHEN reviewed=1 AND split='eval' THEN 1 ELSE 0 END),0) AS evaluation,
+        COALESCE(SUM(CASE WHEN reviewed=0 THEN 1 ELSE 0 END),0) AS awaiting_review
+        FROM cms_ai_examples WHERE profile=?");
+    $documents=$db->prepare('SELECT count(*) FROM cms_ai_documents WHERE profile=? AND reviewed=1');
+    $overlap=$db->prepare("SELECT COUNT(DISTINCT t.prompt)
+        FROM cms_ai_examples t JOIN cms_ai_examples e
+          ON e.profile=t.profile AND e.prompt=t.prompt
+        WHERE t.profile=? AND t.split='train' AND e.split='eval'
+          AND t.reviewed=1 AND e.reviewed=1");
+    $rows=[];
+    foreach($profiles as $p) {
+        $examples->execute([$p['slug']]);
+        $counts=$examples->fetch(PDO::FETCH_ASSOC);
+        $documents->execute([$p['slug']]);
+        $overlap->execute([$p['slug']]);
+        $rows[]=[
+            'profile'=>(string)$p['slug'],
+            'title'=>(string)$p['title'],
+            'enabled'=>(int)$p['enabled']===1,
+            'reviewed_sources'=>(int)$documents->fetchColumn(),
+            'training'=>(int)$counts['training'],
+            'evaluation'=>(int)$counts['evaluation'],
+            'awaiting_review'=>(int)$counts['awaiting_review'],
+            'shared_prompts'=>(int)$overlap->fetchColumn()
+        ];
+    }
+    return $rows;
+}
+function cms_ai_learning_panel(PDO $db):void {
+    $rows=cms_ai_learning_readiness($db);
+    echo '<div class="admin-panel"><h2>Continuous learning readiness</h2>';
+    echo '<p><strong>No automatic model-weight training is active.</strong> ';
+    echo 'Continuous research currently creates private inference drafts, not learned model weights. ';
+    echo 'These counts show reviewed examples and held-out questions already curated for a future controlled learning loop.</p>';
+    echo '<table><thead><tr><th>Subject</th><th>Reviewed sources</th>';
+    echo '<th>Training examples</th><th>Held-out questions</th>';
+    echo '<th>Needs review</th><th>Overlapping prompts</th></tr></thead><tbody>';
+    foreach($rows as $row) {
+        echo '<tr><th scope="row">'.cms_esc($row['title']);
+        if(!$row['enabled']) echo ' (excluded)';
+        echo '</th><td>'.(int)$row['reviewed_sources'].'</td>';
+        echo '<td>'.(int)$row['training'].'</td>';
+        echo '<td>'.(int)$row['evaluation'].'</td>';
+        echo '<td>'.(int)$row['awaiting_review'].'</td>';
+        echo '<td>'.(int)$row['shared_prompts'].'</td></tr>';
+    }
+    echo '</tbody></table>';
+    echo '<p class="muted">Shared prompts must be removed before evaluation is independent. ';
+    echo 'Reviewed counts do not prove factual correctness or demonstrate training improvement. ';
+    echo 'Future loop: re-examine originals, build curated training data, train isolated adapters, ';
+    echo 'measure closed-book learning and citation-backed accuracy, then approve or roll back. ';
+    echo 'Training and adapter activation require separate hardware and operational validation.</p>';
+    echo '</div>';
+}
+
 function cms_ai_page(PDO $db,?string $error=null):void {
     cms_need_admin();
     $profiles=$db->query('SELECT * FROM cms_ai_profiles ORDER BY slug')->fetchAll(PDO::FETCH_ASSOC);
@@ -253,6 +317,7 @@ function cms_ai_page(PDO $db,?string $error=null):void {
         </form><?php endforeach;?>
       </div>
     </div>
+    <?php cms_ai_learning_panel($db); ?>
     <?php cms_ai_continuous_panel($db); ?>
     <?php cms_ai_evidence_panel($db); ?>
     <?php cms_gentoo_pdf_panel($db); ?>
