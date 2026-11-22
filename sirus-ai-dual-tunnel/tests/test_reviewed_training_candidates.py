@@ -92,6 +92,8 @@ class ReviewedCandidateTests(unittest.TestCase):
         entry=(train + evaluation)[0]
         self.assertTrue(entry["candidate_only"])
         self.assertEqual(entry["profile"],"mechanics")
+        self.assertEqual(entry["measurement"],{
+            "label":"rear axle torque","value":"4E+1","unit":"nm"})
         self.assertIn("page 5",entry["messages"][1]["content"])
         self.assertEqual(entry["provenance"]["applicability"],SCOPE)
         manifest=candidates.export(self.private,train,evaluation,counts)
