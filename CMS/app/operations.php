@@ -181,14 +181,26 @@ function cms_operations_page(PDO $db): void
             <?=isset($m['uptime_seconds'])?cms_esc(cms_node_uptime((int)$m['uptime_seconds'])):'N/A'?></small>
         </div>
       </div>
+      <?php if($node['os']==='gentoo'):?>
+      <p><a href="https://gentoo.sirussofts.com/" rel="noopener noreferrer"
+        target="_blank">Open private Gentoo process, GPU and CPU-affinity dashboard</a>.
+        This separate authenticated Gentoo page shows local process ownership
+        without exporting PID details to the Ubuntu node registry. Its controls
+        require the Gentoo administrator password and are limited to the
+        Gentoo dashboard service account. Driver resets are not enabled.</p>
+      <?php endif;?>
       <h3>Running services and application health</h3>
       <div data-live-node-services="<?=cms_esc($node['node_id'])?>">
-        <p>OpenRC services: <?=cms_esc(implode(', ',(array)($m['services']??[])))?></p>
+        <p>OpenRC services:
+          <?=!isset($m['services'])?'Not reported by this installed agent':
+             cms_esc(implode(', ',(array)$m['services'])?:'No services reported')?></p>
         <p>Local applications:
+          <?php if(!isset($m['applications'])):?>Not reported by this installed agent<?php endif;?>
           <?php foreach((array)($m['applications']??[]) as $app):?>
             <?=cms_esc($app['name']??'app')?>:
             <?=!empty($app['healthy'])?'Healthy':'Unavailable'?>
           <?php endforeach;?>
+          <?php if(isset($m['applications'])&&!$m['applications']):?>No applications reported<?php endif;?>
         </p>
       </div>
       <h3>Graphics processing units</h3>

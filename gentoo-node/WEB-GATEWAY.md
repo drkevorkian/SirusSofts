@@ -155,3 +155,13 @@ same tunnel port through Host-based Gentoo Nginx virtual hosts.
 None of these source commits remotely configures DNS, Hestia or the
 physical Gentoo computer. The scripts install only when you execute
 them on the respective hosts, and live connectivity must be verified.
+
+
+## Detailed process and GPU inspection (source-only)
+
+The new Gentoo authenticated process console is documented in
+[Gentoo process controls](../docs/GENTOO_PROCESS_CONTROLS.md). It shows
+bounded process RAM, CPU affinity and partial NVIDIA VRAM attribution
+without publishing detailed process lists through the Ubuntu heartbeat.
+Only a same-user, non-root restricted process action is available.
+GPU/driver resets remain disabled pending separate maintenance design.
