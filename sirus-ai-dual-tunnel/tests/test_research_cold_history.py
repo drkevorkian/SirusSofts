@@ -10,7 +10,8 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"gentoo"))
 import input_server as ai
 from research_archive import archive_snapshot
 from research_cold_history import (
-    catalog, source_history, job_provenance, retention_preview,
+    catalog, locate_source, locate_job, source_history, job_provenance,
+    retention_preview,
 )
 
 SOURCE_A="pdf:"+"a"*64
@@ -167,6 +168,39 @@ class ColdHistoryTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT count(*) FROM cr_events").fetchone()[0],23)
             self.assertEqual(db.execute("SELECT count(*) FROM cr_claim_versions").
                              fetchone()[0],1)
+
+    def test_locators_find_provenance_without_counting_snapshots_as_evidence(self):
+        first=self.snapshot()
+        second=self.snapshot()
+        self.assertNotEqual(first.name,second.name)
+        one=locate_source(self.archives,SOURCE_A)
+        self.assertEqual(one["count"],2)
+        self.assertEqual(one["snapshots_checked"],2)
+        self.assertTrue(one["repeated_snapshots_not_independent_evidence"])
+        self.assertEqual([r["passes"] for r in one["matches"]],[2,2])
+        self.assertEqual({r["source"]["revision"] for r in one["matches"]},
+                         {ORIGINAL})
+        self.assertNotIn("secret",str(one))
+        another=locate_job(self.archives,JOB_A)
+        self.assertEqual(another["count"],2)
+        self.assertEqual({r["job"]["source_id"] for r in another["matches"]},
+                         {SOURCE_A})
+        self.assertNotIn("notes",str(another))
+        missing=locate_job(self.archives,"f"*32)
+        self.assertEqual(missing["count"],0)
+        self.assertTrue(missing["complete_scan"])
+        with self.assertRaises(ValueError):
+            locate_source(self.archives,"not-a-source")
+        with self.assertRaises(ValueError):
+            locate_job(self.archives,"NOT-A-JOB")
+        # A single bad snapshot invalidates the whole catalog/search rather
+        # than creating a misleading incomplete archive history.
+        with first.open("ab") as output:
+            output.write(b"malicious append")
+        with self.assertRaises(ValueError):
+            locate_source(self.archives,SOURCE_A)
+        with self.assertRaises(ValueError):
+            locate_job(self.archives,JOB_A)
 
     def test_archive_mismatch_missing_or_unsafe_queries_reject(self):
         file=self.snapshot()
