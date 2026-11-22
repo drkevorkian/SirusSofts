@@ -187,7 +187,7 @@ This phase is separate from continuous inference.
 
 - [ ] Build curated training examples from verified, source-backed findings. **Partial (source, 2026-11-22):** The offline mechanics candidate builder selects only current human-supported original PDF quotations, rechecks them against the independent private PDF ingest catalog, preserves citation and applicability, and exports private source-grouped JSONL candidates. It does not approve individual training examples, cover other disciplines, or train weights.
 - [ ] Remove duplicated, contradictory, or unsupported training material. **Partial (source, 2026-11-22):** Numeric mechanics candidates skip duplicated same-scope properties, open conflicts, unreviewed drafts, mismatched original quotations, superseded claims and scope changes. Full-corpus near-duplicate filtering and semantic contradiction detection remain.
-- [ ] Establish evaluation datasets and regression benchmarks.
+- [ ] Establish evaluation datasets and regression benchmarks. **Partial (source, 2026-11-22):** Offline mechanics-only evaluation now generates separated private answer keys and held-out question sets from checksum-verified reviewed PDF candidates, and scores exact decimal values/units, application boundaries, original citations, abstentions and baseline-versus-candidate changes. Synthetic tests cover leakage, tampering, invalid values and unsafe applicability. No real model run, multi-domain benchmark, held-out programming/science reasoning, or live accuracy result is established.
 - [ ] Determine which locally supported models and hardware can handle adapter fine-tuning.
 - [ ] Evaluate LoRA/QLoRA or other practical fine-tuning methods. **Partial (source):** An offline opt-in QLoRA runner exists outside this autonomous service; no production training acceptance.
 - [ ] Train offline on controlled, versioned snapshots—not continuously on raw generated output.
@@ -196,6 +196,8 @@ This phase is separate from continuous inference.
 - [x] Keep fine-tuning disabled until separately approved.
 
 **New source-only increment:** [Reviewed training candidate utility and documented safety limits](REVIEWED_TRAINING_CANDIDATES.md). Default is read-only preview; explicit private output never changes the live database, training models or Ubuntu/Gentoo installations. A source-approved quotation is not yet a training-approved example and does not prove competency. No Phase E checkbox is newly closed.
+
+**Latest evaluation increment:** [Offline held-out mechanics benchmark](REVIEWED_TRAINING_CANDIDATES.md#held-out-mechanics-benchmark-source-only) and [synthetic scoring tests](../sirus-ai-dual-tunnel/tests/test_learning_eval.py) added in GitHub source only. Training remains disabled; questions and private answer keys are separated to prevent answer leakage, and no model has been scored. The evaluator currently measures reviewed numeric mechanics facts, not general comprehension.
 
 **Guiding principle:** Continuous inference and knowledge-base refinement come first. Model-weight training is a later, independently validated capability.
 
