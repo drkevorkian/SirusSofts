@@ -72,6 +72,26 @@ function cms_ai_continuous_payload(array $post,string $actor=''):array {
             'quiet_start_utc'=>$quietStart,
             'quiet_end_utc'=>$quietEnd,
             'target'=>$target,'model_id'=>$model];
+        // An older form omits these fields and preserves the current estimates.
+        if(array_key_exists('research_watts',$post)){
+            $watts=filter_var($post['research_watts'],FILTER_VALIDATE_INT);
+            if($watts===false||$watts<0||$watts>100000)
+                throw new InvalidArgumentException('Enter an estimated draw of 0–100000 watts.');
+            $data['value']['research_watts']=$watts;
+        }
+        if(array_key_exists('usd_kwh',$post)){
+            $price=$post['usd_kwh'];
+            if(!is_string($price)||($price!==''&&
+               !preg_match('/^(?:[0-9]|10)(?:\.[0-9]{1,6})?$/D',$price)))
+                throw new InvalidArgumentException('Enter USD per kWh to six decimal places.');
+            $micro=-1;
+            if($price!==''){
+                [$whole,$fraction]=array_pad(explode('.',$price,2),2,'');
+                $micro=(int)$whole*1000000+(int)str_pad($fraction,6,'0');
+            }
+            if($micro>10000000)throw new InvalidArgumentException('Maximum rate is 10 USD/kWh.');
+            $data['value']['rate_microusd_kwh']=$micro;
+        }
     }
     return $data;
 }
@@ -271,6 +291,16 @@ function cms_ai_continuous_panel(PDO $db):void {
           <td><?=cms_esc((string)($gpu['telemetry']??'unavailable'))?></td></tr>
         <?php endforeach;?></tbody></table></div>
       <?php endif; ?>
+      <?php $energy=$info['energy_7d']??[]; ?>
+      <h3>Background inference energy · last seven days</h3>
+      <p>Estimated <?=isset($energy['kwh'])?number_format((float)$energy['kwh'],6).' kWh':'energy unavailable'?>
+         across <?=(int)($energy['energy_samples']??0)?> attempts.
+         Estimated cost <?=isset($energy['usd'])?'$'.number_format((float)$energy['usd'],6):'unavailable'?>
+         across <?=(int)($energy['priced_samples']??0)?> priced attempts.</p>
+      <p><?=(int)($energy['timed']??0)?> timed of <?=(int)($energy['attempts']??0)?> started;
+         <?=(int)($energy['errors']??0)?> timed calls raised an error. Estimates use elapsed
+         model-call time and the power and rate saved when each attempt started.
+         Idle time, chat and attempts without an end time are excluded.</p>
       <p>Throughput (measured): <?=cms_esc((string)($throughput['passes_last_60_minutes']??0))?>
         completed passes in the last 60 minutes.
         Average inference latency:
@@ -402,6 +432,15 @@ function cms_ai_continuous_panel(PDO $db):void {
         <label>Max 1-minute CPU load (0 disables load check)
           <input type="number" name="max_cpu_load" min="0" max="1024" step="0.1"
             value="<?=cms_esc((string)($cfg['max_cpu_load']??0))?>">
+        </label>
+        <label>Estimated background inference draw in watts (0 means unknown)
+          <input type="number" name="research_watts" min="0" max="100000" required
+            value="<?=(int)($cfg['research_watts']??0)?>">
+        </label>
+        <label>Electricity rate in USD/kWh (blank means unknown)
+          <input type="number" name="usd_kwh" min="0" max="10" step="0.000001"
+            value="<?=($cfg['rate_microusd_kwh']??-1)>=0?
+                number_format($cfg['rate_microusd_kwh']/1000000,6,'.',''):''?>">
         </label>
         <label>Minimum available host RAM (MiB; 0 disables limit)
           <input type="number" name="min_available_ram_mib" min="0" max="1048576"

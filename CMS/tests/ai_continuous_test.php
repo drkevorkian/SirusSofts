@@ -19,6 +19,12 @@ continuous_check($parsed['value']['min_gpu_free_mib']===0,
     'Default VRAM guard remains optional and disabled');
 continuous_check($parsed['value']['max_database_mib']===0,
     'Private input database budget disabled by default');
+continuous_check(!array_key_exists('research_watts',$parsed['value']),'Older forms preserve energy settings');
+foreach(['0.129999'=>129999,'0'=>0,''=>-1] as $input=>$micros){
+    $estimate=cms_ai_continuous_payload($base+['research_watts'=>'250','usd_kwh'=>(string)$input]);
+    continuous_check($estimate['value']['research_watts']===250&&
+        $estimate['value']['rate_microusd_kwh']===$micros,'Exact rate and power assumptions');
+}
 $bounded=cms_ai_continuous_payload(array_replace($base,[
     'max_database_mib'=>'512']));
 continuous_check($bounded['value']['max_database_mib']===512,
@@ -100,6 +106,9 @@ foreach([
   array_replace($base,['min_gpu_free_mib'=>'-1']),
   array_replace($base,['min_gpu_free_mib'=>'1048577']),
   array_replace($base,['min_gpu_free_mib'=>'not-a-number']),
+  array_replace($base,['usd_kwh'=>'10.000001']),
+  array_replace($base,['usd_kwh'=>'1e5']),
+  array_replace($base,['research_watts'=>'-1']),
   array_replace($base,['max_database_mib'=>'-1']),
   array_replace($base,['max_database_mib'=>'1048577']),
   array_replace($base,['max_database_mib'=>'not-a-number']),

@@ -139,6 +139,11 @@ def init_schema(path):
           BEFORE DELETE ON cr_events BEGIN
             SELECT RAISE(ABORT,'Research audit cannot be deleted');
           END;
+        CREATE TABLE IF NOT EXISTS cr_energy_attempts (
+          attempt_id TEXT PRIMARY KEY, started REAL NOT NULL,
+          watts INTEGER NOT NULL, rate_microusd INTEGER NOT NULL,
+          duration_ms INTEGER, outcome TEXT NOT NULL DEFAULT 'open');
+        CREATE INDEX IF NOT EXISTS cr_energy_started ON cr_energy_attempts(started);
         CREATE TABLE IF NOT EXISTS cr_resource_samples (
           minute INTEGER PRIMARY KEY, queued INTEGER NOT NULL,
           leased INTEGER NOT NULL, failed INTEGER NOT NULL,
@@ -163,6 +168,8 @@ def init_schema(path):
         # Compatible with v1 private databases; never rebuild existing tables.
         cols={row[1] for row in db.execute("PRAGMA table_info(cr_config)")}
         for column,definition in (
+            ("research_watts","INTEGER NOT NULL DEFAULT 0"),
+            ("rate_microusd_kwh","INTEGER NOT NULL DEFAULT -1"),
             ("min_available_ram_mib","INTEGER NOT NULL DEFAULT 0"),
             ("min_gpu_free_mib","INTEGER NOT NULL DEFAULT 0"),
             ("max_database_mib","INTEGER NOT NULL DEFAULT 0"),
@@ -575,7 +582,7 @@ class ContinuousResearch:
                     "passes","model_id","target","revisit_seconds",
                     "max_cpu_load","max_chat_jobs","min_available_ram_mib",
                     "min_gpu_free_mib","max_database_mib",
-                    "quiet_start_utc","quiet_end_utc"}:
+                    "research_watts","rate_microusd_kwh","quiet_start_utc","quiet_end_utc"}:
                     raise ValueError("Invalid research settings")
                 if "quiet_start_utc" in value or "quiet_end_utc" in value:
                     if not {"quiet_start_utc","quiet_end_utc"} <= set(value):
@@ -600,6 +607,10 @@ class ContinuousResearch:
                     if key=="max_cpu_load" and (type(item) not in (int,float) or
                                                  not 0<=item<=1024):
                         raise ValueError("Invalid load limit")
+                    if key=="research_watts" and (type(item) is not int or not 0<=item<=100000):
+                        raise ValueError("Estimated inference watts must be 0..100000")
+                    if key=="rate_microusd_kwh" and (type(item) is not int or not -1<=item<=10000000):
+                        raise ValueError("Electricity rate outside supported range")
                     if key=="max_chat_jobs" and (type(item) is not int or
                                                  not 0<=item<=4):
                         raise ValueError("Invalid interactive queue budget")
@@ -902,6 +913,36 @@ class ContinuousResearch:
                 self._schedule(db,now)
             return True
 
+    def _start_energy_attempt(self, lease):
+        """Snapshot assumptions immediately before inference, once per live lease."""
+        now = time.time()
+        with connect(self.db_path) as db:
+            return db.execute("""INSERT INTO cr_energy_attempts(attempt_id,started,watts,rate_microusd)
+                SELECT ?,?,c.research_watts,c.rate_microusd_kwh
+                FROM cr_jobs j CROSS JOIN cr_config c
+                WHERE c.id=1 AND j.id=? AND j.token=? AND j.state='leased' AND j.lease_until>?
+                ON CONFLICT(attempt_id) DO NOTHING""",
+                (digest(lease["token"]),now,lease["id"],lease["token"],now)).rowcount == 1
+
+    def _end_energy_attempt(self, token, duration_ms, outcome):
+        with connect(self.db_path) as db:
+            db.execute("""UPDATE cr_energy_attempts SET duration_ms=?,outcome=?
+                WHERE attempt_id=? AND outcome='open'""",(duration_ms,outcome,digest(token)))
+
+    @staticmethod
+    def _energy_summary(db, now):
+        # 1 kWh = 3.6 billion watt-milliseconds. Use floating point only for
+        # aggregation/display to avoid overflowing SQLite's integer SUM.
+        return dict(db.execute("""SELECT COUNT(*) attempts,
+            COUNT(duration_ms) timed, COUNT(CASE WHEN outcome='error' THEN 1 END) errors,
+            COUNT(CASE WHEN watts>0 THEN duration_ms END) energy_samples,
+            COUNT(CASE WHEN watts>0 AND rate_microusd>=0 THEN duration_ms END) priced_samples,
+            SUM(CASE WHEN watts>0 THEN duration_ms*1.0*watts/3600000000 END) kwh,
+            SUM(CASE WHEN watts>0 AND rate_microusd>=0 THEN
+                duration_ms*1.0*watts/3600000000*rate_microusd/1000000 END) usd
+            FROM cr_energy_attempts WHERE started BETWEEN ? AND ?""",
+            (now-7*86400,now)).fetchone())
+
     def run_once(self, infer):
         """Run one bounded pass. Caller provides existing local llama.cpp router.
 
@@ -941,13 +982,20 @@ class ContinuousResearch:
                 append_for_section(messages, source=self.source,
                     index=self.index.with_name("manual_relationships.sqlite3"),
                     source_id=lease["source_id"], section=section)
+            if not self._start_energy_attempt(lease):
+                return False
             started=time.monotonic()
-            returned=infer(messages,lease["target"],lease["model_id"],lease["id"])
+            outcome="error"
+            try:
+                returned=infer(messages,lease["target"],lease["model_id"],lease["id"])
+                outcome="returned"
+            finally:
+                elapsed_ms=max(1,round((time.monotonic()-started)*1000))
+                self._end_energy_attempt(lease["token"],elapsed_ms,outcome)
             if not isinstance(returned,(tuple,list)) or len(returned) not in (2,3):
                 raise ValueError("Invalid inference worker response")
             answer,worker=returned[:2]
             tokens=returned[2] if len(returned)==3 else None
-            elapsed_ms=max(1,round((time.monotonic()-started)*1000))
             self.finish(lease,answer,worker,
                         duration_ms=min(elapsed_ms,86400000),
                         token_metrics=tokens)
@@ -1078,6 +1126,7 @@ class ContinuousResearch:
             if db.execute("""SELECT 1 FROM cr_resource_samples
                 WHERE minute=?""",(minute,)).fetchone():
                 return False
+            db.execute("DELETE FROM cr_energy_attempts WHERE started<?",(now-7*86400,))
             counts={r["state"]:r["n"] for r in db.execute(
                 "SELECT state,count(*) n FROM cr_jobs GROUP BY state")}
             db.execute("""INSERT INTO cr_resource_samples(
@@ -1159,6 +1208,7 @@ class ContinuousResearch:
                 FROM cr_results""").fetchone()
             completed_hour=db.execute("""SELECT count(*) FROM cr_results
                 WHERE created>=?""",(time.time()-3600,)).fetchone()[0]
+            energy=self._energy_summary(db,time.time())
             trend=db.execute("""SELECT minute,queued,leased,failed,
                 process_rss_mib,host_free_ram_mib,database_bytes
                 FROM cr_resource_samples
@@ -1200,7 +1250,7 @@ class ContinuousResearch:
                 "inventory":dict(source),"sections":dict(sections),
                 "cycle":dict(cycle) if cycle else None,
                 "cycle_progress":progress,"throughput":throughput,
-                "resource_history":history,
+                "resource_history":history,"energy_7d":energy,
                 "queued_growth_last_samples":queue_delta,
                 "active":dict(in_flight) if in_flight else None,
                 "interactive_jobs":chat,"cpu_load_1m":load,

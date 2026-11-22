@@ -169,3 +169,17 @@ Include its WAL-consistent backup in any authorized upgrade. Acceptance should
 cover two separate accounts, a rejected packet, concurrent votes, restored
 scope text under a newer revision and a revoked peer manual. Operators must
 verify identity independence and real corpus coverage on their systems.
+
+### Background inference energy estimates
+
+The continuous research settings accept estimated background inference watts
+and a USD/kWh electricity rate with up to six decimal places. Use a measured
+increment above idle if the estimate should reflect incremental operating cost.
+Zero watts disables energy estimation. A blank rate leaves cost unknown and a
+zero rate explicitly represents free electricity. Both assumptions are private
+and apply to subsequently started attempts. The dashboard shows attempts
+started in the last seven days, including timed worker errors. A process loss
+leaves an attempt without an end time. Energy is watts × elapsed milliseconds
+/ 3,600,000,000 in kWh. Source IO, interactive traffic and idle consumption
+fall outside this model. Acceptance on the Gentoo host requires comparison
+with an independent energy meter over a representative workload.

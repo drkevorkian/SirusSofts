@@ -55,6 +55,67 @@ class ContinuousResearchTests(unittest.TestCase):
         self.assertIn("[BEGIN UNTRUSTED SOURCE]",messages[1]["content"])
         return "Unverified analysis", "cpu"
 
+    def test_inference_energy_uses_attempt_start_settings_and_measured_time(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("configure",value={"research_watts":250,"rate_microusd_kwh":180000})
+        self.research.control("enable")
+        def infer(*args):
+            self.research.control("configure",value={"research_watts":500,"rate_microusd_kwh":0})
+            return "draft","cpu"
+        with patch("continuous_research.time.monotonic",side_effect=[100,3700]):
+            self.assertTrue(self.research.run_once(infer))
+        summary=self.research.status()["energy_7d"]
+        self.assertEqual((summary["attempts"],summary["timed"],summary["priced_samples"]),(1,1,1))
+        self.assertAlmostEqual(summary["kwh"],0.25)
+        self.assertAlmostEqual(summary["usd"],0.045)
+
+    def test_failed_unknown_free_and_interrupted_energy_attempts(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("enable")
+        def offline(*args):
+            raise RuntimeError("worker offline")
+        self.research.run_once(offline)
+        stats=self.research.status()["energy_7d"]
+        self.assertEqual((stats["errors"],stats["timed"],stats["priced_samples"]),(1,1,0))
+        self.assertIsNone(stats["kwh"])
+        self.assertIsNone(stats["usd"])
+        with connect(self.db) as db:
+            db.execute("UPDATE cr_jobs SET retry_at=0")
+        self.research.control("configure",value={"research_watts":100,"rate_microusd_kwh":0})
+        lease=self.research.claim()
+        self.assertTrue(self.research._start_energy_attempt(lease))
+        self.assertFalse(self.research._start_energy_attempt(lease))
+        # Reopening interrupted work preserves its unknown duration.
+        restarted=ContinuousResearch(self.db,self.pdf,self.base/"index.sqlite3")
+        stats=restarted.status()["energy_7d"]
+        self.assertEqual((stats["attempts"],stats["timed"]),(2,1))
+        self.assertIsNone(stats["usd"])
+        restarted._end_energy_attempt(lease["token"],3600000,"error")
+        restarted._end_energy_attempt(lease["token"],1,"returned")
+        stats=restarted.status()["energy_7d"]
+        self.assertEqual((stats["errors"],stats["priced_samples"],stats["usd"]),(2,1,0))
+        self.assertAlmostEqual(stats["kwh"],0.1)
+
+    def test_unpriced_energy_and_rolling_retention(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("configure",value={"research_watts":250})
+        self.research.control("enable")
+        self.research.run_once(self.run_result)
+        summary=self.research.status()["energy_7d"]
+        self.assertGreater(summary["kwh"],0)
+        self.assertIsNone(summary["usd"])
+        self.research.sample_resources(now=time.time()+8*86400)
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM cr_energy_attempts").fetchone()[0],0)
+            self.assertEqual(db.execute("SELECT count(*) FROM cr_results").fetchone()[0],1)
+        for field, value in (("rate_microusd_kwh",-2),("rate_microusd_kwh",10000001),
+                             ("research_watts",True),("research_watts",100001)):
+            with self.assertRaises(ValueError):
+                self.research.control("configure",value={field:value})
+
     def test_idempotent_migration_preserves_old_research(self):
         with connect(self.db) as con:
             con.execute("""INSERT INTO research_jobs(id,spec,target,model_id,state,
