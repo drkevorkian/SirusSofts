@@ -100,10 +100,15 @@ class ReviewedCandidateTests(unittest.TestCase):
         self.assertFalse(manifest["automatic_training"])
         self.assertTrue(manifest["requires_independent_training_approval"])
         self.assertEqual((self.private/candidates.FILES[0]).stat().st_mode & 0o777,0o600)
-        examples_train=load_examples(self.private/candidates.FILES[0])
-        examples_eval=load_examples(self.private/candidates.FILES[1])
-        verify_split(examples_train,examples_eval)
-        self.assertEqual(len(examples_train)+len(examples_eval),1)
+        # An unapproved reviewed-PDF candidate is NOT a training-approved
+        # example, even if its conversational structure would fit QLoRA.
+        candidate_path=(self.private/candidates.FILES[0]) if train else (self.private/candidates.FILES[1])
+        with self.assertRaisesRegex(ValueError,"Unapproved research candidate"):
+            load_examples(candidate_path)
+        # Independently approved CMS-style examples remain supported.
+        approved=self.private/"approved-cms.jsonl"
+        approved.write_text(json.dumps({"profile":"mechanics","messages":entry["messages"]})+"\\n")
+        self.assertEqual(len(load_examples(approved)),1)
         self.assertEqual(
             hashlib.sha256((self.private/candidates.FILES[0]).read_bytes()).hexdigest(),
             manifest["sha256_train"])
