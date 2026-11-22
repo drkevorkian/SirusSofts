@@ -132,3 +132,23 @@ No additional public route, network listener, worker service or model weight
 operation is introduced. Run the documented unit tests and a small
 administrator-selected reviewed-manual trial before considering wider use;
 never claim the source-only result is installed merely because CI is green.
+
+
+## Operator-seeded procedural discovery (new source, NOT deployed)
+
+`procedure_discovery.py` is included in the Gentoo in-place research
+module manifest. It reuses the existing private procedure-review queue
+database and the source-restricted CMS evidence applicability ledger in
+the Gentoo input SQLite database; no new credential or public API is
+introduced. The scanner remains dormant until a local operator seeds an
+exact approved PDF and procedure heading with a current six-part CMS-admin
+scope. The idle worker then scans at most four peer identifiers per cycle.
+New findings are **unreviewed suggestions**; acceptance is an explicit
+local operator action, separately revalidated against original PDFs.
+
+Do not use unreviewed or incomplete applicability declarations as fitment
+assertions. Confirm the original manuals, full model/year/engine/assembly/
+revision scope, reviewed approved status, index synchronization and a
+real small-corpus trial before enabling any live seed. Preserve private
+SQLite and original-PDF backups. This is a GitHub source addition only;
+it has not been installed or trialed on Ubuntu/Gentoo.

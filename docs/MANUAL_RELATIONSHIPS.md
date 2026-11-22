@@ -352,3 +352,81 @@ has been performed against the real library, nor has the queue been deployed
 to Gentoo/Ubuntu. Human review, approved application-scope evidence,
 complete semantic procedure understanding, real source-corpus acceptance,
 cross-document discovery, and operational load testing remain open.
+
+
+## Opt-in discovery of related original-PDF procedure evidence (source-only)
+
+`sirus-ai-dual-tunnel/gentoo/procedure_discovery.py` extends the existing
+persistent procedure-review queue with **private candidate discovery**, not
+automatic verification or accepted reviews. An authorized local operator must
+first choose an **exact approved PDF SHA-256 and exact indexed procedure
+heading** and opt in by registering a discovery seed. Without an explicit seed,
+the idle worker **does not create discovery tables or scan the corpus**.
+Seeds can be paused and resumed; pausing fences an in-flight worker.
+
+A seed is eligible only if the existing CMS-admin evidence scope ledger
+contains a **current, full, six-part** `make/model/year/engine/assembly/revision`
+application declaration for that PDF, with matching latest append-only
+scope-history revision made by a `cms-admin:...` actor and a current eligible,
+reviewed source inventory record. These declarations are **administrative
+assertions, not independent proof of vehicle fitment or the manual's real
+application**. Short/unknown scopes are not broadened or guessed.
+
+On each eligible idle inventory cycle, the worker finds at most **four
+other approved-PDF source IDs** with the **same exact indexed procedure
+heading**, moving through the candidate SHA keys with a durable cursor.
+It considers peers only if their full administratively declared scopes
+are an exact match. It rechecks approved original PDF heading citations
+and runs the bounded original-PDF procedure comparer on the selected pair.
+Only a **source-cited possible ordering disagreement** produces an
+unreviewed suggestion. A lexical heading match alone is **not** compatibility,
+service correctness, or a contradiction.
+
+Suggestions live in the separate owner-only private SQLite review database,
+are capped at **512 stored suggestions**, and never enter a model prompt,
+training export, approved knowledge table or review target automatically.
+A private local `suggestions` command revalidates selected original
+source citations, admin scopes and the current comparison fingerprint
+before displaying an eligible proposal. Revoked approvals, changed excerpts,
+incomplete index, revised scopes and invalid heading uniqueness render a
+proposal stale/unavailable. A separate **explicit local operator `accept`**
+command performs the same checks and atomically registers one candidate
+for the existing versioned procedure-review queue. This is not a CMS
+administrator UI, role-authenticated remote action or approved repair.
+
+Examples (illustrative identifiers; use actual private file paths and SHA
+values on a reviewed installation; no action is executed by GitHub commits):
+
+```bash
+# Operator opt-in: one chosen approved document and exact heading
+printf '%s\n' '{"source_id":"pdf:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","heading":"Removal of primary clutch"}' |
+  python3 sirus-ai-dual-tunnel/gentoo/procedure_discovery.py \
+    --queue /srv/sirussofts/storage/rag/procedure_reviews.sqlite3 \
+    --source /srv/sirussofts/storage/databases/pdf_ingest.sqlite3 \
+    --index /srv/sirussofts/storage/rag/manual_relationships.sqlite3 \
+    --research-db /var/lib/sirus-ai-dual/input.sqlite3 seed
+
+# Show candidate IDs after opt-in idle scans (no automatic acceptance)
+python3 sirus-ai-dual-tunnel/gentoo/procedure_discovery.py \
+    --queue /srv/sirussofts/storage/rag/procedure_reviews.sqlite3 \
+    --source /srv/sirussofts/storage/databases/pdf_ingest.sqlite3 \
+    --index /srv/sirussofts/storage/rag/manual_relationships.sqlite3 \
+    --research-db /var/lib/sirus-ai-dual/input.sqlite3 suggestions
+
+# After an operator reviews the original manuals and their scope:
+# use 'accept --id <suggestion-id>', or 'pause-seed --id <seed-id>'.
+```
+
+The existing inventory worker runs this scanner only when continuous research
+is enabled, interactive chat is idle, and an explicit discovery seed has
+been registered. It admits one seed and up to four candidate peers per cycle,
+with a 30-second continuation for larger peer sets, a 15-minute revisit
+after a completed sweep, and a short retry on unavailable source state.
+No additional service, network interface, web route or model call is added.
+
+**Remaining boundaries:** This discovers only literal heading matches among
+operator-scoped PDFs. It does not automatically discover every procedure,
+determine what a manual actually applies to, semantically equate different
+instructions, approve a contradiction, or schedule production repair work.
+Real Gentoo PDF-corpus acceptance, administrator UI, cross-source scope
+attestation and operational load tests remain open.

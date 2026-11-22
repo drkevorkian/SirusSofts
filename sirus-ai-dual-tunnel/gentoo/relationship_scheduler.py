@@ -28,3 +28,19 @@ def recheck_if_idle(*, enabled, interactive, source, index, queue, run=recheck_r
     if not enabled or interactive:
         return {"skipped": True, "reason": "disabled" if not enabled else "interactive"}
     return run(queue=queue, source=source, index=index)
+
+
+from procedure_discovery import scan_once as discover_registered
+
+def discover_if_idle(*, enabled, interactive, queue, source, index, research_db,
+                     run=discover_registered):
+    """Discover up to four same-scope candidate peers per explicitly opted-in seed.
+
+    No automatic review registration; CMS-admin scope is a declaration, not
+    confirmed applicability. Disabled/interactive work never invokes discovery.
+    """
+    if type(enabled) is not bool or type(interactive) is not bool:
+        raise ValueError("Controller and chat state must be explicit booleans")
+    if not enabled or interactive:
+        return {"skipped": True, "reason": "disabled" if not enabled else "interactive"}
+    return run(queue=queue,source=source,index=index,research_db=research_db)
