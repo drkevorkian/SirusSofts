@@ -1,18 +1,6 @@
 name: SirusSofts AI dual-tunnel validation
 
 on:
-  push:
-    paths:
-      - 'sirus-ai-dual-tunnel/**'
-      - 'gentoo-node/pdf_duplicate_audit.py'
-      - 'gentoo-node/tests/test_pdf_duplicate_audit.py'
-      - '.github/workflows/sirus-ai-dual-tunnel.yml'
-  pull_request:
-    paths:
-      - 'sirus-ai-dual-tunnel/**'
-      - 'gentoo-node/pdf_duplicate_audit.py'
-      - 'gentoo-node/tests/test_pdf_duplicate_audit.py'
-      - '.github/workflows/sirus-ai-dual-tunnel.yml'
   workflow_dispatch:
 
 jobs:

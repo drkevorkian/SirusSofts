@@ -1,34 +1,7 @@
 name: PHP framework checks
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'CMS/**'
-      - 'node/**'
-      - 'gentoo-node/**'
-      - 'sirus-ai-dual-tunnel/**'
-      - 'ubuntu-worker/**'
-      - 'deploy/**'
-      - 'docs/**'
-      - 'scripts/**'
-      - 'security/**'
-      - 'README.md'
-      - '.github/workflows/php-framework.yml'
-  pull_request:
-    paths:
-      - 'CMS/**'
-      - 'node/**'
-      - 'gentoo-node/**'
-      - 'sirus-ai-dual-tunnel/**'
-      - 'ubuntu-worker/**'
-      - 'deploy/**'
-      - 'docs/**'
-      - 'scripts/**'
-      - 'security/**'
-      - 'README.md'
-      - '.github/workflows/php-framework.yml'
   workflow_dispatch:
+
 jobs:
   php:
     runs-on: ubuntu-24.04

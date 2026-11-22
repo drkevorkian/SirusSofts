@@ -18,6 +18,7 @@ import learning_eval as benchmark
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
+SHA_C = "c" * 64
 SCOPE = "brp/defender/2026/hd11/clutch"
 REVIEWER = "cms-admin:1"
 
@@ -159,7 +160,7 @@ class ReviewedCandidateTests(unittest.TestCase):
 
     def test_reviewed_evidence_to_heldout_questions_end_to_end(self):
         # SHA_C is deliberately in the deterministic held-out source bucket.
-        self.add(C,quote="Rear axle torque: 52 Nm",value="52")
+        self.add(SHA_C,quote="Rear axle torque: 52 Nm",value="52")
         train, evaluation, counts = candidates.collect(self.input,self.pdf)
         self.assertEqual(len(evaluation),1)
         self.assertEqual(len(train),0)
