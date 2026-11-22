@@ -523,7 +523,16 @@ class Engine:
             self.stop.wait(30)
 
     def continuous_loop(self):
-        # A single, lower-priority private research worker. Disabled by default.
+        # Fixed bounded pool. The scheduler admits only the configured number
+        # of leases, defaults to one, and leaves excess threads idle.
+        workers = [threading.Thread(target=self._continuous_worker, daemon=True)
+                   for _ in range(4)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+
+    def _continuous_worker(self):
         while not self.stop.is_set():
             if not self.continuous.run_once(self._continuous_infer):
                 self.stop.wait(2)

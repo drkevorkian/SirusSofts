@@ -195,3 +195,15 @@ Interactive admission and the resource limits continue to apply. The normal
 mode after an in-place upgrade preserves the existing quiet-hour settings and
 has a disabled energy budget. Hardware calibration and live acceptance remain
 pending.
+
+### Bounded parallel research
+
+The scheduler supports one to four background inference leases and defaults
+to one for existing databases. The input service starts a fixed pool of four
+daemon workers. SQLite serializes lease claims and enforces the configured
+limit; lowering the limit prevents additional claims while already leased
+passes finish or are fenced by existing lease rules. Every pass still observes
+interactive-queue, resource, quiet-hour and energy admission. Higher
+concurrency can increase GPU/CPU contention and the daily energy estimate.
+Validate model-server behavior and interactive response time on Gentoo before
+raising the production setting.

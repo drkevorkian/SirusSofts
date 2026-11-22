@@ -11,7 +11,7 @@
 - **Ubuntu public CMS/gateway: NOT UPDATED for this roadmap.** The installed system still runs the pre-roadmap/older code. Changes committed to `main` are not present on that host.
 - **Gentoo AI/worker/research services: NOT UPDATED for this roadmap.** The installed system still runs older code; repository source changes and UI additions are not active there.
 - **No production inference loop, GPU admission change, training integration, new administrative learning panel, archive tool or database migration is claimed to be installed.** Whether any unrelated older features are running is not established here.
-- **GitHub checkboxes are source-development status only: 76/139 currently marked (the original 138 requirements plus one explicitly deferred final video milestone).** Production deployment is pending; Section 11 remains **0/12 live acceptance criteria verified**. A source checkmark does not establish that any feature has been deployed.
+- **GitHub checkboxes are source-development status only: 77/139 currently marked (the original 138 requirements plus one explicitly deferred final video milestone).** Production deployment is pending; Section 11 remains **0/12 live acceptance criteria verified**. A source checkmark does not establish that any feature has been deployed.
 - Before any implementation is marked **deployed**, record actual installed revisions on both hosts using read-only commands, compare against a reviewed and green pinned commit, prepare independent and verified backups (CMS, Gentoo input, PDF ingest), perform the approved in-place upgrade, check the private bridge key, and verify real endpoints and hardware. **Do not run the old full installers or apply unapproved upgrades.**
 
 ### Checklist rules
@@ -23,7 +23,7 @@
 - **No source or checklist update deploys servers.** In particular, the 32-byte private signed administrative bridge key still needs secure provisioning in an approved maintenance window. Model-weight training remains disabled.
 - **Git workflow:** The repository root README specifies `main` only; the original dedicated-development-branch requirement is superseded rather than performed. Keep history and rollbacks through normal reviewed commits.
 
-**Overall source checklist: 76 / 139 checked (54.7%).**
+**Overall source checklist: 77 / 139 checked (55.4%).**
 
 **Operator review consistency (source):** Local procedure discovery now honors immutable CMS rejections during listing and transactional acceptance. Safety-critical procedure controls remain partial. **74/139 complete.**
 
@@ -49,7 +49,7 @@
 | 4. Multi-pass reasoning | 4/12 | 8 |
 | 5. Verification and memory | 9/12 | 3 |
 | 6. Cross-document intelligence | 1/9 | 8 |
-| 7. Resource management | 8/11 | 3 |
+| 7. Resource management | 9/11 | 2 |
 | 8. Administrator dashboard | 15/15 | 0 |
 | 9. Safety and reliability | 7/12 | 5 |
 | 10. Optional model training | 1/9 | 8 |
@@ -157,7 +157,7 @@ For each selected document or document section:
 - [x] Detect available CPU, RAM, GPU, and VRAM resources. **Source implementation:** Linux logical CPU count, host MemAvailable and CPU load, AMD amdgpu sysfs and local NVIDIA nvidia-smi VRAM snapshots are available; missing/unsupported GPU counters are reported as unknown. Live GPU-driver acceptance is pending.
 - [x] Respect the existing Gentoo inference worker configuration.
 - [ ] Reserve resources for interactive chat and existing system services. **Partial (source):** New background work defers to chat and can require a minimum free VRAM threshold at admission for explicit AMD/NVIDIA targets. This is not a GPU allocation/reservation; it cannot preempt or isolate in-flight inference.
-- [ ] Allow configurable background inference concurrency.
+- [x] Allow configurable background inference concurrency. **Source implementation:** An administrator can configure one to four parallel research leases. The Gentoo service maintains a fixed four-thread pool, while atomic SQLite claims enforce the selected active limit. Existing installs default to one. Interactive queue and GPU/RAM admission gates apply to every lease. Hardware contention and live acceptance remain pending.
 - [x] Throttle research when resource utilization exceeds configured limits.
 - [x] Monitor memory consumption, inference latency, and queue growth. **Source implementation:** Measures the Gentoo input-service process RSS and host RAM; checkpointed pass inference latency; and durable per-minute queued/leased/failed counts with seven-day bounded telemetry and 60-sample admin history. Input-service RSS is not separate llama.cpp process memory or GPU allocation; real hardware acceptance remains in section 11.
 - [x] Track tokens processed per second and per research job. **Source implementation, 2026-11-22:** Local model-reported prompt/completion tokens and generation tokens/second are saved for each completed research pass and summarized per job in the signed admin status/history. Missing legacy/model usage remains unknown, never estimated from character length. Regression tests cover valid, invalid, and missing telemetry; live model/driver acceptance remains pending.

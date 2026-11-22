@@ -55,6 +55,29 @@ class ContinuousResearchTests(unittest.TestCase):
         self.assertIn("[BEGIN UNTRUSTED SOURCE]",messages[1]["content"])
         return "Unverified analysis", "cpu"
 
+    def test_configurable_background_lease_concurrency_and_default(self):
+        self.add_doc()
+        with sqlite3.connect(self.pdf) as db:
+            db.execute("INSERT INTO excerpts VALUES(?,?,?,?)",
+                       (SHA,3,1,"Another source section for bounded workers."))
+            db.execute("UPDATE documents SET excerpts=2 WHERE sha256=?",(SHA,))
+        self.research.inventory()
+        self.assertEqual(self.research.status()["config"]["background_concurrency"],1)
+        self.research.control("enable")
+        first=self.research.claim()
+        self.assertIsNotNone(first)
+        self.assertIsNone(self.research.claim())
+        self.research.control("configure",value={"background_concurrency":2})
+        second=self.research.claim()
+        self.assertIsNotNone(second)
+        self.assertNotEqual(first["id"],second["id"])
+        self.assertIsNone(self.research.claim())
+        self.research.control("configure",value={"background_concurrency":1})
+        self.assertIsNone(self.research.claim())
+        for bad in (0,5,True):
+            with self.assertRaises(ValueError):
+                self.research.control("configure",value={"background_concurrency":bad})
+
     def test_inference_energy_uses_attempt_start_settings_and_measured_time(self):
         self.add_doc()
         self.research.inventory()

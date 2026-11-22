@@ -11,6 +11,9 @@ $base=['operation'=>'configure','passes'=>'100','revisit_seconds'=>'3600',
        'max_chat_jobs'=>'0','max_cpu_load'=>'3.5',
        'target'=>'auto','model_id'=>'sirussofts-coder'];
 $parsed=cms_ai_continuous_payload($base);
+continuous_check($parsed['value']['background_concurrency']===1,'Safe default background concurrency');
+$parallel=cms_ai_continuous_payload($base+['background_concurrency'=>'4']);
+continuous_check($parallel['value']['background_concurrency']===4,'Bounded background concurrency');
 continuous_check($parsed['local_only']===true,'Local-only controller');
 continuous_check($parsed['value']['passes']===100,'100 bounded analysis passes');
 continuous_check($parsed['value']['max_cpu_load']===3.5,'Load limit parsed');
@@ -111,6 +114,8 @@ foreach([
   array_replace($base,['min_gpu_free_mib'=>'1048577']),
   array_replace($base,['min_gpu_free_mib'=>'not-a-number']),
   array_replace($base,['usd_kwh'=>'10.000001']),
+  array_replace($base,['background_concurrency'=>'0']),
+  array_replace($base,['background_concurrency'=>'5']),
   array_replace($base,['usd_kwh'=>'1e5']),
   array_replace($base,['daily_energy_wh'=>'-1']),
   ['operation'=>'power_override','minutes'=>'15'],

@@ -65,6 +65,7 @@ def init_schema(path):
           revisit_seconds INTEGER NOT NULL DEFAULT 86400,
           max_cpu_load REAL NOT NULL DEFAULT 0,
           max_chat_jobs INTEGER NOT NULL DEFAULT 0,
+          background_concurrency INTEGER NOT NULL DEFAULT 1 CHECK(background_concurrency BETWEEN 1 AND 4),
           min_available_ram_mib INTEGER NOT NULL DEFAULT 0,
           min_gpu_free_mib INTEGER NOT NULL DEFAULT 0,
           max_database_mib INTEGER NOT NULL DEFAULT 0,
@@ -168,6 +169,7 @@ def init_schema(path):
         # Compatible with v1 private databases; never rebuild existing tables.
         cols={row[1] for row in db.execute("PRAGMA table_info(cr_config)")}
         for column,definition in (
+            ("background_concurrency","INTEGER NOT NULL DEFAULT 1 CHECK(background_concurrency BETWEEN 1 AND 4)"),
             ("daily_energy_wh","INTEGER NOT NULL DEFAULT 0"),
             ("power_override_until","REAL NOT NULL DEFAULT 0"),
             ("research_watts","INTEGER NOT NULL DEFAULT 0"),
@@ -611,7 +613,7 @@ class ContinuousResearch:
             elif action == "configure":
                 if not isinstance(value,dict) or not value or not set(value) <= {
                     "passes","model_id","target","revisit_seconds",
-                    "max_cpu_load","max_chat_jobs","min_available_ram_mib",
+                    "max_cpu_load","max_chat_jobs","background_concurrency","min_available_ram_mib",
                     "min_gpu_free_mib","max_database_mib",
                     "research_watts","rate_microusd_kwh","daily_energy_wh","quiet_start_utc","quiet_end_utc"}:
                     raise ValueError("Invalid research settings")
@@ -644,6 +646,8 @@ class ContinuousResearch:
                         raise ValueError("Estimated inference watts must be 0..100000")
                     if key=="rate_microusd_kwh" and (type(item) is not int or not -1<=item<=10000000):
                         raise ValueError("Electricity rate outside supported range")
+                    if key=="background_concurrency" and (type(item) is not int or not 1<=item<=4):
+                        raise ValueError("Background concurrency must be 1..4")
                     if key=="max_chat_jobs" and (type(item) is not int or
                                                  not 0<=item<=4):
                         raise ValueError("Invalid interactive queue budget")
@@ -811,7 +815,8 @@ class ContinuousResearch:
                 db_bytes>=conf["max_database_mib"]*1048576):
                 return None
             self._schedule(db,now)
-            if db.execute("SELECT 1 FROM cr_jobs WHERE state='leased' LIMIT 1").fetchone():
+            active_background=db.execute("SELECT count(*) FROM cr_jobs WHERE state='leased'").fetchone()[0]
+            if active_background>=conf["background_concurrency"]:
                 return None
             if db.execute("""SELECT count(*) FROM jobs
                 WHERE state IN ('queued','running')""").fetchone()[0] > conf["max_chat_jobs"]:

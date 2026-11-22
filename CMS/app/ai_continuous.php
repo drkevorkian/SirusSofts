@@ -48,6 +48,7 @@ function cms_ai_continuous_payload(array $post,string $actor=''):array {
         $passes=filter_var($post['passes']??null,FILTER_VALIDATE_INT);
         $interval=filter_var($post['revisit_seconds']??null,FILTER_VALIDATE_INT);
         $chat=filter_var($post['max_chat_jobs']??null,FILTER_VALIDATE_INT);
+        $concurrency=filter_var($post['background_concurrency']??'1',FILTER_VALIDATE_INT);
         $load=$post['max_cpu_load']??null;
         $ram=filter_var($post['min_available_ram_mib']??'0',FILTER_VALIDATE_INT);
         $vram=filter_var($post['min_gpu_free_mib']??'0',FILTER_VALIDATE_INT);
@@ -59,6 +60,7 @@ function cms_ai_continuous_payload(array $post,string $actor=''):array {
         if($passes===false||$passes<1||$passes>100||
            $interval===false||$interval<60||$interval>604800||
            $chat===false||$chat<0||$chat>4||
+           $concurrency===false||$concurrency<1||$concurrency>4||
            $ram===false||$ram<0||$ram>1048576||
            $vram===false||$vram<0||$vram>1048576||
            $dbCeiling===false||$dbCeiling<0||$dbCeiling>1048576||
@@ -74,7 +76,7 @@ function cms_ai_continuous_payload(array $post,string $actor=''):array {
                '#^[a-zA-Z0-9][a-zA-Z0-9_.:+/-]{0,127}$#D',$model))
             throw new InvalidArgumentException('Invalid continuous research settings.');
         $data['value']=['passes'=>$passes,'revisit_seconds'=>$interval,
-            'max_chat_jobs'=>$chat,'max_cpu_load'=>(float)$load,
+            'max_chat_jobs'=>$chat,'background_concurrency'=>$concurrency,'max_cpu_load'=>(float)$load,
             'min_available_ram_mib'=>$ram,'min_gpu_free_mib'=>$vram,
             'max_database_mib'=>$dbCeiling,
             'quiet_start_utc'=>$quietStart,
@@ -446,6 +448,8 @@ function cms_ai_continuous_panel(PDO $db):void {
           <?php endif;?></td></tr>
       <?php endforeach;?></tbody></table></div>
       <h3>Background scheduling and admission limits</h3>
+      <p>Concurrent research passes can increase CPU, GPU and memory use. The
+      scheduler remains capped at four workers, and interactive chat keeps priority.</p>
       <form method="post" action="/admin/ai">
         <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
         <input type="hidden" name="action" value="ai_continuous">
@@ -456,6 +460,10 @@ function cms_ai_continuous_panel(PDO $db):void {
         <label>Revisit interval (seconds; 60–604800)
           <input type="number" name="revisit_seconds" min="60" max="604800"
             value="<?=cms_esc((string)($cfg['revisit_seconds']??86400))?>">
+        </label>
+        <label>Concurrent background inference passes (1–4)
+          <input type="number" name="background_concurrency" min="1" max="4"
+            value="<?=(int)($cfg['background_concurrency']??1)?>">
         </label>
         <label>Maximum active/queued interactive jobs before deferring research
           <input type="number" name="max_chat_jobs" min="0" max="4"
