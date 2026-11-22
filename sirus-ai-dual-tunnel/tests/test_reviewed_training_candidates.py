@@ -85,7 +85,7 @@ class ReviewedCandidateTests(unittest.TestCase):
         self.assertEqual(train + evaluation, [])
         self.assertEqual(counts["unique_source_backed_candidates"],0)
 
-    def test_reviewed_quote_rechecked_and_qlora_format_is_compatible(self):
+    def test_reviewed_quote_is_candidate_only_until_approved(self):
         self.add()
         train, evaluation, counts = candidates.collect(self.input,self.pdf)
         self.assertEqual(len(train) + len(evaluation),1)
@@ -107,7 +107,7 @@ class ReviewedCandidateTests(unittest.TestCase):
             load_examples(candidate_path)
         # Independently approved CMS-style examples remain supported.
         approved=self.private/"approved-cms.jsonl"
-        approved.write_text(json.dumps({"profile":"mechanics","messages":entry["messages"]})+"\\n")
+        approved.write_text(json.dumps({"profile":"mechanics","messages":entry["messages"]})+"\n")
         self.assertEqual(len(load_examples(approved)),1)
         self.assertEqual(
             hashlib.sha256((self.private/candidates.FILES[0]).read_bytes()).hexdigest(),
