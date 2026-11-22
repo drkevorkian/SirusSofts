@@ -9,6 +9,7 @@ function cms_ai_expertise():array {
     return [
         'coding'=>'Coding',
         'science'=>'Science',
+        'mathematics'=>'Mathematics',
         'physics'=>'Physics',
         'time'=>'Time',
         'relativity'=>'Relativity',
@@ -17,17 +18,17 @@ function cms_ai_expertise():array {
     ];
 }
 function cms_ai_schema(PDO $db):void {
-    // Upgrade the original three-choice CHECK without discarding any existing rows.
+    // Upgrade old three- or seven-profile CHECK constraints without discarding saved rows.
     // Parent is replaced under foreign_keys=OFF; children still reference the same name.
     $sql=(string)$db->query("SELECT sql FROM sqlite_master WHERE type='table' AND name='cms_ai_profiles'")->fetchColumn();
-    if($sql!==''&&!str_contains($sql,"'mechanics'")){
+    if($sql!==''&&!str_contains($sql,"'mathematics'")){
         if($db->inTransaction())throw new RuntimeException('AI expertise migration requires no active transaction.');
         $fk=(int)$db->query('PRAGMA foreign_keys')->fetchColumn();
         $db->exec('PRAGMA foreign_keys=OFF');
         try{
             $db->beginTransaction();
             $db->exec("CREATE TABLE cms_ai_profiles_rebuild (
-                slug TEXT PRIMARY KEY CHECK(slug IN ('coding','science','physics','time','relativity','finance','mechanics')),
+                slug TEXT PRIMARY KEY CHECK(slug IN ('coding','science','mathematics','physics','time','relativity','finance','mechanics')),
                 title TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)))");
             $db->exec('INSERT INTO cms_ai_profiles_rebuild(slug,title,enabled)
                 SELECT slug,title,enabled FROM cms_ai_profiles');
@@ -42,7 +43,7 @@ function cms_ai_schema(PDO $db):void {
             throw new RuntimeException('AI expertise migration foreign-key validation failed.');
     }
     $db->exec("CREATE TABLE IF NOT EXISTS cms_ai_profiles (
-        slug TEXT PRIMARY KEY CHECK(slug IN ('coding','science','physics','time','relativity','finance','mechanics')),
+        slug TEXT PRIMARY KEY CHECK(slug IN ('coding','science','mathematics','physics','time','relativity','finance','mechanics')),
         title TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)))");
     $db->exec("CREATE TABLE IF NOT EXISTS cms_ai_documents (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -306,7 +307,7 @@ function cms_ai_page(PDO $db,?string $error=null):void {
     if($flash)echo '<div class="flash-message">'.cms_esc($flash['message']??'').'</div>';
     ?>
     <div class="admin-panel"><h2>Private specialization library</h2>
-      <p>Curate reviewed sources and verified examples for seven expertise areas including finance and mechanics. This page never sends files to Gentoo, trains weights, or executes remote code.</p>
+      <p>Curate reviewed sources and verified examples across eight expertise areas, including mechanics, coding, science, and mathematics. This page never sends files to Gentoo, trains weights, or executes remote code.</p>
       <p class="muted">Exports include reviewed items from enabled profiles only. Evaluation questions are withheld from training exports.</p>
       <div class="form-actions">
         <?php foreach(['knowledge'=>'Knowledge for RAG','train'=>'LoRA training','eval'=>'Held-out evaluation'] as $kind=>$label):?>
