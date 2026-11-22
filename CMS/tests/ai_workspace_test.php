@@ -76,7 +76,8 @@ $db->exec("INSERT INTO cms_ai_category_public(profile,enabled) VALUES('mechanics
 check(count(cms_ai_allowed_profiles($db,$guest))===1,'Admin publication gates guest categories');
 $db->exec("INSERT INTO cms_ai_category_grants(viewer_id,profile) VALUES(1,'physics')");
 check(count(cms_ai_allowed_profiles($db,$member))===2,'User grants and public categories');
-check(count(cms_ai_allowed_profiles($db,$admin))===7,'Admin sees all categories');
+check(count(cms_ai_allowed_profiles($db,$admin))===count(cms_ai_expertise()),
+    'Admin sees all configured categories');
 $db->prepare("INSERT INTO cms_ai_document_objects(sha256,bytes,profile,status,created_at)
    VALUES(?,100,'mechanics','parsed',?)")->execute([str_repeat('a',64),$now]);
 $object=(int)$db->lastInsertId();
