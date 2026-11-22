@@ -6,6 +6,7 @@ workflow. Archived drafts, original citations, human review and immutable audit
 history are never pruned, promoted into RAG, or sent over the network here.
 """
 import argparse
+from contextlib import contextmanager
 import json
 from pathlib import Path
 import re
@@ -25,14 +26,18 @@ def _limit(value, label, maximum):
     return value
 
 
+@contextmanager
 def _readonly(snapshot):
     # Snapshot verification takes place before this URI is constructed.
     # immutable=1 prevents WAL/SHM creation against an archived copy.
     uri = "file:" + quote(str(snapshot), safe="/") + "?mode=ro&immutable=1"
     db = sqlite3.connect(uri, uri=True, timeout=15)
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA query_only=ON")
-    return db
+    try:
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA query_only=ON")
+        yield db
+    finally:
+        db.close()
 
 
 def catalog(archive_directory):
