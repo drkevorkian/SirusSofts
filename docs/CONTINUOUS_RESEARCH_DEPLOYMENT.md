@@ -2,6 +2,10 @@
 
 This document is a **future operator runbook**. A GitHub commit and green CI are NOT deployment or permission to restart live services.
 
+**Current installed-state warning (user-confirmed, 2026-11-22):** Both Ubuntu and Gentoo still run older code from before this continuous-research development effort. None of the roadmap commits, including the newer CMS learning-readiness view and subject-profile updates, are known to be deployed. No host revision was independently queried. Do not attempt new UI/API features against the existing live installations and do not treat source checklist completion as live acceptance.
+
+**Before Stage 0 leads to an apply:** first identify the installed CMS and Gentoo worker revisions read-only, review the upgrade path from those exact versions, establish and test independent backups of the Ubuntu CMS, Gentoo input SQLite, and PDF ingest database, verify storage and the private HMAC bridge key, then pin a final commit with passing CI. Plan/inspection alone does not authorize upgrades. All deploys and service restarts require separate operator approval.
+
 ## Stage 0: Pin and verify
 
 1. Record a reviewed main commit SHA from GitHub. Confirm both PHP framework checks and SirusSofts AI dual-tunnel validation are green for **that SHA**.
