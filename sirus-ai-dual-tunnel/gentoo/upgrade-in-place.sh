@@ -17,7 +17,7 @@ db="/var/lib/sirus-ai-dual/input.sqlite3"
 [[ -e /etc/init.d/sirus-ai-input && -f /etc/sirus-ai-dual/secret ]] ||
   fail 'Expected installed input service and secret missing'
 python3 -m py_compile "$src"
-research_modules=(research_loop.py continuous_research.py research_evidence.py research_admin_auth.py research_archive.py research_cold_history.py manual_relationships.py manual_relationship_index.py manual_relationship_context.py manual_relationship_compare.py relationship_scheduler.py feasibility_review.py web_source_summary.py web_research.py manual_summary.py)
+research_modules=(research_loop.py continuous_research.py research_evidence.py research_admin_auth.py research_archive.py research_cold_history.py manual_relationships.py manual_relationship_index.py manual_relationship_context.py manual_relationship_compare.py manual_procedure_dependencies.py relationship_scheduler.py feasibility_review.py web_source_summary.py web_research.py manual_summary.py)
 for file in "${research_modules[@]}"; do
   research_src="$source_dir/sirus-ai-dual-tunnel/gentoo/$file"
   research_dest="/opt/sirus-ai-dual/gentoo/$file"

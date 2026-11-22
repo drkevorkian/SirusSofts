@@ -198,3 +198,84 @@ API or admin-panel route and is **not** automatically used to broaden
 an autonomous research job beyond its selected manual. Authenticated,
 explicit cross-document workflows, full semantic/procedural reasoning,
 real PDF-corpus acceptance and live safety validation remain open.
+
+
+## Original-PDF procedural dependency and order review (source-only)
+
+The read-only `sirus-ai-dual-tunnel/gentoo/manual_procedure_dependencies.py`
+now accepts 1–8 **explicit SHA-256 approved PDF selections**, each with one
+**exact indexed procedure heading** and a complete **operator-declared**
+manufacturer/model/year/engine/revision/application scope. It never discovers
+or widens a vehicle application by filename, model output, or shared part number.
+
+The analyzer revalidates each selected heading against the original approved
+PDF catalog and the fresh private relationship index. It reads only the
+**same page/part excerpt** containing that unique heading, stopping at the
+next recognized unnumbered procedure/system heading. Limits are 160 lines,
+12,000 characters, 32 strictly consecutive numbered steps, and 16 explicit
+temporal relationships per selected excerpt. Ambiguous headings, missing or
+revoked approvals, stale index revisions, numbering gaps and exceeded limits
+**fail closed** without presenting partial comparisons.
+
+It records source/page/part, full printed quote and SHA-256 of each detected
+numbered step, along with narrowly formatted temporal clauses:
+
+- `Before [dependent action], [prerequisite action].`
+- `After [prerequisite action], [dependent action].`
+- `Do not [dependent action] until [prerequisite action].`
+
+These are **printed ordering candidates**, not independently established
+safety prerequisites. The wording is not rewritten as instructions for
+performing a repair. Other natural-language phrasing, diagrams, sidebars and
+steps split across PDF excerpts are not interpreted.
+
+For explicitly selected pairs with **identical declared equipment scope**
+and **identical heading text**, the tool flags `possible_numbered_order_disagreement`
+only when **two uniquely repeated exact step-action sentences** are printed
+in opposite numbered order, or `possible_explicit_order_disagreement`
+when the **same two exact phrases** appear in opposite temporal directions.
+Each candidate carries quotations from both sources. Any year, engine, model,
+revision or application difference results in `different_declared_scope`
+rather than a contradiction. Differing headings are not compared. At most
+48 candidates per selected pair are allowed; exceeding the cap fails closed.
+
+The response always declares `procedure_coverage_complete=false`: a
+source-checked excerpt is **not** the whole manual or a validated procedure.
+Matching instructions do not prove actual fitment, correct torque or
+service safety; no candidate does not mean the manuals agree. Scanned figures,
+unindexed procedures and application-specific conditions still require human
+inspection. The module is **offline only**: no authenticated website route,
+automatic cross-document expansion in the LLM, database writes, training,
+or production installation. It is listed in the Gentoo reviewed in-place
+upgrade manifest but the upgrade is **not run**.
+
+Example request (replace SHA placeholders with real approved private IDs):
+
+```bash
+python3 sirus-ai-dual-tunnel/gentoo/manual_procedure_dependencies.py \
+  --source /path/to/private/pdf_ingest.sqlite3 \
+  --index /path/to/private/manual_relationships.sqlite3 <<'JSON'
+{
+  "selections": [
+    {
+      "source_id": "pdf:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "heading": "removal of primary clutch",
+      "scope": {"manufacturer":"BRP","model":"Defender","year":2026,
+                "engine":"HD10","revision":"A","application":"Primary clutch"}
+    },
+    {
+      "source_id": "pdf:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "heading": "removal of primary clutch",
+      "scope": {"manufacturer":"BRP","model":"Defender","year":2026,
+                "engine":"HD10","revision":"A","application":"Primary clutch"}
+    }
+  ]
+}
+JSON
+```
+
+Synthetic regression coverage lives in
+`sirus-ai-dual-tunnel/tests/test_manual_procedure_dependencies.py` and
+the dependency-manifest test. Full procedural semantics, verified application
+scope, lifecycle tracking and automatic revisiting of unresolved dependency
+candidates remain **unchecked roadmap requirements**.

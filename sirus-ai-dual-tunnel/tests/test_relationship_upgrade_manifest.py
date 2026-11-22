@@ -14,7 +14,8 @@ class ManifestTests(unittest.TestCase):
         expected = {
             "continuous_research.py", "manual_relationships.py",
             "manual_relationship_index.py", "manual_relationship_context.py",
-            "manual_relationship_compare.py", "relationship_scheduler.py",
+            "manual_relationship_compare.py", "manual_procedure_dependencies.py",
+            "relationship_scheduler.py",
             "feasibility_review.py", "research_evidence.py",
         }
         self.assertFalse(expected - shipped, "Modules not included in upgrade: " +
