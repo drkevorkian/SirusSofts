@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 import sys
 
-PROFILES = ("all", "coding", "physics", "time")
+PROFILES = ("all", "coding", "science", "mathematics", "physics", "time", "relativity", "finance", "mechanics")
 MAX_DATASET_BYTES = 128 * 1024 * 1024
 MAX_ROWS = 100000
 
