@@ -93,6 +93,42 @@ def _catalog(root):
     return catalog, duplicates, errors
 
 
+
+def _canonical_integrity(root, catalog):
+    """Read-only stat of every indexed object; never follow symlinks or trust paths."""
+    problems = []
+    matched = 0
+    for digest, row in catalog.items():
+        rel = row['object_rel']
+        parts = Path(rel).parts
+        if (not isinstance(rel, str) or Path(rel).is_absolute()
+                or len(parts) < 3 or parts[:2] != ('manuals', 'objects')
+                or any(p in ('', '.', '..') for p in parts)
+                or '\\' in rel):
+            problems.append({'type': 'invalid_canonical_path', 'sha256': digest})
+            continue
+        path = root
+        try:
+            for name in parts[:-1]:
+                path = path / name
+                if path.is_symlink():
+                    raise ValueError("Canonical object parent is a symlink")
+            path = path / parts[-1]
+            info = path.lstat()
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError("Canonical object is not a regular file")
+            if info.st_size != row['bytes']:
+                problems.append({'type': 'canonical_size_mismatch', 'sha256': digest,
+                                 'catalog_bytes': row['bytes'], 'disk_bytes': info.st_size})
+            else:
+                matched += 1
+        except FileNotFoundError:
+            problems.append({'type': 'missing_canonical_object', 'sha256': digest})
+        except (OSError, ValueError):
+            problems.append({'type': 'unsafe_or_inaccessible_canonical_object',
+                             'sha256': digest})
+    return matched, problems
+
 def _inbox(root):
     inbox = root / 'manuals' / 'inbox'
     if (root / 'manuals').is_symlink() or not inbox.is_dir() or inbox.is_symlink():
@@ -130,10 +166,14 @@ def _inbox(root):
 def audit(root, *, include_inbox=True):
     root = _root(root)
     catalog, events, problems = _catalog(root)
+    canonical_matched, canonical_problems = _canonical_integrity(root, catalog)
+    problems.extend(canonical_problems)
     staged, scanned = {}, 0
     if include_inbox:
         staged, errors, scanned = _inbox(root)
         problems.extend(errors)
+    unindexed = [{'sha256': digest, 'paths': sorted(paths)}
+                 for digest, paths in sorted(staged.items()) if digest not in catalog]
     results = []
     for digest in sorted(set(catalog) | set(staged)):
         names = events.get(digest, [])
@@ -150,11 +190,16 @@ def audit(root, *, include_inbox=True):
             'mode': 'read_only_no_deletion',
             'scope': 'canonical_ingest_catalog_and_historical_duplicate_events_and_optional_staged_inbox',
             'canonical_objects_hash_reverified': False,
+            'canonical_objects_size_and_type_checked': True,
+            'unindexed_staged_pdfs': unindexed,
             'inbox_scanned': include_inbox,
             'complete': not problems,
             'summary': {'catalog_unique_pdf_objects': len(catalog),
                         'historical_duplicate_uploads': sum(map(len, events.values())),
                         'staged_pdfs_encountered': scanned,
+                        'canonical_objects_metadata_matched': canonical_matched,
+                        'canonical_objects_missing_or_unsafe': len(canonical_problems),
+                        'uncatalogued_staged_pdfs': sum(len(item['paths']) for item in unindexed),
                         'duplicate_groups': len(results),
                         'unverified_or_skipped_entries': len(problems)},
             'groups': results, 'problems': problems}

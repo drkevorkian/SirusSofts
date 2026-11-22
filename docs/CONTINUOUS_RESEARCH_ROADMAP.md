@@ -11,7 +11,7 @@
 - **Ubuntu public CMS/gateway: NOT UPDATED for this roadmap.** The installed system still runs the pre-roadmap/older code. Changes committed to `main` are not present on that host.
 - **Gentoo AI/worker/research services: NOT UPDATED for this roadmap.** The installed system still runs older code; repository source changes and UI additions are not active there.
 - **No production inference loop, GPU admission change, training integration, new administrative learning panel, archive tool or database migration is claimed to be installed.** Whether any unrelated older features are running is not established here.
-- **GitHub checkboxes are source-development status only: 73/138 currently marked.** Production deployment is pending; Section 11 remains **0/12 live acceptance criteria verified**. This is not equivalent to 73 deployed features.
+- **GitHub checkboxes are source-development status only: 74/138 currently marked.** Production deployment is pending; Section 11 remains **0/12 live acceptance criteria verified**. This is not equivalent to 73 deployed features.
 - Before any implementation is marked **deployed**, record actual installed revisions on both hosts using read-only commands, compare against a reviewed and green pinned commit, prepare independent and verified backups (CMS, Gentoo input, PDF ingest), perform the approved in-place upgrade, check the private bridge key, and verify real endpoints and hardware. **Do not run the old full installers or apply unapproved upgrades.**
 
 ### Checklist rules
@@ -22,7 +22,7 @@
 - **No source or checklist update deploys servers.** In particular, the 32-byte private signed administrative bridge key still needs secure provisioning in an approved maintenance window. Model-weight training remains disabled.
 - **Git workflow:** The repository root README specifies `main` only; the original dedicated-development-branch requirement is superseded rather than performed. Keep history and rollbacks through normal reviewed commits.
 
-**Overall source checklist: 73 / 138 checked (52.9%).** This is development progress, **not production readiness**.
+**Overall source checklist: 74 / 138 checked (53.6%).** This is development progress, **not production readiness**.
 
 | Section | Source-complete | Still open |
 |---|---:|---:|
@@ -32,7 +32,7 @@
 | 4. Multi-pass reasoning | 4/12 | 8 |
 | 5. Verification and memory | 9/12 | 3 |
 | 6. Cross-document intelligence | 1/9 | 8 |
-| 7. Resource management | 5/11 | 6 |
+| 7. Resource management | 6/11 | 5 |
 | 8. Administrator dashboard | 15/15 | 0 |
 | 9. Safety and reliability | 7/12 | 5 |
 | 10. Optional model training | 1/9 | 8 |
@@ -62,7 +62,7 @@
 - [x] Identify duplicate files through content hashes. **Source implementation, 2026-11-22:** The existing PDF ingestion identifies identical uploaded bytes by SHA-256; the new [private read-only duplicate audit](PDF_DUPLICATE_AUDIT.md) reports the canonical stored digest, historical duplicate-upload events, and byte-identical staged PDFs (including matching canonical hashes). Six synthetic tests passed locally; the GitHub workflow now includes the new suite, but its result is not yet confirmed. The documented policy never deletes canonical files, merges near-duplicates, or grants model training. **Scope:** current Gentoo PDF library; other document formats remain under the separate general-inventory item. Live corpus acceptance remains open.
 - [x] Maintain source IDs, page numbers, document versions, timestamps, and extraction status.
 - [x] Detect additions, deletions, and changed source content.
-- [ ] Track inaccessible or incompletely extracted files. **Partial (source):** Failed/zero-text ingestion records are counted; files absent from the catalog are not enumerated.
+- [ ] Track inaccessible or incompletely extracted files. **Partial (source):** Failed/zero-text ingestion records are counted; the private read-only PDF audit now checks cataloged canonical object presence, file type, size and symlink safety, and separately lists unindexed staged PDFs. It does not yet inventory unindexed files outside the inbox, perform OCR validation, or cover all knowledge formats.
 - [x] Queue previously unprocessed material.
 - [x] Record the last successful analysis of every eligible section.
 - [x] Provide administrator controls for excluding sources or selecting research priorities.
@@ -140,7 +140,7 @@ For each selected document or document section:
 - [ ] Allow configurable background inference concurrency.
 - [x] Throttle research when resource utilization exceeds configured limits.
 - [x] Monitor memory consumption, inference latency, and queue growth. **Source implementation:** Measures the Gentoo input-service process RSS and host RAM; checkpointed pass inference latency; and durable per-minute queued/leased/failed counts with seven-day bounded telemetry and 60-sample admin history. Input-service RSS is not separate llama.cpp process memory or GPU allocation; real hardware acceptance remains in section 11.
-- [ ] Track tokens processed per second and per research job.
+- [x] Track tokens processed per second and per research job. **Source implementation, 2026-11-22:** Local model-reported prompt/completion tokens and generation tokens/second are saved for each completed research pass and summarized per job in the signed admin status/history. Missing legacy/model usage remains unknown, never estimated from character length. Regression tests cover valid, invalid, and missing telemetry; live model/driver acceptance remains pending.
 - [ ] Prevent uncontrolled database growth through configurable retention and archival. **Partial (source):** A manual WAL-consistent private snapshot/restore utility and a verified read-only cold-history catalog, source/job locator and bounded provenance browser are implemented and tested. The private SQLite admission ceiling blocks new background work near a configured footprint threshold; operational telemetry expires after seven days. A metadata-only offline retention preview **does not authorize any pruning**. Selective offload/deletion with recoverable primary indexes, archive capacity limits, independent PDF-ingest backups and live restore acceptance are still outstanding.
 - [x] Avoid continuously reprocessing unchanged material at unnecessarily high priority. **Source implementation:** Targeted cycles already exclude unchanged completed revisions until configured revisit; when a full cycle is due, previously completed unchanged sections rank behind unseen/revised sections of equal admin priority, while an operator's explicitly higher source priority wins. Full revisits remain indefinite.
 - [ ] Support quiet hours, power-management policies, and operator overrides. **Partial (source):** UTC quiet hours, CPU/RAM/VRAM admission settings and admin overrides exist; power-management policy and energy budgets are missing.

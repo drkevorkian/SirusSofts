@@ -37,6 +37,9 @@ class DuplicateAuditTests(unittest.TestCase):
                         (digest or self.digest, filename, 'manuals/objects/ab/object.pdf',
                          len(self.data), 'ready'))
         self.db.commit()
+        location = self.root / 'manuals' / 'objects' / 'ab' / 'object.pdf'
+        location.parent.mkdir(parents=True, exist_ok=True)
+        location.write_bytes(self.data)
 
     def staged(self, name, data=None):
         path = self.root / 'manuals' / 'inbox' / name
@@ -103,6 +106,45 @@ class DuplicateAuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as other:
             with self.assertRaises(ValueError):
                 audit.audit(Path(other))
+
+    def test_missing_canonical_file_is_explicit_and_incomplete(self):
+        self.canonical()
+        (self.root / 'manuals' / 'objects' / 'ab' / 'object.pdf').unlink()
+        result = audit.audit(self.root)
+        self.assertFalse(result['complete'])
+        self.assertEqual(result['summary']['canonical_objects_missing_or_unsafe'], 1)
+        self.assertIn('missing_canonical_object', [p['type'] for p in result['problems']])
+
+    def test_canonical_size_change_and_symlink_are_not_followed(self):
+        self.canonical()
+        path = self.root / 'manuals' / 'objects' / 'ab' / 'object.pdf'
+        path.write_bytes(b'changed')
+        result = audit.audit(self.root)
+        self.assertFalse(result['complete'])
+        self.assertIn('canonical_size_mismatch', [p['type'] for p in result['problems']])
+        path.unlink()
+        path.symlink_to('/etc/passwd')
+        result = audit.audit(self.root)
+        self.assertFalse(result['complete'])
+        self.assertIn('unsafe_or_inaccessible_canonical_object',
+                      [p['type'] for p in result['problems']])
+
+    def test_catalog_path_escape_is_not_traversed(self):
+        self.db.execute("INSERT INTO documents VALUES (?,?,?,?,?)",
+                        (self.digest, 'bad.pdf', '../../etc/passwd',
+                         len(self.data), 'ready'))
+        self.db.commit()
+        result = audit.audit(self.root, include_inbox=False)
+        self.assertFalse(result['complete'])
+        self.assertIn('invalid_canonical_path', [p['type'] for p in result['problems']])
+
+    def test_unindexed_staged_pdf_is_accounted_for_without_deletion(self):
+        pending = self.staged('new.pdf', b'%PDF-new-snapshot')
+        result = audit.audit(self.root)
+        self.assertTrue(result['complete'])
+        self.assertEqual(result['summary']['uncatalogued_staged_pdfs'], 1)
+        self.assertEqual(result['unindexed_staged_pdfs'][0]['paths'], ['new.pdf'])
+        self.assertTrue(pending.exists())
 
 
 if __name__ == '__main__':

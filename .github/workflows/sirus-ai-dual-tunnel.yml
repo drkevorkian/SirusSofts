@@ -1,11 +1,21 @@
 name: SirusSofts AI dual-tunnel validation
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-dual-tunnel-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   unit:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Python syntax and unit integration tests
