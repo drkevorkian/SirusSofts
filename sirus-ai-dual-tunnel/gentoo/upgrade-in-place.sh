@@ -17,7 +17,7 @@ db="/var/lib/sirus-ai-dual/input.sqlite3"
 [[ -e /etc/init.d/sirus-ai-input && -f /etc/sirus-ai-dual/secret ]] ||
   fail 'Expected installed input service and secret missing'
 python3 -m py_compile "$src"
-research_modules=(research_loop.py continuous_research.py research_evidence.py research_admin_auth.py research_archive.py research_cold_history.py web_source_summary.py web_research.py manual_summary.py)
+research_modules=(research_loop.py continuous_research.py research_evidence.py research_admin_auth.py research_archive.py research_cold_history.py manual_relationships.py manual_relationship_index.py feasibility_review.py web_source_summary.py web_research.py manual_summary.py)
 for file in "${research_modules[@]}"; do
   research_src="$source_dir/sirus-ai-dual-tunnel/gentoo/$file"
   research_dest="/opt/sirus-ai-dual/gentoo/$file"
@@ -61,7 +61,7 @@ if [[ "$mode" == --plan ]]; then
   echo "Source: $src"
   echo "Installed: $dest"
   echo "SQLite: $db (never overwritten)"
-  echo "Adds local research modules; enables checkpointed 1-100-pass research jobs"
+  echo "Adds local research modules and offline relationship index; enables checkpointed 1-100-pass research jobs"
   echo "Will rebuild ONLY a derived FTS5 index of already approved manuals on the SSD"
   echo "Will grant sirusai read access to the ingest SQLite DB and its WAL sidecars"
   echo "Will restart: sirus-ai-input ONLY; no GPU, SSH, tunnel or OpenRC system changes"

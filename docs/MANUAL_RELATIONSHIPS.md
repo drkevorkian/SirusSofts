@@ -38,3 +38,50 @@ source rewriting or database mutation.
 parts/procedures, source-linked summaries and missing reference detection.
 These remain unchecked: complete corpus indexing, inferred applicability,
 diagram reading, semantic reasoning, admin UI, and live acceptance are pending.
+
+
+## Incremental private search index (source-only)
+
+`sirus-ai-dual-tunnel/gentoo/manual_relationship_index.py` maintains a
+**separate** derived SQLite file. It scans only approved, reviewed PDF
+excerpts and tracks the original ingestion `updated_at`, filename, excerpt
+count and completeness for each document. Repeated runs index up to 16
+new/changed documents per call; revoked or unapproved document rows and their
+derived mentions are removed before adding work. A keyset cursor rotates
+through pending documents. Individual document updates replace all mentions
+atomically. Limited scans report incomplete coverage and are not called done.
+
+Recognized original-source relationship categories are **part numbers**,
+**procedure headings**, **system headings** (conservative literal labels such
+as `Cooling System`, `Electrical System`) and **manual/document references**.
+They are text mentions only, not a semantic graph of compatibility, causal
+relationships or procedural safety.
+
+The `search` subcommand requires a kind, exact term and explicit source
+SHA-256 IDs (up to eight). It checks that each selected original is currently
+approved, its revision matches the indexed document, and each returned
+quote/page/part still exists in the private original catalog. A stale PDF or
+quotation causes the query to **fail closed** rather than returning obsolete
+evidence. Results are paginated and source-linked. Original source metadata
+changes outside the indexed revision signal can be addressed by an explicit
+`sync --force` refresh; it is not yet an unattended file watcher.
+
+```bash
+python3 sirus-ai-dual-tunnel/gentoo/manual_relationship_index.py \
+  --source /path/to/pdf_ingest.sqlite3 \
+  --index /path/to/private/relationships.sqlite3 sync --batch 16
+
+python3 sirus-ai-dual-tunnel/gentoo/manual_relationship_index.py \
+  --source /path/to/pdf_ingest.sqlite3 \
+  --index /path/to/private/relationships.sqlite3 search \
+  --kind system_heading --term 'cooling system' \
+  --source-id pdf:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+```
+
+**Source-only limitations:** No website/API route, automatic scheduling or
+live deployment is added. Documents that contain only scanned images,
+procedural prose without recognized headings, novel part-number formats,
+or implicit system relationships are not indexed by this lexical prototype.
+The index can grow substantially on a large manual library and needs operator
+storage budgeting and long-term retention. No auto-approval, model training,
+part fitment or full semantic reasoning is claimed.

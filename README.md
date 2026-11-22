@@ -27,7 +27,7 @@ The SirusSofts repository owns the public website and CMS. The cPoint Monitor ap
 
 ## Continuous Research master checklist
 
-The [Continuous Autonomous Research & Learning Roadmap](docs/CONTINUOUS_RESEARCH_ROADMAP.md) is the canonical **138-item tracked checklist**. Checkmarks mean implemented/tested in source (or explicitly superseded); unresolved work and live acceptance remain unchecked. Keep the checklist, its progress table, and its implementation notes updated whenever work is completed. The checklist integrity check runs in GitHub CI. Nothing in the checklist automatically deploys software to Gentoo or Ubuntu.
+The [Continuous Autonomous Research & Learning Roadmap](docs/CONTINUOUS_RESEARCH_ROADMAP.md) is the canonical **139-item tracked checklist** (138 original requirements plus the final deferred video milestone). Checkmarks mean implemented/tested in source (or explicitly superseded); unresolved work and live acceptance remain unchecked. Keep the checklist, its progress table, and its implementation notes updated whenever work is completed. The checklist integrity check runs in GitHub CI. Nothing in the checklist automatically deploys software to Gentoo or Ubuntu.
 
 ## Repository ownership
 

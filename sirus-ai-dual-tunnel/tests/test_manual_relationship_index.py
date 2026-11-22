@@ -27,8 +27,8 @@ class RelationshipIndexTests(unittest.TestCase):
                 (B,"2026 Commander Service Manual","approved",1,10,1),
                 (C,"2026 Polaris Manual","ready",0,10,1)])
             db.executemany("INSERT INTO excerpts VALUES(?,?,?,?)",[
-                (A,5,1,"Part Number: 420234561\nRemoval of primary clutch"),
-                (B,9,2,"Part No. 420234561\nConsult the wiring diagram"),
+                (A,5,1,"Part Number: 420234561\nRemoval of primary clutch\nCooling System"),
+                (B,9,2,"Part No. 420234561\nConsult the wiring diagram\nElectrical System"),
                 (C,1,1,"Part No. 420234561")])
     def sync(self,**kw):
         return rel.sync(source=self.source,index=self.index,**kw)
@@ -102,6 +102,21 @@ class RelationshipIndexTests(unittest.TestCase):
             self.assertFalse(found["complete"])
         finally:
             rel.MAX_EXCERPTS_PER_DOC=old
+    def test_systems_and_procedure_index_are_source_cited(self):
+        self.sync()
+        for kind,term,page in (
+            ("system_heading","cooling system",5),
+            ("system_heading","electrical system",9),
+            ("procedure_heading","removal of primary clutch",5)):
+            out=rel.search(source=self.source,index=self.index,kind=kind,
+                term=term,source_ids=["pdf:"+A,"pdf:"+B])
+            self.assertEqual(out["status"],"source_checked")
+            self.assertEqual(out["matches"][0]["page"],page)
+            self.assertEqual(len(out["matches"][0]["quote_sha256"]),64)
+        self.assertEqual(rel.search(source=self.source,index=self.index,
+            kind="system_heading",term="cooling system",
+            source_ids=["pdf:"+B])["matches"],[])
+
     def test_symlink_index_denied(self):
         target=self.root/"target.db"
         target.touch()

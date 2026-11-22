@@ -20,7 +20,7 @@ MAX_BATCH = 16
 MAX_EXCERPTS_PER_DOC = 20000
 MAX_MENTIONS_PER_DOC = 25000
 MAX_RESULTS = 100
-KINDS = frozenset(("part", "document_reference", "procedure_heading"))
+KINDS = frozenset(("part", "document_reference", "procedure_heading", "system_heading"))
 KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._/()-]{0,95}\Z")
 
 

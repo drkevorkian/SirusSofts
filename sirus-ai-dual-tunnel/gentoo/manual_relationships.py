@@ -24,6 +24,13 @@ HEADING = re.compile(r"(?i)^(?:\d+(?:\.\d+){0,4}[.)]?\s+)?"
     r"(?:remov(?:e|al)|install(?:ation)?|inspect(?:ion)?|adjust(?:ment)?|"
     r"diagnos(?:e|is|tic)|replac(?:e|ement)|test(?:ing)?|procedure)\b"
     r"[^\n]{0,95}$")
+SYSTEM_HEADING = re.compile(
+    r"(?i)^(?:\d+(?:\.\d+){0,3}[.)]?\s+)?"
+    r"((?:cooling|electrical|charging|starting|fuel|brake|braking|"
+    r"steering|suspension|transmission|drivetrain|drive train|"
+    r"engine|lubrication|hydraulic|clutch|ignition|exhaust|"
+    r"intake|emission|powertrain)\s+(?:system|assembly|circuit))$"
+)
 MAX_DOCS = 8
 MAX_EXCERPTS = 15000
 MAX_LINES = 150000
@@ -47,6 +54,8 @@ def _extract(sha,page,part,text):
                 yield _cite(sha,page,part,line,kind,token)
         if HEADING.fullmatch(line):
             yield _cite(sha,page,part,line,"procedure_heading",line.lower())
+        if SYSTEM_HEADING.fullmatch(line):
+            yield _cite(sha,page,part,line,"system_heading",line.lower())
 
 def analyze(source_ids, *, source):
     """Bounded original-PDF inspection with explicit incomplete status.
@@ -127,6 +136,7 @@ def analyze(source_ids, *, source):
             "filename":names[sid[4:]],
             "part_mentions":[x for x in refs if x["kind"]=="part"][:32],
             "procedure_headings":[x for x in refs if x["kind"]=="procedure_heading"][:32],
+            "system_headings":[x for x in refs if x["kind"]=="system_heading"][:32],
             "reference_mentions":[x for x in refs if x["kind"]=="document_reference"][:32],
             "scope_verified":False,
             "note":"Extracted headings/identifiers only; not a comprehensive procedural summary"
