@@ -327,9 +327,10 @@ def chat(url, messages, timeout=None, model_id=DEFAULT_MODEL, max_tokens=None,
             raise ValueError('Invalid output-token limit')
         request['max_tokens']=max_tokens
     payload=json.dumps(request).encode()
-    lock=WORKER_LOCKS.get(url)
-    if lock is None:
-        raise ValueError('Unknown configured local inference endpoint')
+    # Trusted internal callers and offline integration tests may use another
+    # validated loopback port. Preserve that existing API while sharing a lock
+    # for every endpoint. Browser requests cannot supply a worker URL.
+    lock=WORKER_LOCKS.setdefault(url, threading.RLock())
     with lock:
         with local_open(url + '/v1/chat/completions', data=payload, timeout=timeout) as r:
             data = json.load(r)

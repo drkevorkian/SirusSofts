@@ -449,7 +449,7 @@ function cms_ai_continuous_panel(PDO $db):void {
       <?php endforeach;?></tbody></table></div>
       <h3>Background scheduling and admission limits</h3>
       <p>Concurrent research passes can increase CPU, GPU and memory use. The
-      scheduler remains capped at four workers, and interactive chat keeps priority.</p>
+      scheduler uses up to three independent local inference endpoints, and new background admission respects interactive chat priority.</p>
       <form method="post" action="/admin/ai">
         <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
         <input type="hidden" name="action" value="ai_continuous">
