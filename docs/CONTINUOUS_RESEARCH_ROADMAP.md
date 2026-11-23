@@ -6,13 +6,14 @@
 **Platform:** Gentoo local AI workers + Ubuntu public CMS gateway  
 **Objective:** Enable the local LLM to continuously revisit, analyze, cross-reference, and improve its understanding of the entire available knowledge library without requiring a user to initiate each research session.
 
-### Deployment state — operator-confirmed, 2026-11-22
+### Deployment state — verified operator observations, 2026-11-23
 
-- **Ubuntu public CMS/gateway: NOT UPDATED for this roadmap.** The installed system still runs the pre-roadmap/older code. Changes committed to `main` are not present on that host.
-- **Gentoo AI/worker/research services: NOT UPDATED for this roadmap.** The installed system still runs older code; repository source changes and UI additions are not active there.
-- **No production inference loop, GPU admission change, training integration, new administrative learning panel, archive tool or database migration is claimed to be installed.** Whether any unrelated older features are running is not established here.
-- **GitHub checkboxes are source-development status only: 78/139 currently marked (the original 138 requirements plus one explicitly deferred final video milestone).** Production deployment is pending; Section 11 remains **0/12 live acceptance criteria verified**. A source checkmark does not establish that any feature has been deployed.
-- Before any implementation is marked **deployed**, record actual installed revisions on both hosts using read-only commands, compare against a reviewed and green pinned commit, prepare independent and verified backups (CMS, Gentoo input, PDF ingest), perform the approved in-place upgrade, check the private bridge key, and verify real endpoints and hardware. **Do not run the old full installers or apply unapproved upgrades.**
+- Gentoo continuous research inventory now lists **4,700 PDF sources and 309,285 current research sections**, and the previous OperationalError was cleared. A separate inventory scan request was still pending.
+- The sirus-ai-input and sirus-pdf-ingest services reported started; the operator reports CPU and both GPUs in use. Actual model inference, worker attribution, thermal limits, throughput, training, and end-to-end acceptance are not yet independently validated.
+- The Ubuntu CMS administration page displays continuous research status, but installed CMS and Gentoo commit identities have not been independently attested from running processes.
+- A real read-only SQLite WAL sidecar failure was isolated and temporarily repaired by starting the PDF ingestion service and granting read-only access to exact -wal/-shm files.
+- Source-only PDF ingestion WAL persistence and regression coverage were implemented in gentoo-node/pdf_wal_guard.py and gentoo-node/pdf_ingest.py. This source update is NOT deployed. Other SQLite writers still need lifecycle review and a separate safe in-place PDF-worker upgrade.
+- **Checklist:** 78/139 source requirements checked, 61 remain; real-system Section 11 remains 0/12 fully accepted. Verified PDF inventory does not establish all supported knowledge or autonomous learning.
 
 ### Checklist rules
 
