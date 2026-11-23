@@ -95,6 +95,19 @@ class TestSirusAI(unittest.TestCase):
         self.assertEqual(ai.choose_worker('a'*32,'amd',probe=lambda url:url == ai.AMD)[0],'amd')
         self.assertEqual(ai.choose_worker('a'*32,'auto',probe=lambda url:url == ai.CPU)[0],'cpu')
         self.assertEqual(ai.choose_worker('a'*32,'auto',gpu_percent=100,probe=lambda url:url in (ai.CPU,ai.NVIDIA))[0],'nvidia')
+        self.assertEqual(ai.choose_worker('a'*32,'auto',preferred_gpu='amd',
+            probe=lambda url:url in (ai.AMD,ai.NVIDIA,ai.CPU))[0],'amd')
+        self.assertEqual(ai.choose_worker('a'*32,'auto',preferred_gpu='nvidia',
+            probe=lambda url:url in (ai.AMD,ai.NVIDIA,ai.CPU))[0],'nvidia')
+        self.assertEqual(ai.choose_worker('a'*32,'auto',preferred_gpu='amd',
+            probe=lambda url:url==ai.CPU)[0],'cpu')
+        with self.assertRaises(RuntimeError):
+            ai.choose_worker('a'*32,'auto',preferred_gpu='nvidia',
+                probe=lambda url:url==ai.CPU)
+        # Explicit administrator overrides remain explicit, never silently re-routed.
+        self.assertEqual(ai.choose_worker('a'*32,'cpu',preferred_gpu='nvidia',
+            probe=lambda url:url==ai.CPU)[0],'cpu')
+
         with self.assertRaises(RuntimeError): ai.choose_worker('a'*32,'amd',probe=lambda url:False)
 
     def test_strict_local_models(self):
