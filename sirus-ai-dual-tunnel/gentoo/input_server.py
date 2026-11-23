@@ -603,6 +603,12 @@ class Engine:
 
     def run_one(self):
         with db_connect(self.db) as con:
+            # Do not reserve the writer lock while chat is idle. Continuous
+            # research can hold legitimate write transactions over a large
+            # durable backlog; two idle chat threads must not compete with it.
+            # Repeat the selection under BEGIN IMMEDIATE to claim atomically.
+            if not con.execute("SELECT 1 FROM jobs WHERE state='queued' LIMIT 1").fetchone():
+                return False
             con.execute('BEGIN IMMEDIATE')
             row = con.execute("SELECT id,messages,target,profile,model_id,skip_knowledge,max_tokens FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
             if not row:

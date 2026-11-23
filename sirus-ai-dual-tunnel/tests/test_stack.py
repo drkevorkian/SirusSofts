@@ -91,6 +91,24 @@ class TestSirusAI(unittest.TestCase):
             gateway.shutdown()
             gateway.server_close()
 
+    def test_idle_chat_queue_does_not_take_sqlite_writer_lock(self):
+        # Active autonomous research may hold the only SQLite writer slot.
+        # Polling an empty chat queue must stay read-only, not wait 15 seconds
+        # on BEGIN IMMEDIATE and kill the chat consumers when it times out.
+        with tempfile.TemporaryDirectory() as td:
+            db = str(Path(td, 'queue.sqlite3'))
+            ai.init_db(db)
+            reader = type('IdleChatEngine', (), {'db': db})()
+            writer = sqlite3.connect(db, isolation_level=None)
+            try:
+                writer.execute('BEGIN IMMEDIATE')
+                began = time.monotonic()
+                self.assertFalse(ai.Engine.run_one(reader))
+                self.assertLess(time.monotonic()-began, 1.5)
+            finally:
+                writer.rollback()
+                writer.close()
+
     def test_chat_worker_survives_transient_sqlite_failure(self):
         class Stop:
             stopped = False
