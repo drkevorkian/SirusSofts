@@ -44,7 +44,7 @@ The state lives in `/run/sirus-cpu-roles-affinities.json` (root-only, ephemeral)
 
 Setting continuous-research `target=nvidia` prevents fallback to CPU-only *model inference* when the GTX 1660 is unavailable; it does not stop CPU use for PDF extraction, database transactions, memory retrieval, networking, or NVIDIA/AMD GPU host threads. Those activities still need the compute-core group. Do not disable all CPU processing: that would stop learning entirely.
 
-The default for new research configurations is NVIDIA; existing `cr_config.target` values remain preserved until an authorized administrator changes them. The default for new chat routing must be validated with the installed RX 590 Vulkan model before any live cutover.
+The default for new research configurations is NVIDIA; existing `cr_config.target` values remain preserved until an authorized administrator changes them. Auto chat now prefers the RX 590 AMD worker and falls back to CPU **only for interactive requests** if AMD is unavailable; it does not silently take over NVIDIA. Automatic continuous-learning inference requires the GTX 1660 NVIDIA worker (or pauses/fails visibly when unavailable). Explicit administrator target selections remain possible. Verify the installed RX 590 Vulkan worker and model before live cutover.
 
 ## Acceptance
 
