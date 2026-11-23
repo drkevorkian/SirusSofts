@@ -15,6 +15,23 @@ class ResearchTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 research.valid_destination(directory/"output",directory)
 
+    def test_reject_parent_output(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = pathlib.Path(root)
+            (directory / "input").mkdir()
+            with self.assertRaises(ValueError):
+                research.valid_destination(directory, directory / "input")
+
+    def test_reject_alias_of_source(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = pathlib.Path(root)
+            real = directory / "original"
+            real.mkdir()
+            alias = directory / "alias"
+            alias.symlink_to(real, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                research.valid_destination(real / "output", alias)
+
     def test_reject_symlink_source(self):
         with tempfile.TemporaryDirectory() as root:
             directory=pathlib.Path(root)

@@ -225,3 +225,14 @@ files are ignored. All contents remain local. No automatic upload, model
 weight training, RAG insertion, or authorization bypass is performed.
 Review and integrate staged records using Gentoo's approved ingestion pipeline
 after a separate schema/provenance compatibility check.
+
+## November 2026 Mac hardware validation findings
+
+A 2017 OCLP MacBook Air running macOS 14.8.9 exposed a `/var` vs
+`/private/var` path alias during a PDF research regression test.
+Both paths are now canonicalized before overlap checks, with regression tests.
+Its Swift Command Line Tools reported duplicate `SwiftBridging` module maps.
+The builder uses the selected `xcrun` compiler, SDK and fresh module cache,
+and does not publish an executable when compilation fails. If errors persist,
+inspect the installed Xcode/Command Line Tools selection and compatibility;
+do not delete Apple SDK headers or disable system security settings.

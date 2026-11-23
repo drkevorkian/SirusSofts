@@ -38,9 +38,14 @@ def valid_destination(destination, source):
     target = Path(destination).expanduser()
     if not target.is_absolute() or target.is_symlink():
         raise ValueError("Research destination must be absolute and not a symlink")
+    # Resolve macOS /var -> /private/var aliases on BOTH sides.
+    origin = Path(source).expanduser().resolve(strict=True)
+    real = target.resolve(strict=False)
+    if real == origin or origin in real.parents or real in origin.parents:
+        raise ValueError("Research input and output directories must be disjoint")
     target.mkdir(parents=True, exist_ok=True, mode=0o700)
     real = target.resolve(strict=True)
-    if real == source or source in real.parents or real in source.parents:
+    if real == origin or origin in real.parents or real in origin.parents:
         raise ValueError("Research input and output directories must be disjoint")
     return real
 
