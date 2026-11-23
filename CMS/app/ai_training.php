@@ -300,6 +300,45 @@ function cms_ai_learning_panel(PDO $db):void {
     echo '</div>';
 }
 
+/**
+ * Render only the explicitly requested private AI section.
+ * The shell must never wait on Gentoo's signed tunnels during its first paint.
+ * Server-side auth is still mandatory for each independently requested panel.
+ */
+function cms_ai_panel_fragment(PDO $db,string $panel):void {
+    cms_need_admin();
+    $renderers=[
+        'continuous'=>'cms_ai_continuous_panel',
+        'evidence'=>'cms_ai_evidence_panel',
+        'procedures'=>'cms_ai_procedures_panel',
+        'pdf'=>'cms_gentoo_pdf_panel'
+    ];
+    if(!isset($renderers[$panel]))throw new InvalidArgumentException('Unknown AI panel.');
+    header('Content-Type: text/html; charset=utf-8');
+    header('Cache-Control: private, no-store, max-age=0');
+    header('X-Content-Type-Options: nosniff');
+    header('X-Sirus-AI-Panel: '.$panel);
+    try {
+        $renderers[$panel]($db);
+    }catch(Throwable $error){
+        error_log('AI panel '. $panel .' unavailable: '.get_class($error));
+        http_response_code(503);
+        echo '<section class="admin-panel"><h2>Private AI status unavailable</h2>'.
+             '<p>The background service did not respond; no action was taken. Retry this section.</p></section>';
+    }
+}
+
+/** Placeholder for a separately requested, administrator-only status section. */
+function cms_ai_panel_placeholder(string $panel,string $title):string {
+    if(!in_array($panel,['continuous','evidence','procedures','pdf'],true))
+        throw new InvalidArgumentException('Unknown AI panel.');
+    return '<section class="admin-panel" data-ai-remote-panel="'.cms_esc($panel).'">'.
+           '<h2>'.cms_esc($title).'</h2>'.
+           '<p role="status">Loading private status independently; the rest of this page remains available.</p>'.
+           '<button type="button" class="btn small" data-ai-panel-retry>Retry section</button>'.
+           '</section>';
+}
+
 function cms_ai_page(PDO $db,?string $error=null):void {
     cms_need_admin();
     $profiles=$db->query('SELECT * FROM cms_ai_profiles ORDER BY slug')->fetchAll(PDO::FETCH_ASSOC);
@@ -321,11 +360,15 @@ function cms_ai_page(PDO $db,?string $error=null):void {
       </div>
     </div>
     <?php cms_ai_learning_panel($db); ?>
-    <?php cms_ai_continuous_panel($db); ?>
-    <?php cms_ai_evidence_panel($db); ?>
-    <?php cms_ai_procedures_panel($db); ?>
-    <?php cms_gentoo_pdf_panel($db); ?>
-    <?php cms_ai_import_panel($db); ?>
+    <?php
+      // These signed Gentoo calls used to add up to many seconds to a
+      // single HTML response. Load each behind its own authenticated GET.
+      echo cms_ai_panel_placeholder('continuous','Continuous Research');
+      echo cms_ai_panel_placeholder('evidence','Source Evidence & Review');
+      echo cms_ai_panel_placeholder('procedures','Procedure suggestion review');
+      echo cms_ai_panel_placeholder('pdf','Gentoo PDF Library & Worker Control');
+      cms_ai_import_panel($db);
+    ?>
     <div class="admin-panel"><h2>Profiles</h2>
       <div class="ai-profiles"><?php foreach($profiles as $p):?>
         <form method="post" action="/admin/ai" class="ai-profile">
