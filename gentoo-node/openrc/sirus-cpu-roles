@@ -1,0 +1,17 @@
+#!/sbin/openrc-run
+name="SirusSofts Gentoo web and learning CPU roles"
+description="Reconcile optional physical-core affinities for GUI/web/tunnels and compute"
+supervisor=supervise-daemon
+command="/usr/bin/python3"
+command_args="/opt/sirus-gentoo-node/cpu_roles.py --serve --reserve-cores 2"
+command_user="root:root"
+pidfile="/run/sirus-cpu-roles.pid"
+supervise_daemon_args="--respawn-delay 5 --respawn-period 60"
+depend() {
+    need localmount
+    after sirus-ai-input sirus-gentoo-dashboard sirus-pdf-ingest
+}
+start_pre() {
+    /usr/bin/test -f /opt/sirus-gentoo-node/cpu_roles.py || return 1
+    /usr/bin/python3 -m py_compile /opt/sirus-gentoo-node/cpu_roles.py || return 1
+}
