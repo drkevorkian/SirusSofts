@@ -244,10 +244,25 @@ def main():
     signal.signal(signal.SIGINT, stop_signal)
     signal.signal(signal.SIGTERM, stop_signal)
     assertion = keep_awake() if config.get("prevent_idle_sleep", True) else None
+    research = None
+    next_research = time.monotonic()
     try:
         next_heartbeat = 0
         retry = 4
         while not STOP:
+            if config.get("research_enabled") and time.monotonic() >= next_research:
+                # Staging only; no document contents are sent to Ubuntu.
+                if research is None or research.poll() is not None:
+                    try:
+                        research = subprocess.Popen(
+                            [sys.executable, str(Path(__file__).with_name("research.py")),
+                             "--config", args.config],
+                            stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=False)
+                    except OSError:
+                        print("Mac research worker unavailable", file=sys.stderr)
+                    next_research = time.monotonic() + 600
             try:
                 if time.monotonic() >= next_heartbeat:
                     post(config["coordinator_url"], config, key,
@@ -265,6 +280,12 @@ def main():
                 return 0
             time.sleep(4)
     finally:
+        if research is not None and research.poll() is None:
+            research.terminate()
+            try:
+                research.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                research.kill()
         if assertion is not None and assertion.poll() is None:
             assertion.terminate()
             try:

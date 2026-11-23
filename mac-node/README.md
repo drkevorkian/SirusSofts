@@ -83,3 +83,17 @@ to config.json's `allowlisted_quit_bundle_ids` array. Example:
 
 This prompts for literal 'yes' and uses macOS application quit, allowing a
 save-changes prompt. There is no automatic killing and no privileged action.
+
+## Local offline PDF research staging
+
+Optional `research_enabled` with `research_source_dir` and
+`research_output_dir` uses locally installed Poppler `pdftotext` to produce
+SHA-256 deduplicated, unapproved JSON staging records. The Mac agent launches
+a separate local subprocess at most every 10 minutes. Limits: 50 PDFs per
+pass, 64 MiB per PDF, 2 MiB extracted text, 50 seconds per conversion.
+
+The source directory and staging directory must be disjoint; symlinks to PDF
+files are ignored. All contents remain local. No automatic upload, model
+weight training, RAG insertion, or authorization bypass is performed.
+Review and integrate staged records using Gentoo's approved ingestion pipeline
+after a separate schema/provenance compatibility check.

@@ -25,6 +25,8 @@ fi
 mkdir -p "$APP" "$CFG" "$HOME/Library/LaunchAgents"
 chmod 700 "$CFG"
 cp "$ROOT/agent.py" "$APP/agent.py"
+cp "$ROOT/research.py" "$APP/research.py"
+chmod 600 "$APP/research.py"
 chmod 600 "$APP/agent.py"
 if [ ! -e "$CFG/config.json" ]; then
   cp "$ROOT/config.example.json" "$CFG/config.json"

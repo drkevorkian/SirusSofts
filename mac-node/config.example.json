@@ -4,5 +4,9 @@
   "work_url": "https://sirussofts.com/node-work.php",
   "key_file": "/Users/REPLACE_ME/.config/sirus-mac-node/heartbeat.key",
   "cpu_target_percent": 90,
-  "prevent_idle_sleep": true
+  "prevent_idle_sleep": true,
+  "research_enabled": false,
+  "research_source_dir": "/Users/REPLACE_ME/Documents/SirusResearch",
+  "research_output_dir": "/Users/REPLACE_ME/Documents/SirusResearchStaging",
+  "allowlisted_quit_bundle_ids": []
 }
