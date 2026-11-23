@@ -19,6 +19,7 @@ import sqlite3
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 import uuid
@@ -87,6 +88,28 @@ def db_connect(path):
             yield con
     finally:
         con.close()
+
+
+def log_chat_worker_failure(db_path, error):
+    """Keep bounded private diagnostics when daemon stderr points to /dev/null."""
+    path = Path(db_path).parent / 'router-worker-errors.log'
+    record = (time.strftime('%Y-%m-%dT%H:%M:%SZ ', time.gmtime()) +
+              ''.join(traceback.format_exception(type(error), error, error.__traceback__)))
+    try:
+        if path.is_symlink():
+            return
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, 'O_NOFOLLOW', 0)
+        fd = os.open(path, flags, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            # Strictly bound diagnostic growth without affecting durable job data.
+            if os.fstat(fd).st_size >= 1024 * 1024:
+                os.ftruncate(fd, 0)
+            os.write(fd, record.encode('utf-8', 'replace')[:32768])
+        finally:
+            os.close(fd)
+    except OSError:
+        pass  # Logging must never kill a queue consumer.
 
 
 def init_db(path):
@@ -623,8 +646,16 @@ class Engine:
         return True
 
     def worker_loop(self):
+        # A busy SQLite writer or temporary filesystem failure must not
+        # permanently kill a daemon thread while /api/in/health stays green.
         while not self.stop.is_set():
-            if not self.run_one():
+            try:
+                processed = self.run_one()
+            except Exception as exc:
+                log_chat_worker_failure(self.db, exc)
+                self.stop.wait(1)
+                continue
+            if not processed:
                 self.stop.wait(0.7)
 
     def dispatch_loop(self):

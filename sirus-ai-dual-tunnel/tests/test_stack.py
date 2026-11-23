@@ -91,6 +91,38 @@ class TestSirusAI(unittest.TestCase):
             gateway.shutdown()
             gateway.server_close()
 
+    def test_chat_worker_survives_transient_sqlite_failure(self):
+        class Stop:
+            stopped = False
+
+            def is_set(self):
+                return self.stopped
+
+            def wait(self, _seconds):
+                return self.stopped
+
+        class EngineStub:
+            def __init__(self, db):
+                self.db = db
+                self.stop = Stop()
+                self.calls = 0
+
+            def run_one(self):
+                self.calls += 1
+                if self.calls == 1:
+                    raise sqlite3.OperationalError('database is locked')
+                self.stop.stopped = True
+                return True
+
+        with tempfile.TemporaryDirectory() as td:
+            engine = EngineStub(str(Path(td, 'queue.sqlite3')))
+            ai.Engine.worker_loop(engine)
+            self.assertEqual(engine.calls, 2)
+            log = Path(td, 'router-worker-errors.log')
+            self.assertTrue(log.is_file())
+            self.assertIn('OperationalError: database is locked', log.read_text())
+            self.assertEqual(log.stat().st_mode & 0o777, 0o600)
+
     def test_router_exact_and_gpu_share(self):
         self.assertEqual(ai.choose_worker('a'*32,'amd',probe=lambda url:url == ai.AMD)[0],'amd')
         self.assertEqual(ai.choose_worker('a'*32,'auto',probe=lambda url:url == ai.CPU)[0],'cpu')
