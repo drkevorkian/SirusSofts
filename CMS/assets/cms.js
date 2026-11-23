@@ -58,6 +58,14 @@
         return;
       }
       const parsed = new DOMParser().parseFromString(await response.text(), "text/html");
+      // SPA navigation does not execute new script tags. When the deployed
+      // JS version differs, perform a full load instead of keeping stale code.
+      const currentRuntime = document.querySelector('script[src^="/assets/live.js"]')?.getAttribute("src");
+      const incomingRuntime = parsed.querySelector('script[src^="/assets/live.js"]')?.getAttribute("src");
+      if (currentRuntime && incomingRuntime && currentRuntime !== incomingRuntime) {
+        window.location.assign(url.href);
+        return;
+      }
       const incoming = parsed.querySelector("main.page-main");
       const current = document.querySelector("main.page-main");
       const finalUrl = new URL(response.url, window.location.href);

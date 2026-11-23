@@ -36,6 +36,18 @@ function cms_ai_identity_for_navigation(PDO $db):string {
     return cms_current_viewer($db)!==null?'user':'guest';
 }
 /** Shared site shell. Public pages never require an administrator session. */
+/** Return a content-versioned URL so deployed JavaScript cannot remain stale. */
+function cms_asset_url(string $name):string {
+    static $versions=[];
+    $allowed=['cms.css','cms.js','live.js','ai-panels.js','gentoo-pdf-admin.js'];
+    if(!in_array($name,$allowed,true))
+        throw new InvalidArgumentException('Unsupported site asset');
+    if(!isset($versions[$name])){
+        $digest=@hash_file('sha256',dirname(__DIR__).'/assets/'.$name);
+        $versions[$name]=is_string($digest)?substr($digest,0,16):'missing';
+    }
+    return '/assets/'.$name.'?v='.$versions[$name];
+}
 function cms_layout_start(PDO $db,string $title,bool $admin=false): void {
     cms_session();
     require_once __DIR__.'/access.php';
@@ -54,11 +66,11 @@ function cms_layout_start(PDO $db,string $title,bool $admin=false): void {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="<?=cms_esc(cms_setting($db,'tagline'))?>">
 <title><?=cms_esc($full)?></title>
-<link rel="stylesheet" href="/assets/cms.css">
-<script defer src="/assets/cms.js"></script>
-<script defer src="/assets/live.js"></script>
-<script defer src="/assets/ai-panels.js"></script>
-<script defer src="/assets/gentoo-pdf-admin.js"></script>
+<link rel="stylesheet" href="<?=cms_esc(cms_asset_url('cms.css'))?>">
+<script defer src="<?=cms_esc(cms_asset_url('cms.js'))?>"></script>
+<script defer src="<?=cms_esc(cms_asset_url('live.js'))?>"></script>
+<script defer src="<?=cms_esc(cms_asset_url('ai-panels.js'))?>"></script>
+<script defer src="<?=cms_esc(cms_asset_url('gentoo-pdf-admin.js'))?>"></script>
 </head><body>
 <div class="site-frame">
 <header class="topbar">
