@@ -100,6 +100,9 @@ jobs:
           bash -n sirus-ai-dual-tunnel/gentoo/upgrade-in-place.sh
           bash -n sirus-ai-dual-tunnel/ubuntu/upgrade-in-place.sh
           python3 -m unittest discover -s gentoo-node/tests -p 'test_pdf_ingest.py' -v
+          bash -n gentoo-node/install-cpu-roles.sh
+          bash gentoo-node/install-cpu-roles.sh --plan
+          python3 -m unittest discover -s gentoo-node/tests -p 'test_cpu_roles.py' -v
       - name: JavaScript syntax
         run: |
           node --check CMS/assets/cms.js
@@ -110,6 +113,7 @@ jobs:
           node sirus-ai-dual-tunnel/tests/manual_sources.test.js
           node --check gentoo-node/dashboard_live.js
           node --check CMS/assets/gentoo-pdf-admin.js
+          node --check CMS/assets/ai-panels.js
           node gentoo-node/tests/dashboard_live_fallback.test.js
           node gentoo-node/tests/dashboard_live_socket.test.js
           node gentoo-node/tests/dashboard_live_race.test.js
