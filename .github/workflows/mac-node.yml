@@ -1,0 +1,40 @@
+name: mac-node
+on:
+  push:
+    paths:
+      - 'mac-node/**'
+      - 'CMS/app/node_registry.php'
+      - 'CMS/tests/node_registry_test.php'
+      - '.github/workflows/mac-node.yml'
+  pull_request:
+    paths:
+      - 'mac-node/**'
+      - 'CMS/app/node_registry.php'
+      - 'CMS/tests/node_registry_test.php'
+      - '.github/workflows/mac-node.yml'
+jobs:
+  mac-python:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Agent syntax and protocol tests
+        run: |
+          python3 -m compileall -q mac-node
+          python3 -m unittest discover -s mac-node/tests -v
+          sh -n mac-node/install-macos.sh
+          sh -n mac-node/build-menu-app.sh
+      - name: Build native menu application
+        run: sh mac-node/build-menu-app.sh
+  php-registry:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP syntax and node protocol
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y php-cli php-sqlite3
+          php -l CMS/app/node_registry.php
+          php -l CMS/app/operations.php
+          php -l CMS/app/admin.php
+          php -l CMS/index.php
+          php CMS/tests/node_registry_test.php

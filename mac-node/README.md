@@ -63,3 +63,23 @@ behavior before calling it always-on.
 The Mac agent can run on newer Apple Silicon Macs but the legacy Intel Mac
 has no guaranteed Metal inference support on Sonoma/OCLP. No GPU compute
 assumptions are made. Only the existing known fixed work types are run.
+
+## Optional native Mac menu-bar control
+
+Build locally with `sh mac-node/build-menu-app.sh` (requires Apple Swift
+compiler / Xcode Command Line Tools). Open `~/Applications/SirusMacNode.app`.
+It controls launchd start/stop, opens the configured file, and links to /mac.
+Closing the menu app does not stop the worker. Compilation on the 2017 OCLP
+MacBook and newer Apple Silicon Macs still requires real-hardware validation.
+
+## Local process inventory and approved application quit
+
+`python3 mac-node/process_manager.py --list` reports a bounded per-process
+RSS inventory; it is never uploaded to Ubuntu. A local interactive user may
+request graceful application quit only after adding the exact bundle identifier
+to config.json's `allowlisted_quit_bundle_ids` array. Example:
+
+`python3 mac-node/process_manager.py --quit-bundle-id com.example.editor`
+
+This prompts for literal 'yes' and uses macOS application quit, allowing a
+save-changes prompt. There is no automatic killing and no privileged action.
