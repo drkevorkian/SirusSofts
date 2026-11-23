@@ -73,7 +73,7 @@ from manual_rag import INDEX as MANUAL_FTS_INDEX
 from research_loop import (validated_spec, read_source, pass_messages,
                            list_local_manuals, pdf_segments)
 from manual_rag import (augment as augment_manuals, sync as sync_manuals,
-                        repair_false_no_access, include_source_manifest,
+                        repair_false_no_access, guard_manual_answer, include_source_manifest,
                         RetrievalUnavailable)
 
 
@@ -641,6 +641,7 @@ class Engine:
             # model must not falsely deny all manual access when those excerpts
             # were included. Do not manufacture missing repair steps.
             answer = repair_false_no_access(answer, prompt_messages)
+            answer = guard_manual_answer(answer, prompt_messages)
             answer = include_source_manifest(answer, prompt_messages)
             with db_connect(self.db) as con:
                 con.execute("UPDATE jobs SET state='completed' WHERE id=?", (job_id,))

@@ -593,6 +593,42 @@ class ManualRagTests(unittest.TestCase):
             "MY26 Summit 850 R.A.V.E. exhaust valve",
             "SKI-DOO 2026 SUMMIT (850 E-TEC Gen5) - Shop Manual.pdf"))
 
+    def test_manual_guard_withholds_invented_page_citations(self):
+        sha="a"*64
+        self.add(sha,"SKI-DOO 2026 SUMMIT (850 E-TEC Gen5) - Shop Manual.pdf",
+                 "approved",1,"R.A.V.E. exhaust valve service overview.",page=96)
+        rag.sync(self.source,self.index)
+        q="MY26 Summit 850 R.A.V.E. inspection from the service manual"
+        context=rag.augment([{"role":"user","content":q}],
+                            q,self.source,self.index)
+        mistaken=("The R.A.V.E. system is hydraulic. "
+                  "Check hydraulic hoses, replace hydraulic fluid, "
+                  "and tighten components [M1, pg. 82].")
+        blocked=rag.guard_manual_answer(mistaken,context)
+        self.assertIn("procedural instructions have been withheld",blocked)
+        self.assertNotIn("hydraulic hoses",blocked)
+        shown=rag.include_source_manifest(blocked,context)
+        self.assertIn("PDF page 96",shown)
+        self.assertNotIn("PDF page 82",shown)
+        self.assertNotIn("hydraulic fluid",shown)
+        # Matching a cited page number does NOT excuse unsupported hydraulic claims.
+        still_bad=rag.guard_manual_answer(
+            "Refill the hydraulic fluid [M1, pg. 96].",context)
+        self.assertIn("withheld",still_bad)
+        # Unknown M-IDs also fail closed.
+        unknown=rag.guard_manual_answer("Replace valves [M9, pg. 96].",context)
+        self.assertIn("withheld",unknown)
+        valid="R.A.V.E. exhaust valve overview [M1, pg. 96]."
+        self.assertEqual(rag.guard_manual_answer(valid,context),valid)
+        no_cite=rag.guard_manual_answer(
+            "Inspect the valves and replace them if worn.",context)
+        self.assertIn("withheld",no_cite)
+
+    def test_manual_guard_no_manual_context_unchanged(self):
+        response="A general explanation of how to inspect a device."
+        self.assertEqual(rag.guard_manual_answer(
+            response,[{"role":"user","content":"Explain the device"}]),response)
+
     def test_fail_closed_offline(self):
         with self.assertRaises(rag.RetrievalUnavailable):
             rag.retrieve("torque",self.source,self.index)

@@ -877,6 +877,65 @@ def repair_false_no_access(answer, messages):
             "Try a more specific question about the cited pages or refine the search.")
 
 
+def guard_manual_answer(answer, messages):
+    """Fail closed when model citations disagree with the retrieved PDF evidence.
+
+    The model can invent page citations or mechanical procedures even after
+    retrieval picked the right PDF. A source-card manifest alone does not
+    validate the model's prose. This guard is intentionally conservative:
+    it checks citation identity and grounded hazard-specific claims, not
+    semantic correctness of all prose. It never invents service steps.
+    """
+    if not isinstance(answer, str) or not messages:
+        return answer
+    context = next((m.get("content", "") for m in messages
+                    if m.get("role") == "system"
+                    and m.get("content", "").startswith("LOCAL MANUAL RETRIEVAL:")), "")
+    if not context:
+        return answer
+    headings = re.findall(
+        r"^\[M(\d+)\] [^\r\n]+ \| PDF page (\d+) \| SHA256 [a-f0-9]{64}$",
+        context, re.M)
+    references = {number: int(page) for number, page in headings}
+    citation_ids = re.findall(r"\[M(\d+)\b", answer, re.I)
+    page_citations = re.findall(
+        r"\bM(\d+)\s*[,;]?\s*(?:p(?:g|age)\.?)\s*(\d+)\b",
+        answer, re.I)
+    unverified = (
+        any(number not in references for number in citation_ids)
+        or any(references.get(number) != int(page)
+               for number, page in page_citations)
+    )
+    # The retrieved page excerpt, not the general model's training, must
+    # support hydraulic-system claims in a manual-based repair response.
+    excerpts = "\n".join(re.findall(
+        r"\[BEGIN MANUAL DATA\]\n(.*?)\n\[END MANUAL DATA\]",
+        context, re.S))
+    if (re.search(r"\bhydraulic\b", answer, re.I)
+            and not re.search(r"\bhydraulic\b", excerpts, re.I)):
+        unverified = True
+    # Repair instructions without a single recognized source citation
+    # must not be presented as if the attached manual cards verified them.
+    if (references and not citation_ids and
+            re.search(r"\b(?:remove|install|replace|tighten|loosen|"
+                      r"torque|refill|inspect|inspection|troubleshoot)\b",
+                      answer, re.I)
+            and re.search(r"\b(?:manual|repair|service|inspect|"
+                          r"troubleshoot|procedure|torque)\b",
+                          messages[-1].get("content", ""), re.I)):
+        unverified = True
+    if not unverified:
+        return answer
+    return (
+        "The local model generated an answer that could not be verified "
+        "against the retrieved manual pages. Its procedural instructions "
+        "have been withheld rather than presented as sourced facts.\n\n"
+        "The retrieved PDF pages are linked below for inspection. A page "
+        "reference is not proof that it supports a particular procedure. "
+        "Please ask for an explanation of a specific cited page."
+    )
+
+
 SOURCE_START = "[[SIRUS_MANUAL_SOURCES_START]]"
 SOURCE_END = "[[SIRUS_MANUAL_SOURCES_END]]"
 
