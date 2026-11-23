@@ -40,6 +40,17 @@ class ContinuousResearchTests(unittest.TestCase):
             """)
         self.research=ContinuousResearch(self.db,self.pdf,self.base/"index.sqlite3")
 
+    def test_new_research_defaults_to_nvidia_without_overriding_admin_choice(self):
+        init_schema(self.db)
+        with sqlite3.connect(self.db) as db:
+            self.assertEqual(db.execute(
+                "SELECT target FROM cr_config WHERE id=1").fetchone()[0], "nvidia")
+        self.research.control("configure",value={"target":"amd"})
+        init_schema(self.db)
+        with sqlite3.connect(self.db) as db:
+            self.assertEqual(db.execute(
+                "SELECT target FROM cr_config WHERE id=1").fetchone()[0], "amd")
+
     def test_admin_status_does_not_write_telemetry(self):
         # An admin refresh must not acquire a writer lock simply to sample
         # resources while the PDF inventory is using the same SQLite DB.
@@ -63,7 +74,7 @@ class ContinuousResearchTests(unittest.TestCase):
                 con.execute("INSERT INTO excerpts VALUES(?,?,?,?)",(sha,2,1,text))
 
     def run_result(self, messages, target, model_id, job_id):
-        self.assertEqual(target,"auto")
+        self.assertIn(target,("auto","nvidia"))
         self.assertIn("[BEGIN UNTRUSTED SOURCE]",messages[1]["content"])
         return "Unverified analysis", "cpu"
 
