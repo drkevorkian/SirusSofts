@@ -1,0 +1,13 @@
+{
+  "gentoo_host": "REPLACE_WITH_GENTOO_LAN_HOST",
+  "ssh_user": "sirus-mac-inference",
+  "ssh_port": 22,
+  "identity_file": "~/.config/sirus-mac-node/inference_ed25519",
+  "known_hosts_file": "~/.config/sirus-mac-node/inference_known_hosts",
+  "llama_server": "/absolute/path/to/llama-server",
+  "model_file": "/absolute/path/to/approved-model.gguf",
+  "model_sha256": "REPLACE_WITH_GENTOO_MODEL_SHA256",
+  "model_id": "sirussofts-coder",
+  "threads": 2,
+  "context": 4096
+}

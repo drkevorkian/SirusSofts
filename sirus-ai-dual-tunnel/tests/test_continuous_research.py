@@ -139,6 +139,58 @@ class ContinuousResearchTests(unittest.TestCase):
             self.assertTrue(self.research.finish(lease,"draft",lease["target"]))
         self.assertIsNotNone(claim("amd"))
 
+    def test_four_distinct_research_leases_and_status(self):
+        self.add_doc()
+        with sqlite3.connect(self.pdf) as db:
+            for page in (3,4,5):
+                db.execute("INSERT INTO excerpts VALUES(?,?,?,?)",
+                           (SHA,page,1,"Independent source section "+str(page)))
+            db.execute("UPDATE documents SET pages=5,excerpts=4 WHERE sha256=?",(SHA,))
+        self.research.inventory()
+        self.research.control("configure",value={"target":"auto","background_concurrency":4})
+        self.research.control("enable")
+        workers=("cpu","amd","nvidia","mac")
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            leases=list(pool.map(lambda worker: self.research.claim(
+                worker=worker,model_id="sirussofts-coder"),workers))
+        self.assertTrue(all(leases))
+        self.assertEqual(len({x["id"] for x in leases}),4)
+        status=self.research.status()
+        self.assertEqual({x["worker"] for x in status["active_jobs"]},set(workers))
+        self.assertEqual({x["worker"] for x in status["worker_counts"]},set(workers))
+        for lease in leases:
+            self.assertTrue(self.research.finish(lease,"draft",lease["target"]))
+
+    def test_mac_disabled_skips_probe_and_claim(self):
+        engine=ai.Engine.__new__(ai.Engine)
+        engine.db=self.db
+        engine.continuous=self.research
+        with patch.object(ai,"mac_research_enabled",return_value=False), \
+             patch.object(ai,"worker_healthy",side_effect=AssertionError("probed disabled Mac")), \
+             patch.object(self.research,"run_once",side_effect=AssertionError("claimed disabled Mac")):
+            self.assertFalse(engine._continuous_step("mac"))
+
+    def test_mac_enabled_private_dispatch_and_no_public_chat_target(self):
+        engine=ai.Engine.__new__(ai.Engine)
+        engine.db=self.db
+        engine.continuous=self.research
+        engine.gpu_percent=90
+        self.research.control("configure",value={"target":"mac","background_concurrency":4})
+        self.research.control("enable")
+        with patch.object(ai,"mac_research_enabled",return_value=True), \
+             patch.object(ai,"worker_healthy",return_value=True) as health, \
+             patch.object(ai,"local_model_ids",return_value=["sirussofts-coder"]), \
+             patch.object(self.research,"run_once",return_value=True) as run, \
+             patch.object(ai,"chat",return_value=("draft",{})) as chat:
+            self.assertTrue(engine._continuous_step("mac"))
+            health.assert_called_once_with(ai.MAC_RESEARCH)
+            self.assertEqual(run.call_args.kwargs,{"worker":"mac","model_id":"sirussofts-coder"})
+            self.assertEqual(engine._continuous_infer([], "mac","sirussofts-coder","job"),
+                             ("draft","mac",{}))
+            self.assertEqual(chat.call_args.args[0],"http://127.0.0.1:18588")
+        with self.assertRaises(ValueError):
+            ai.choose_worker("job","mac")
+
     def test_bound_claim_honors_target_model_and_worker_limit(self):
         self.add_doc()
         self.research.inventory()

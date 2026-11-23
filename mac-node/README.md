@@ -260,3 +260,117 @@ operates independently of the optional menu.
 - The agent does not upload private application/process inventories.
 - Update the Ubuntu CMS validator **before** installing agent 0.2.0,
   then preserve the existing config and heartbeat key on the Mac.
+
+
+## Private Mac CPU inference worker (opt-in; separate from heartbeat)
+
+The new `inference_worker.py` runs a locally provisioned llama-server on
+Mac loopback and opens an authenticated SSH reverse forward **directly to Gentoo**.
+No manual excerpt or model response is posted to Ubuntu's public broker.
+Gentoo remains the sole durable research scheduler, approval ledger and result
+store. Mac results are unreviewed drafts, not automatic training material.
+
+Prerequisites: an operator-trusted Intel-compatible llama-server executable,
+a local GGUF **matching the SHA-256 of the chosen Gentoo model**, Python 3,
+a reachable Gentoo SSH service on a private network, a dedicated SSH key,
+and a host key independently verified against Gentoo. Do not use root SSH,
+disable host verification, or expose the model port on the LAN/public internet.
+This legacy 8 GB Mac uses CPU only, two threads and a 4096-token context initially;
+actual memory, model compatibility, sustained temperatures and 180-second
+inference timeout must be tested. The same model alias alone is not proof of
+identical weights. No model binary or weight file is bundled or downloaded.
+
+### Gentoo SSH enrollment (administrator-controlled)
+
+Create a separate unprivileged account named `sirus-mac-inference` with a
+locked password and no usable shell commands. Use a dedicated public key and
+a restrictive SSHD Match User block, for example:
+
+```text
+Match User sirus-mac-inference
+    AuthenticationMethods publickey
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    AllowTcpForwarding remote
+    GatewayPorts no
+    PermitListen 127.0.0.1:18588
+    AllowAgentForwarding no
+    X11Forwarding no
+    PermitTTY no
+    PermitTunnel no
+    ForceCommand /bin/false
+Match all
+```
+
+Use a restricted authorized_keys line with
+`restrict,port-forwarding,permitlisten="127.0.0.1:18588"` before the Mac's
+dedicated public key. Validate the **effective** sshd configuration for this
+account, including existing Match blocks, with `sshd -t` and `sshd -T -C ...`
+before reloading. Keep the current administrative SSH connection open; never
+replace existing tunnel settings. The account must be permitted to authenticate
+with a public key on the installed OpenSSH/PAM configuration. Confirm that the
+forward binds only to 127.0.0.1 and that shell commands and other forwards fail.
+A separate local SSH account/key is not the Mac heartbeat HMAC key.
+
+### Mac setup (non-root)
+
+```sh
+mkdir -p ~/.config/sirus-mac-node
+chmod 700 ~/.config/sirus-mac-node
+ssh-keygen -t ed25519 -f ~/.config/sirus-mac-node/inference_ed25519 -N ''
+cp mac-node/inference.example.json ~/.config/sirus-mac-node/inference.json
+chmod 600 ~/.config/sirus-mac-node/inference.json
+```
+
+Enroll only the .pub key on Gentoo; populate inference_known_hosts with
+the independently verified Gentoo host key, not an unverified first connection.
+Edit inference.json to set the actual private Gentoo host, installed binary
+and local model paths, and verified SHA-256. Obtain the SHA-256 from the
+approved model file on Gentoo; transfer the exact weights through an approved
+private method. Test:
+
+```sh
+python3 -B mac-node/inference_worker.py --plan
+python3 -B mac-node/inference_worker.py --verify-model
+python3 -B mac-node/inference_worker.py --run
+```
+
+In a separate Gentoo terminal, verify the private forwarded listener and
+model inventory:
+
+```sh
+ss -lntp '( sport = :18588 )'
+curl -fsS --max-time 5 http://127.0.0.1:18588/health
+curl -fsS --max-time 5 http://127.0.0.1:18588/v1/models
+```
+
+Only after verifying the listener, model and private host, explicitly enable
+the Gentoo dispatcher as root:
+
+```sh
+install -o root -g root -m 0644 /dev/null /etc/sirus-ai-dual/mac-research.enabled
+```
+
+In the CMS Continuous Research configuration select auto, concurrency 4,
+and the matching model ID. Set the explicit GPU-only minimum VRAM gate to
+zero if using auto; all other configured admission gates remain. An offline
+or disabled Mac claims no new work. The Mac can also be selected explicitly
+for a controlled research test. Its inference is not exposed as a public
+chat target. Verify four distinct leased worker names and actual completed
+jobs before declaring the pool operational. To disable Mac admission,
+remove only the root-owned marker above; existing passes may finish.
+No public or third-party endpoint may be substituted for this listener.
+
+After the foreground run is validated, stop it with Ctrl-C and install the
+independent user LaunchAgent:
+
+```sh
+python3 -B mac-node/inference_worker.py --install
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.sirussofts.mac-inference.plist"
+launchctl kickstart -k "gui/$(id -u)/com.sirussofts.mac-inference"
+```
+
+To stop: `launchctl bootout "gui/$(id -u)/com.sirussofts.mac-inference"`.
+The existing heartbeat agent and PDF staging remain unchanged. No production
+SSH configuration, model download, server install or live Mac benchmark is
+performed by the repository change.

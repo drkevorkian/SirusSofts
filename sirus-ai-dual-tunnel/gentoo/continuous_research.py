@@ -632,7 +632,7 @@ class ContinuousResearch:
                         "://" in item or item.startswith("//") or
                         not __import__("re").fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.:+/-]{0,127}",item)):
                         raise ValueError("Invalid local model ID")
-                    if key=="target" and item not in ("auto","cpu","amd","nvidia"):
+                    if key=="target" and item not in ("auto","cpu","amd","nvidia","mac"):
                         raise ValueError("Invalid target")
                     if key=="revisit_seconds" and (type(item) is not int or
                                                       not 60<=item<=604800):
@@ -777,7 +777,7 @@ class ContinuousResearch:
     def claim(self, *, now=None, worker=None, model_id=None):
         # Production dispatchers claim for one real, independently available
         # endpoint. The optional unbound path supports offline ledger callers.
-        if worker is not None and worker not in ("cpu","nvidia","amd"):
+        if worker is not None and worker not in ("cpu","nvidia","amd","mac"):
             raise ValueError("Unknown local research worker")
         now = time.time() if now is None else now
         # GPU telemetry can execute a bounded local subprocess. Probe BEFORE
@@ -1233,7 +1233,14 @@ class ContinuousResearch:
             in_flight=db.execute("""SELECT j.id,j.pass_completed,j.passes,
                 s.source_id,s.page,s.part,j.worker,j.attempts,j.error,j.lease_until
                 FROM cr_jobs j JOIN cr_sections s ON s.slot=j.slot
-                AND s.revision=j.revision WHERE j.state='leased' LIMIT 1""").fetchone()
+                AND s.revision=j.revision WHERE j.state='leased'
+                ORDER BY j.worker,j.id LIMIT 4""").fetchall()
+            worker_counts=[dict(r) for r in db.execute("""SELECT worker,
+                sum(CASE WHEN state='leased' THEN 1 ELSE 0 END) active,
+                sum(CASE WHEN state='completed' AND updated>=? THEN 1 ELSE 0 END) completed_hour
+                FROM cr_jobs WHERE worker IN ('cpu','amd','nvidia','mac')
+                AND (state='leased' OR (state='completed' AND updated>=?))
+                GROUP BY worker""",(time.time()-3600,time.time()-3600))]
             recent_jobs=db.execute("""SELECT j.id,j.cycle,j.state,
                 j.pass_completed,j.passes,j.attempts,j.error,s.source_id,
                 s.page,s.part,d.title,c.actor cancelled_by
@@ -1324,7 +1331,9 @@ class ContinuousResearch:
                 "energy_today":{"estimated_wh":usage["watt_ms"]/3600000,
                                 "attempts":usage["attempts"],"estimated":usage["estimated"]},
                 "queued_growth_last_samples":queue_delta,
-                "active":dict(in_flight) if in_flight else None,
+                "active":dict(in_flight[0]) if in_flight else None,
+                "active_jobs":[dict(r) for r in in_flight],
+                "worker_counts":worker_counts,
                 "interactive_jobs":chat,"cpu_load_1m":load,
                 "free_ram_mib":free_mib,"process_rss_mib":resident_mib,
                 "cpu_logical":os.cpu_count(),

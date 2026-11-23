@@ -70,7 +70,7 @@ function cms_ai_continuous_payload(array $post,string $actor=''):array {
                $quietEnd>=0&&$quietEnd<=23&&$quietStart!==$quietEnd))||
            !is_string($load)||!is_numeric($load)||
            (float)$load<0||(float)$load>1024||
-           !in_array($target,['auto','cpu','nvidia','amd'],true)||
+           !in_array($target,['auto','cpu','nvidia','amd','mac'],true)||
            !is_string($model)||str_contains($model,'://')||
            str_starts_with($model,'//')||!preg_match(
                '#^[a-zA-Z0-9][a-zA-Z0-9_.:+/-]{0,127}$#D',$model))
@@ -247,6 +247,8 @@ function cms_ai_continuous_panel(PDO $db):void {
     $resourceHistory=is_array($info['resource_history']??null)?
         array_slice($info['resource_history'],-60):[];
     $active=is_array($info['active']??null)?$info['active']:[];
+    $activeJobs=is_array($info['active_jobs']??null)?array_slice($info['active_jobs'],0,4):($active?[$active]:[]);
+    $workerCounts=is_array($info['worker_counts']??null)?array_slice($info['worker_counts'],0,4):[];
     $sourceRows=is_array($info['sources']??null)?$info['sources']:[];
     $recentJobs=is_array($info['recent_jobs']??null)?
         array_slice($info['recent_jobs'],0,24):[];
@@ -384,13 +386,23 @@ function cms_ai_continuous_panel(PDO $db):void {
       </details>
       <p>Admission status: <?=cms_esc(implode(', ',is_array($info['admission_blocks']??null)?
            $info['admission_blocks']:[])?:'Eligible for new background work')?></p>
-      <?php if($active): ?>
-      <p>Active: <?=cms_esc((string)($active['source_id']??''))?>,
+      <?php foreach($activeJobs as $active):if(!is_array($active))continue; ?>
+      <p>Active worker: <strong><?=cms_esc((string)($active['worker']??'unassigned'))?></strong>,
+        source <?=cms_esc((string)($active['source_id']??''))?>,
         page <?=cms_esc((string)($active['page']??0))?>,
         part <?=cms_esc((string)($active['part']??0))?>,
         pass <?=cms_esc((string)($active['pass_completed']??0))?> /
         <?=cms_esc((string)($active['passes']??1))?>,
         attempts <?=cms_esc((string)($active['attempts']??0))?>.</p>
+      <?php endforeach; ?>
+      <?php if($workerCounts): ?>
+      <div class="table-scroll"><table><thead><tr><th>Research worker</th>
+      <th>Active leases</th><th>Completed jobs (last hour)</th></tr></thead><tbody>
+      <?php foreach($workerCounts as $row):if(!is_array($row))continue;?>
+      <tr><td><?=cms_esc((string)($row['worker']??''))?></td>
+      <td><?=(int)($row['active']??0)?></td>
+      <td><?=(int)($row['completed_hour']??0)?></td></tr>
+      <?php endforeach;?></tbody></table></div>
       <?php endif; ?>
       <?php if(!empty($cfg['scan_error'])): ?>
       <p>Last inventory scan blocked: <?=cms_esc((string)$cfg['scan_error'])?>.</p>
@@ -449,7 +461,7 @@ function cms_ai_continuous_panel(PDO $db):void {
       <?php endforeach;?></tbody></table></div>
       <h3>Background scheduling and admission limits</h3>
       <p>Concurrent research passes can increase CPU, GPU and memory use. The
-      scheduler uses up to three independent local inference endpoints, and new background admission respects interactive chat priority.</p>
+      scheduler uses up to four private inference endpoints (three Gentoo and an optional Mac), and new background admission respects interactive chat priority.</p>
       <form method="post" action="/admin/ai">
         <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
         <input type="hidden" name="action" value="ai_continuous">
@@ -461,7 +473,7 @@ function cms_ai_continuous_panel(PDO $db):void {
           <input type="number" name="revisit_seconds" min="60" max="604800"
             value="<?=cms_esc((string)($cfg['revisit_seconds']??86400))?>">
         </label>
-        <label>Concurrent background inference passes (1–4; up to 3 local endpoints)
+        <label>Concurrent background inference passes (1–4; fourth requires Mac opt-in)
           <input type="number" name="background_concurrency" min="1" max="4"
             value="<?=(int)($cfg['background_concurrency']??1)?>">
         </label>
@@ -518,14 +530,15 @@ function cms_ai_continuous_panel(PDO $db):void {
         </label>
         <label>Worker target
           <select name="target">
-          <?php foreach(['auto','cpu','nvidia','amd'] as $worker):?>
-            <option value="<?=cms_esc($worker)?>" <?=($cfg['target']??'auto')===$worker?'selected':''?>><?=cms_esc($worker==='auto'?'auto — all available local workers':$worker)?></option>
+          <?php foreach(['auto','cpu','nvidia','amd','mac'] as $worker):?>
+            <option value="<?=cms_esc($worker)?>" <?=($cfg['target']??'auto')===$worker?'selected':''?>><?=cms_esc($worker==='auto'?'auto — all available private workers':$worker)?></option>
           <?php endforeach; ?>
           </select>
         </label>
         <p>With the updated Gentoo router, auto admits one pass per available CPU,
-        NVIDIA and AMD inference endpoint, subject to the global concurrency
-        limit. Set concurrency to 3 to use all three. New research admission
+        NVIDIA and AMD inference endpoint, plus an explicitly enabled Mac
+        reached through a private SSH forward. Set concurrency to 3 for Gentoo
+        alone or 4 for the complete pool. An offline Mac claims no work. New research admission
         respects the configured interactive queue limit; an admitted pass
         finishes before the endpoint serves the next inference.</p>
         <button class="btn" type="submit">Save scheduling limits</button>

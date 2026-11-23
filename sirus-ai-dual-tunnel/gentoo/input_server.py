@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 import sqlite3
+import stat
 import sys
 import threading
 import time
@@ -46,9 +47,22 @@ CPU = 'http://127.0.0.1:18482'
 NVIDIA = 'http://127.0.0.1:18486'
 AMD = 'http://127.0.0.1:18487'
 LOCAL_WORKERS = {'nvidia': NVIDIA, 'amd': AMD, 'cpu': CPU}
+MAC_RESEARCH = 'http://127.0.0.1:18588'
+MAC_ENABLE = Path('/etc/sirus-ai-dual/mac-research.enabled')
+RESEARCH_WORKERS = dict(LOCAL_WORKERS, mac=MAC_RESEARCH)
+
+def mac_research_enabled():
+    # Explicit local operator opt-in, not a public API setting or URL.
+    try:
+        metadata=MAC_ENABLE.lstat()
+        return (stat.S_ISREG(metadata.st_mode) and metadata.st_uid==0
+                and not metadata.st_mode & 0o022)
+    except OSError:
+        return False
+
 # One inference slot per independent endpoint. RLock allows the research
 # dispatcher to reserve a slot before leasing a job and call chat on it.
-WORKER_LOCKS = {url: threading.RLock() for url in LOCAL_WORKERS.values()}
+WORKER_LOCKS = {url: threading.RLock() for url in RESEARCH_WORKERS.values()}
 OUT = 'http://127.0.0.1:18084/internal/push'
 MAX_BYTES = 128 * 1024
 MAX_TEXT = 16000  # Existing input message validation; not an output limit.
@@ -605,7 +619,7 @@ class Engine:
         # NVIDIA dispatcher. Existing global admission/concurrency gates apply.
         workers = [threading.Thread(target=role_thread,
                     args=('learn', self._continuous_worker, name), daemon=True)
-                   for name in LOCAL_WORKERS]
+                   for name in RESEARCH_WORKERS]
         for worker in workers:
             worker.start()
         for worker in workers:
@@ -622,7 +636,9 @@ class Engine:
             self.stop.wait(2)
 
     def _continuous_step(self, worker):
-        endpoint=LOCAL_WORKERS[worker]
+        if worker=='mac' and not mac_research_enabled():
+            return False
+        endpoint=RESEARCH_WORKERS[worker]
         # An occupied interactive/explicit research endpoint is not eligible
         # for another background lease. Never queue multiple passes on it.
         lock=WORKER_LOCKS[endpoint]
@@ -643,7 +659,12 @@ class Engine:
             lock.release()
 
     def _continuous_infer(self, messages, target, model_id, job_id):
-        worker, endpoint = choose_worker(job_id,target,self.gpu_percent,model_id=model_id,preferred_gpu='nvidia')
+        if target=='mac':
+            if not mac_research_enabled():
+                raise RuntimeError('Mac research opt-in was revoked')
+            worker,endpoint='mac',MAC_RESEARCH
+        else:
+            worker,endpoint=choose_worker(job_id,target,self.gpu_percent,model_id=model_id,preferred_gpu='nvidia')
         content,metrics=chat(endpoint,messages,timeout=180,model_id=model_id,
                              max_tokens=2048,include_metrics=True)
         return content,worker,metrics
