@@ -410,6 +410,7 @@ function cms_admin_run(PDO $db,string $path): never {
     if($path==='/admin/users'){cms_users_page($db,$error);exit;}
     if($path==='/admin/hosting'){cms_vhost_page($db,$error);exit;}
     if($path==='/admin/infrastructure'){cms_operations_page($db);exit;}
+    if($path==='/mac'){cms_mac_page($db);exit;}
     if($path==='/admin/live-token'){http_response_code(405);exit('POST required');}
     if($path==='/admin/updates'){cms_updates_page($db);exit;}
     if($path==='/admin/github'){cms_github_projects_page($db);exit;}

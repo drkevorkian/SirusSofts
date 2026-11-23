@@ -1,0 +1,8 @@
+{
+  "node_id": "mac-research-01",
+  "coordinator_url": "https://sirussofts.com/node-heartbeat.php",
+  "work_url": "https://sirussofts.com/node-work.php",
+  "key_file": "/Users/REPLACE_ME/.config/sirus-mac-node/heartbeat.key",
+  "cpu_target_percent": 90,
+  "prevent_idle_sleep": true
+}

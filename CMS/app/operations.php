@@ -115,13 +115,13 @@ function cms_operations_page(PDO $db): void
     ?>
     <div class="admin-panel">
       <h2>Compute cluster health</h2>
-      <p>Gentoo/OpenRC and future compute nodes send independently signed, outbound
+      <p>Gentoo/OpenRC and macOS/launchd nodes send independently signed, outbound
       HTTPS heartbeats to the Ubuntu coordinator. Last-seen data is considered online
       only within three minutes; readings from disconnected nodes are historical.
       Ubuntu only brokers work; approved task execution happens on Gentoo.</p>
       <p>Private node registry: <strong><?=cms_esc($snapshot['nodes_state'])?></strong></p>
       <?php if(!$snapshot['nodes']):?>
-        <p class="empty-state">No Gentoo node has reported yet. Install the outbound
+        <p class="empty-state">No compute node has reported yet. Install an outbound
         agent on Gentoo and enroll its heartbeat key on this Ubuntu VPS.</p>
       <?php endif;?>
     </div>
@@ -181,6 +181,10 @@ function cms_operations_page(PDO $db): void
             <?=isset($m['uptime_seconds'])?cms_esc(cms_node_uptime((int)$m['uptime_seconds'])):'N/A'?></small>
         </div>
       </div>
+      <?php if($node['os']==='macos'):?>
+      <p><a href="/mac?node=<?=rawurlencode((string)$node['node_id'])?>">Open Mac hardware and research dashboard</a>.
+      Operating system and hardware capabilities are reported by the signed Mac agent.</p>
+      <?php endif;?>
       <?php if($node['os']==='gentoo'):?>
       <p><a href="https://gentoo.sirussofts.com/" rel="noopener noreferrer"
         target="_blank">Open private Gentoo process, GPU and CPU-affinity dashboard</a>.
@@ -448,5 +452,52 @@ function cms_updates_page(PDO $db): void {
       an explicit confirmation, and a post-update health check. Web PHP
       must never receive unrestricted sudo or shell access.</p>
     </div>
+    <?php cms_admin_shell_end($db);
+}
+
+/** Authenticated, read-only Mac view. No process control or remote shell. */
+function cms_mac_page(PDO $db): void {
+    cms_need_admin();
+    $snapshot=cms_operations_snapshot();
+    $macs=array_values(array_filter($snapshot['nodes'],static fn($node)=>($node['os']??'')==='macos'));
+    $selected=(string)($_GET['node']??'');
+    if($selected!=='' && !preg_match('/^[a-z][a-z0-9-]{1,63}$/D',$selected))
+        { http_response_code(400); exit('Invalid node'); }
+    if($selected!=='')$macs=array_values(array_filter($macs,static fn($node)=>$node['node_id']===$selected));
+    cms_admin_shell_start($db,'Mac infrastructure');
+    ?>
+    <div class="admin-panel"><h1>Mac research nodes</h1>
+      <p>Signed outbound telemetry from Intel and Apple Silicon Macs. Offline values are historical.
+      The worker is locally supervised by launchd; this page does not grant root access.</p>
+      <p><a href="/admin/infrastructure">Infrastructure overview</a></p>
+    </div>
+    <?php if(!$macs):?><div class="admin-panel"><p>No enrolled Mac node has reported.</p></div><?php endif;?>
+    <?php foreach($macs as $node):
+      $m=is_array($node['metrics']??null)?$node['metrics']:[];
+      $mac=is_array($m['mac']??null)?$m['mac']:[];
+      $online=($node['health']??'')==='online'; ?>
+      <section class="admin-panel node-stats">
+      <h2><?=cms_esc((string)$node['node_id'])?> — <?=$online?'Online':'Offline'?></h2>
+      <p>Model: <?=cms_esc((string)($mac['model']??'Unknown'))?> ·
+      Architecture: <?=cms_esc((string)($mac['arch']??'Unknown'))?> ·
+      macOS: <?=cms_esc((string)($mac['os_version']??'Unknown'))?></p>
+      <div class="node-metric-grid">
+        <div class="node-metric"><span>CPU</span><strong><?=isset($m['cpu_pct'])?cms_esc((string)$m['cpu_pct']).'%':'Unavailable'?></strong>
+        <small>Logical threads: <?=(int)$node['cpu_threads']?> · Target: <?=cms_esc((string)($mac['worker_cpu_target']??'Unknown'))?>%</small></div>
+        <div class="node-metric"><span>Memory</span><strong><?=isset($m['memory_used_bytes'])?cms_esc(cms_node_size((int)$m['memory_used_bytes'])):'Unknown'?> / <?=cms_esc(cms_node_size((int)$node['ram_bytes']))?></strong>
+        <small>Pressure: <?=cms_esc((string)($mac['memory_pressure']??'Unknown'))?></small></div>
+        <div class="node-metric"><span>Power</span><strong><?=cms_esc((string)($mac['power_source']??'Unknown'))?></strong><small>Battery: <?=isset($mac['battery_pct'])?cms_esc((string)$mac['battery_pct']).'%':'Unknown'?></small></div>
+        <div class="node-metric"><span>Storage</span><strong><?=isset($m['disk_used_bytes'],$m['disk_total_bytes'])?cms_esc(cms_node_size((int)$m['disk_used_bytes']).' / '.cms_node_size((int)$m['disk_total_bytes'])):'Unavailable'?></strong>
+        <small>Uptime: <?=isset($m['uptime_seconds'])?cms_esc(cms_node_uptime((int)$m['uptime_seconds'])):'Unknown'?></small></div>
+      </div>
+      <p>Sleep prevention requested: <?=!empty($mac['sleep_assertion'])?'Yes':'No'?>.
+      Last authenticated heartbeat: <?=cms_esc(gmdate('Y-m-d H:i:s',(int)$node['last_seen']))?> UTC.</p>
+      <h3>GPU hardware</h3>
+      <?php foreach((array)($m['gpus']??[]) as $gpu):?>
+        <p><?=cms_esc((string)($gpu['name']??'GPU'))?> · vendor <?=cms_esc((string)($gpu['vendor']??'Unknown'))?>
+        (utilization and dedicated VRAM may be unavailable).</p>
+      <?php endforeach;?>
+      </section>
+    <?php endforeach;?>
     <?php cms_admin_shell_end($db);
 }

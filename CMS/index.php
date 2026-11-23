@@ -74,6 +74,10 @@ if($path==='/ai/api'||str_starts_with($path,'/ai/api/')){
 if($path==='/'){cms_public_home($db);exit;}
 if($path==='/projects'){cms_public_catalog($db);exit;}
 if($path==='/about'){cms_public_about($db);exit;}
+if($path==='/mac'){
+    cms_admin_run($db,'/mac');
+    exit;
+}
 if($path==='/admin'||str_starts_with($path,'/admin/')){
     require $private.'/admin.php';
     cms_admin_run($db,$path);

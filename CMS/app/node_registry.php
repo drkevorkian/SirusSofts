@@ -65,7 +65,7 @@ final class SirusNodeRegistry
             array_diff(array_keys($metrics), [
                 'cpu_pct','cpu_temp_c','load_1','memory_used_bytes',
                 'disk_used_bytes','disk_total_bytes','uptime_seconds','gpus',
-                'services','applications','software_files'
+                'services','applications','software_files','mac'
             ])) throw new InvalidArgumentException('Invalid performance metrics');
         foreach (['cpu_pct' => 100.0, 'cpu_temp_c' => 140.0, 'load_1' => 1024.0] as $field => $upper) {
             if (!array_key_exists($field, $metrics) || $metrics[$field] === null) continue;
@@ -112,6 +112,25 @@ final class SirusNodeRegistry
                         throw new InvalidArgumentException('Invalid GPU memory');
                 }
             }
+        }
+        if(isset($metrics['mac'])){
+            $mac=$metrics['mac'];
+            if(!is_array($mac) || array_is_list($mac) ||
+               array_diff(array_keys($mac),['model','arch','os_version','power_source','battery_pct','sleep_assertion','worker_cpu_target','memory_pressure'])) {
+                throw new InvalidArgumentException('Invalid Mac metrics');
+            }
+            foreach(['model','arch','os_version','power_source','memory_pressure'] as $field){
+                if(isset($mac[$field]) && (!is_string($mac[$field]) ||
+                   !preg_match('/^[^\\x00-\\x1F\\x7F]{1,96}$/uD',$mac[$field])))
+                   throw new InvalidArgumentException('Invalid Mac field');
+            }
+            foreach(['battery_pct','worker_cpu_target'] as $field){
+                if(isset($mac[$field]) && ((!is_int($mac[$field])&&!is_float($mac[$field])) ||
+                   !is_finite((float)$mac[$field]) || $mac[$field]<0 || $mac[$field]>100))
+                   throw new InvalidArgumentException('Invalid Mac gauge');
+            }
+            if(isset($mac['sleep_assertion']) && !is_bool($mac['sleep_assertion']))
+                throw new InvalidArgumentException('Invalid Mac power flag');
         }
         if(isset($metrics['services'])){
             if(!is_array($metrics['services']) || !array_is_list($metrics['services']) ||
@@ -173,8 +192,8 @@ final class SirusNodeRegistry
         if (!is_string($id) || !self::id($id) || !is_int($timestamp) ||
             abs($timestamp - $now) > 120 || !is_string($nonce) ||
             !preg_match('/^[0-9a-f]{32}$/D', $nonce) ||
-            !in_array($os, ['gentoo', 'ubuntu', 'linux'], true) ||
-            !in_array($init, ['openrc', 'systemd', 'other'], true) ||
+            !in_array($os, ['gentoo', 'ubuntu', 'linux', 'macos'], true) ||
+            !in_array($init, ['openrc', 'systemd', 'launchd', 'other'], true) ||
             !is_string($version) || !preg_match('/^[0-9a-zA-Z_.-]{1,32}$/D', $version) ||
             !is_int($cpus) || $cpus < 1 || $cpus > 1024 ||
             !is_int($ram) || $ram < 1024 * 1024 || $ram > 1125899906842624 ||

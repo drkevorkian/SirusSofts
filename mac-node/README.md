@@ -1,0 +1,65 @@
+# SirusSofts Mac research node (Intel and Apple Silicon)
+
+This is the first functional macOS node, compatible with Python 3.9+ on supported
+macOS releases and intended for Macs from the 2017 generation through current
+Intel/Apple Silicon models. Hardware feature detection is dynamic; no CPU or GPU
+model is hardcoded. Actual legacy OCLP behavior is not guaranteed.
+
+## Features implemented
+
+- Signed TLS outbound node heartbeat and authenticated fixed-type work polling,
+  matching existing SirusSofts HMAC coordinator behavior.
+- Detailed administrator-only /mac dashboard, with links from Infrastructure.
+- Intel/Apple Silicon CPU, RAM, GPU identity, disk, battery, and power telemetry;
+  GPU utilization and temperature explicitly unknown unless measured.
+- launchd user LaunchAgent, background execution without any GUI window; capped
+  number of fixed queued jobs. --once and --probe diagnostics.
+- Idle-sleep prevention through caffeinate -i; **does not defeat lid closure**.
+- Fixed bounded SHA-256 worker self-test and hardware health snapshot.
+
+## Not yet implemented
+
+No GUI/menu-bar application, process-kill or elevated helper, automatic RAM
+reclamation, genuine research/PDF ingestion, CPU quota enforcement, precise
+GPU telemetry, 90% total-system resource reservation, or closed-lid headless
+operation. The 90% CPU setting is a policy target awaiting a scheduler. Nothing
+in this package runs as root or starts until manually installed/configured.
+
+## Install
+
+On the Mac, review source and run:
+
+    sh mac-node/install-macos.sh --plan
+    sh mac-node/install-macos.sh --install
+
+Install modern Python 3 if absent; the installer uses the first python3 on
+PATH. In ~/.config/sirus-mac-node/config.json set key_file to the actual path
+of ~/.config/sirus-mac-node/heartbeat.key. Enroll the binary 32-byte key
+on the Ubuntu host under its existing private node key directory, named after
+your configured node_id. Transfer only using an authenticated encrypted channel;
+do not paste keys into a website/chat/GitHub.
+
+The CMS must be upgraded from the reviewed matching Git commit before the Mac
+reports: older CMS versions reject os=macos and init=launchd. After enrollment:
+
+    launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.sirussofts.mac-node.plist"
+    launchctl kickstart -k gui/$(id -u)/com.sirussofts.mac-node
+
+Check ~/Library/Application Support/SirusMacNode/stderr.log or run
+python3 mac-node/agent.py --config ~/.config/sirus-mac-node/config.json --probe
+locally without contacting the network.
+
+To stop background startup:
+    sh mac-node/install-macos.sh --uninstall
+
+## Operational constraints
+
+launchd GUI-domain agents normally require an active login session; this is
+not a pre-login LaunchDaemon. Never operate under a root-wide service account.
+A closed lid ordinarily sleeps the Mac regardless of caffeinate; use supported
+clamshell operation with appropriate hardware, and confirm wake/thermal
+behavior before calling it always-on.
+
+The Mac agent can run on newer Apple Silicon Macs but the legacy Intel Mac
+has no guaranteed Metal inference support on Sonoma/OCLP. No GPU compute
+assumptions are made. Only the existing known fixed work types are run.
