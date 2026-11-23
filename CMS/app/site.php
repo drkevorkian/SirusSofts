@@ -57,6 +57,8 @@ function cms_layout_start(PDO $db,string $title,bool $admin=false): void {
 <link rel="stylesheet" href="/assets/cms.css">
 <script defer src="/assets/cms.js"></script>
 <script defer src="/assets/live.js"></script>
+<script defer src="/assets/ai-panels.js"></script>
+<script defer src="/assets/gentoo-pdf-admin.js"></script>
 </head><body>
 <div class="site-frame">
 <header class="topbar">
