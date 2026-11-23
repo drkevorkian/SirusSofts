@@ -80,6 +80,17 @@ ob_start();cms_ai_page($db);$html=(string)ob_get_clean();
 ai_assert(str_contains($html,'AI Knowledge &amp; Training'),'admin renders');
 ai_assert(str_contains($html,'Continuous learning readiness'),'learning UI rendered');
 ai_assert(str_contains($html,'No automatic model-weight training is active'),'status is explicit');
+foreach(['continuous','evidence','procedures','pdf'] as $panel) {
+    ai_assert(str_contains($html,'data-ai-remote-panel="'.$panel.'"'),
+        'remote '.$panel.' panel deferred from first response');
+}
+ai_assert(!str_contains($html,'Private Gentoo research controller is not reachable'),
+    'initial HTML render is independent of the research bridge');
+try {
+    cms_ai_panel_placeholder('not-a-panel','Unexpected');
+    ai_assert(false,'only allowlisted AI panels can render');
+}catch(InvalidArgumentException $expected){}
+
 ai_assert(!str_contains($html,'SECRET'),'body content not exposed on listing');
 // Simulate a populated 2026 three-profile installation and verify preservation.
 $legacy=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
