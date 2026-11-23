@@ -436,11 +436,28 @@
     try {
       const reply = await fetch(form.action, {
         method: "POST", credentials: "same-origin",
-        body: new FormData(form), redirect: "error",
+        body: new FormData(form), redirect: "follow",
         headers: {"Accept": "application/json"}, cache: "no-store"
       });
+      const responseType = (reply.headers.get("content-type") || "").toLowerCase();
+      if (reply.redirected) {
+        const target = new URL(reply.url, location.href);
+        if (target.pathname.startsWith("/admin/login")) {
+          throw new Error("Administrator session expired. Sign in again and reload the page.");
+        }
+        throw new Error("Server redirected to " + target.pathname +
+                        ". Check the canonical HTTPS hostname and session.");
+      }
+      if (!responseType.includes("application/json")) {
+        throw new Error("Server returned HTTP " + reply.status +
+                        " (" + (responseType || "unknown content type") +
+                        ") instead of JSON. Check webserver and PHP logs.");
+      }
       const data = await reply.json();
-      if (!reply.ok || !data.ok) throw new Error(data.error || "Job was rejected");
+      if (!reply.ok || !data.ok) {
+        throw new Error("HTTP " + reply.status + ": " +
+                        (data.error || "Job was rejected"));
+      }
       report(data.state === "planned" ? "release plan created" :
              data.state === "approved" ? "revision approved (not installed)" :
              data.state === "canceled" ? "release plan canceled" :
@@ -448,7 +465,8 @@
              "queued " + String(data.request_id).slice(0, 8));
       document.dispatchEvent(new CustomEvent("sirus:job-queued", {detail: data}));
     } catch (error) {
-      report("Work request failed: " + String(error.message || "request failed").slice(0, 160));
+      report("Work request failed: " + String(error.message || "request failed").slice(0, 200) +
+             ". If the request may have reached Ubuntu, inspect the work queue before retrying.");
     } finally {
       if (button) button.disabled = false;
     }
