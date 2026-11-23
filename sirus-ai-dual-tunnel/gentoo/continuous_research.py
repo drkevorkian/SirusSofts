@@ -61,7 +61,7 @@ def init_schema(path):
             CHECK(mode IN ('disabled','paused','running','stopped')),
           passes INTEGER NOT NULL DEFAULT 1 CHECK(passes BETWEEN 1 AND 100),
           model_id TEXT NOT NULL DEFAULT 'sirussofts-coder',
-          target TEXT NOT NULL DEFAULT 'auto',
+          target TEXT NOT NULL DEFAULT 'nvidia',
           revisit_seconds INTEGER NOT NULL DEFAULT 86400,
           max_cpu_load REAL NOT NULL DEFAULT 0,
           max_chat_jobs INTEGER NOT NULL DEFAULT 0,
