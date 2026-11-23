@@ -53,6 +53,41 @@ class PersistentWalTests(unittest.TestCase):
             self.assertEqual(reader.execute("SELECT count(*) FROM t").fetchone()[0], n + 1)
             reader.close()
 
+    def test_other_sqlite_writer_closes_before_guarded_writer(self):
+        # PDF admin and ingestion may hold separate connections. Closing the
+        # admin writer must not remove sidecars while ingestion is active.
+        guarded = open_persistent_wal(self.path)
+        try:
+            guarded.execute("CREATE TABLE t(n INTEGER)")
+            admin = sqlite3.connect(self.path)
+            try:
+                admin.execute("INSERT INTO t VALUES(42)")
+                admin.commit()
+            finally:
+                admin.close()
+            self.assertTrue(all(p.is_file() for p in self.sidecars()))
+        finally:
+            guarded.close()
+        self.assertTrue(all(p.is_file() for p in self.sidecars()))
+        reader = sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)
+        try:
+            self.assertEqual(reader.execute("SELECT n FROM t").fetchone()[0], 42)
+        finally:
+            reader.close()
+
+    def test_guard_does_not_silently_accept_non_wal_database(self):
+        # Guarding an existing rollback-journal database is an explicit
+        # migration; open_persistent_wal must enable WAL before returning.
+        with sqlite3.connect(self.path) as db:
+            db.execute("CREATE TABLE t(n INTEGER)")
+            self.assertEqual(db.execute("PRAGMA journal_mode").fetchone()[0], "delete")
+        guarded = open_persistent_wal(self.path)
+        try:
+            self.assertEqual(guarded.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+        finally:
+            guarded.close()
+        self.assertTrue(all(p.is_file() for p in self.sidecars()))
+
     def test_guard_refuses_missing_or_symlinked_database(self):
         with self.assertRaisesRegex(RuntimeError, "existing regular"):
             WalGuard(self.path)
