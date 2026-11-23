@@ -63,6 +63,8 @@ function cms_ai_admin_key():string {
         throw new RuntimeException('Private research administrator bridge is not configured.');
     return $key;
 }
+/** Safe gateway failure details, without request/response bodies or secrets. */
+final class SirusAiUpstreamException extends RuntimeException {}
 function cms_ai_api_upstream(string $kind,string $path,?array $payload=null):array {
     $bases=['input'=>'http://127.0.0.1:18485','output'=>'http://127.0.0.1:18483'];
     if(!isset($bases[$kind]) || !preg_match('#^/api/(?:in|out)/[a-zA-Z0-9/_?=&-]+$#D',$path))
@@ -102,11 +104,23 @@ function cms_ai_api_upstream(string $kind,string $path,?array $payload=null):arr
     }
     $raw=curl_exec($curl);
     $status=(int)curl_getinfo($curl,CURLINFO_HTTP_CODE);
+    $errno=curl_errno($curl);
+    $elapsed=(int)round(curl_getinfo($curl,CURLINFO_TOTAL_TIME)*1000);
     curl_close($curl);
-    if(!is_string($raw)||strlen($raw)>600000 || $status<200||$status>=300)
-        throw new RuntimeException('Local inference service unavailable or rejected the request.');
-    $parsed=json_decode($raw,true,16,JSON_THROW_ON_ERROR);
-    if(!is_array($parsed))throw new RuntimeException('Local AI returned an invalid response.');
+    if(!is_string($raw)||strlen($raw)>600000 || $status<200||$status>=300){
+        $reason=$errno!==0?'transport':($status<200||$status>=300?'http':'response-size');
+        error_log(sprintf('Sirus AI upstream failure: channel=%s route=%s reason=%s http=%d curl=%d elapsed_ms=%d',
+            $kind,explode('?',$path,2)[0],$reason,$status,$errno,$elapsed));
+        throw new SirusAiUpstreamException(sprintf(
+            'Local inference request failed (%s, HTTP %d, cURL %d). Check the server log before retrying.',
+            $reason,$status,$errno));
+    }
+    try{$parsed=json_decode($raw,true,16,JSON_THROW_ON_ERROR);}
+    catch(JsonException $e){
+        error_log('Sirus AI upstream invalid JSON: channel='.$kind.' route='.explode('?',$path,2)[0]);
+        throw new SirusAiUpstreamException('Local AI returned invalid JSON.');
+    }
+    if(!is_array($parsed))throw new SirusAiUpstreamException('Local AI returned an invalid response.');
     return $parsed;
 }
 function cms_ai_api_rate(PDO $db,string $actor,string $role): void {

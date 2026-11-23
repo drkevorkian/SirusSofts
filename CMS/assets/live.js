@@ -434,7 +434,14 @@
     if (button) button.disabled = true;
     report("Submitting work request…");
     try {
-      const reply = await fetch(form.action, {
+      // A named input "action" shadows HTMLFormElement.action in browsers.
+      // Read the actual HTML attribute, not the form's named-property lookup.
+      const endpoint = new URL(form.getAttribute("action") || location.pathname, location.href);
+      if (endpoint.origin !== location.origin ||
+          !["/admin/infrastructure", "/admin/updates"].includes(endpoint.pathname)) {
+        throw new Error("Invalid delegated-work form destination.");
+      }
+      const reply = await fetch(endpoint.href, {
         method: "POST", credentials: "same-origin",
         body: new FormData(form), redirect: "follow",
         headers: {"Accept": "application/json"}, cache: "no-store"

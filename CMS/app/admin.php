@@ -374,6 +374,12 @@ function cms_admin_run(PDO $db,string $path): never {
     $error=null;
     if(($_SERVER['REQUEST_METHOD']??'GET')==='POST'){
         try{cms_admin_post($db,$path);}
+        catch(SirusAiUpstreamException $e){
+            // The research admin page displays this message; do not turn
+            // a transport error into a fatal PHP request or retry a mutation.
+            $error=$e->getMessage();
+            http_response_code(503);
+        }
         catch(InvalidArgumentException|PDOException $e){
             $error=$e instanceof PDOException?'A database constraint prevented that change.':$e->getMessage();
             if(str_contains((string)($_SERVER['HTTP_ACCEPT']??''),'application/json') &&
