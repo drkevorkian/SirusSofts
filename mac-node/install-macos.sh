@@ -3,7 +3,7 @@
 set -eu
 [ "$(uname -s)" = "Darwin" ] || { echo "macOS only" >&2; exit 1; }
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-ACTION="\${1:---plan}"
+ACTION="${1:---plan}"
 APP="$HOME/Library/Application Support/SirusMacNode"
 CFG="$HOME/.config/sirus-mac-node"
 PLIST="$HOME/Library/LaunchAgents/com.sirussofts.mac-node.plist"
@@ -28,8 +28,15 @@ cp "$ROOT/agent.py" "$APP/agent.py"
 chmod 600 "$APP/agent.py"
 if [ ! -e "$CFG/config.json" ]; then
   cp "$ROOT/config.example.json" "$CFG/config.json"
+  "$PYTHON" - "$CFG/config.json" "$CFG/heartbeat.key" <<'PY'
+import json,sys
+config,key=sys.argv[1:]
+with open(config) as f: data=json.load(f)
+data["key_file"]=key
+with open(config,"w") as f: json.dump(data,f,indent=2)
+PY
   chmod 600 "$CFG/config.json"
-  echo "Edit $CFG/config.json with the correct key_file path before starting."
+  echo "A default config was created. Enroll the key before starting."
 fi
 if [ ! -e "$CFG/heartbeat.key" ]; then
   /usr/bin/openssl rand 32 > "$CFG/heartbeat.key"

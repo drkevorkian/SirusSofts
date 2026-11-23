@@ -75,6 +75,7 @@ if($path==='/'){cms_public_home($db);exit;}
 if($path==='/projects'){cms_public_catalog($db);exit;}
 if($path==='/about'){cms_public_about($db);exit;}
 if($path==='/mac'){
+    require $private.'/admin.php';
     cms_admin_run($db,'/mac');
     exit;
 }
