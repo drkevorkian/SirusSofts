@@ -461,7 +461,7 @@ function cms_ai_continuous_panel(PDO $db):void {
           <input type="number" name="revisit_seconds" min="60" max="604800"
             value="<?=cms_esc((string)($cfg['revisit_seconds']??86400))?>">
         </label>
-        <label>Concurrent background inference passes (1–4)
+        <label>Concurrent background inference passes (1–4; up to 3 local endpoints)
           <input type="number" name="background_concurrency" min="1" max="4"
             value="<?=(int)($cfg['background_concurrency']??1)?>">
         </label>
@@ -519,10 +519,15 @@ function cms_ai_continuous_panel(PDO $db):void {
         <label>Worker target
           <select name="target">
           <?php foreach(['auto','cpu','nvidia','amd'] as $worker):?>
-            <option value="<?=cms_esc($worker)?>" <?=($cfg['target']??'auto')===$worker?'selected':''?>><?=cms_esc($worker)?></option>
+            <option value="<?=cms_esc($worker)?>" <?=($cfg['target']??'auto')===$worker?'selected':''?>><?=cms_esc($worker==='auto'?'auto — all available local workers':$worker)?></option>
           <?php endforeach; ?>
           </select>
         </label>
+        <p>With the updated Gentoo router, auto admits one pass per available CPU,
+        NVIDIA and AMD inference endpoint, subject to the global concurrency
+        limit. Set concurrency to 3 to use all three. New research admission
+        respects the configured interactive queue limit; an admitted pass
+        finishes before the endpoint serves the next inference.</p>
         <button class="btn" type="submit">Save scheduling limits</button>
         <p>Enabling a VRAM gate on an explicit GPU target blocks new research
         when that backend's memory counters cannot be read or are below the

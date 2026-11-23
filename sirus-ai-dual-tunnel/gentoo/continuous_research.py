@@ -774,13 +774,21 @@ class ContinuousResearch:
     def _retry_delay(attempts):
         return min(3600,15*2**max(0,attempts-1))
 
-    def claim(self, *, now=None):
+    def claim(self, *, now=None, worker=None, model_id=None):
+        # Production dispatchers claim for one real, independently available
+        # endpoint. The optional unbound path supports offline ledger callers.
+        if worker is not None and worker not in ("cpu","nvidia","amd"):
+            raise ValueError("Unknown local research worker")
         now = time.time() if now is None else now
         # GPU telemetry can execute a bounded local subprocess. Probe BEFORE
         # obtaining the write lock, so normal interactive work is not blocked.
         with connect(self.db_path) as preflight:
-            initial=preflight.execute("""SELECT min_gpu_free_mib,max_database_mib,daily_energy_wh,mode
-                FROM cr_config WHERE id=1""").fetchone()
+            initial=preflight.execute("""SELECT min_gpu_free_mib,max_database_mib,daily_energy_wh,mode,
+                target,model_id FROM cr_config WHERE id=1""").fetchone()
+        if worker is not None and (initial["mode"]!="running" or
+                initial["target"] not in ("auto",worker) or
+                initial["model_id"]!=model_id):
+            return None
         gpu_devices=gpu_memory_snapshot() if initial["min_gpu_free_mib"] else None
         db_bytes=database_size_bytes(self.db_path) if initial["max_database_mib"] else None
         # Source reads and model calls occur OUTSIDE this short write transaction.
@@ -807,6 +815,9 @@ class ContinuousResearch:
             conf=db.execute("SELECT * FROM cr_config WHERE id=1").fetchone()
             if conf["mode"]!="running":
                 return None
+            if worker is not None and (conf["target"] not in ("auto",worker)
+                    or conf["model_id"]!=model_id):
+                return None
             # Verify any newly-enabled ceiling even if config changed between
             # preflight and the claim transaction. A ceiling blocks scheduling
             # new background work, never existing interactive chat.
@@ -817,6 +828,10 @@ class ContinuousResearch:
             self._schedule(db,now)
             active_background=db.execute("SELECT count(*) FROM cr_jobs WHERE state='leased'").fetchone()[0]
             if active_background>=conf["background_concurrency"]:
+                return None
+            if worker is not None and db.execute(
+                    "SELECT 1 FROM cr_jobs WHERE state='leased' AND worker=? LIMIT 1",
+                    (worker,)).fetchone():
                 return None
             if db.execute("""SELECT count(*) FROM jobs
                 WHERE state IN ('queued','running')""").fetchone()[0] > conf["max_chat_jobs"]:
@@ -849,11 +864,11 @@ class ContinuousResearch:
                 return None
             token=uuid.uuid4().hex
             db.execute("""UPDATE cr_jobs SET state='leased',token=?,lease_until=?,
-                attempts=attempts+1,updated=? WHERE id=? AND state='queued'""",
-                       (token,now+LEASE_SECONDS,now,row["id"]))
+                attempts=attempts+1,worker=?,updated=? WHERE id=? AND state='queued'""",
+                       (token,now+LEASE_SECONDS,worker or "",now,row["id"]))
             self._event(db,"job-leased",row["id"],
                         "pass="+str(row["pass_completed"]+1))
-            return dict(row) | {"token":token,"target":conf["target"],
+            return dict(row) | {"token":token,"target":worker or conf["target"],
                                 "model_id":conf["model_id"]}
 
     def heartbeat(self, job_id, token):
@@ -992,14 +1007,14 @@ class ContinuousResearch:
             FROM cr_energy_attempts WHERE started BETWEEN ? AND ?""",
             (now-7*86400,now)).fetchone())
 
-    def run_once(self, infer):
+    def run_once(self, infer, *, worker=None, model_id=None):
         """Run one bounded pass. Caller provides existing local llama.cpp router.
 
         infer(messages,target,model_id,job_id) -> (draft_text,worker_name)
         or (draft_text,worker_name,measured_token_metrics).
         No untrusted text can select a URL, filesystem path or executable.
         """
-        lease=self.claim()
+        lease=self.claim(worker=worker,model_id=model_id)
         if lease is None:
             return False
         keepalive=Event()
@@ -1043,9 +1058,11 @@ class ContinuousResearch:
                 self._end_energy_attempt(lease["token"],elapsed_ms,outcome)
             if not isinstance(returned,(tuple,list)) or len(returned) not in (2,3):
                 raise ValueError("Invalid inference worker response")
-            answer,worker=returned[:2]
+            answer,actual_worker=returned[:2]
+            if worker is not None and actual_worker!=worker:
+                raise ValueError("Research inference returned a different worker")
             tokens=returned[2] if len(returned)==3 else None
-            self.finish(lease,answer,worker,
+            self.finish(lease,answer,actual_worker,
                         duration_ms=min(elapsed_ms,86400000),
                         token_metrics=tokens)
         except Exception as exc:

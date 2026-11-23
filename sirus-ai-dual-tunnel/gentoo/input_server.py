@@ -45,6 +45,10 @@ def role_thread(role, func, *args):
 CPU = 'http://127.0.0.1:18482'
 NVIDIA = 'http://127.0.0.1:18486'
 AMD = 'http://127.0.0.1:18487'
+LOCAL_WORKERS = {'nvidia': NVIDIA, 'amd': AMD, 'cpu': CPU}
+# One inference slot per independent endpoint. RLock allows the research
+# dispatcher to reserve a slot before leasing a job and call chat on it.
+WORKER_LOCKS = {url: threading.RLock() for url in LOCAL_WORKERS.values()}
 OUT = 'http://127.0.0.1:18084/internal/push'
 MAX_BYTES = 128 * 1024
 MAX_TEXT = 16000  # Existing input message validation; not an output limit.
@@ -323,8 +327,12 @@ def chat(url, messages, timeout=None, model_id=DEFAULT_MODEL, max_tokens=None,
             raise ValueError('Invalid output-token limit')
         request['max_tokens']=max_tokens
     payload=json.dumps(request).encode()
-    with local_open(url + '/v1/chat/completions', data=payload, timeout=timeout) as r:
-        data = json.load(r)
+    lock=WORKER_LOCKS.get(url)
+    if lock is None:
+        raise ValueError('Unknown configured local inference endpoint')
+    with lock:
+        with local_open(url + '/v1/chat/completions', data=payload, timeout=timeout) as r:
+            data = json.load(r)
     content=str(data['choices'][0]['message']['content'])
     return (content,model_token_metrics(data)) if include_metrics else content
 
@@ -592,20 +600,46 @@ class Engine:
             self.stop.wait(30)
 
     def continuous_loop(self):
-        # Fixed bounded pool. The scheduler admits only the configured number
-        # of leases, defaults to one, and leaves excess threads idle.
+        # One dispatcher per actual model endpoint, not four copies of the
+        # NVIDIA dispatcher. Existing global admission/concurrency gates apply.
         workers = [threading.Thread(target=role_thread,
-                    args=('learn', self._continuous_worker), daemon=True)
-                   for _ in range(4)]
+                    args=('learn', self._continuous_worker, name), daemon=True)
+                   for name in LOCAL_WORKERS]
         for worker in workers:
             worker.start()
         for worker in workers:
             worker.join()
 
-    def _continuous_worker(self):
+    def _continuous_worker(self, worker):
         while not self.stop.is_set():
-            if not self.continuous.run_once(self._continuous_infer):
-                self.stop.wait(2)
+            try:
+                if self._continuous_step(worker):
+                    continue
+            except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
+                print("Research dispatcher unavailable:",worker,type(exc).__name__,
+                      file=sys.stderr,flush=True)
+            self.stop.wait(2)
+
+    def _continuous_step(self, worker):
+        endpoint=LOCAL_WORKERS[worker]
+        # An occupied interactive/explicit research endpoint is not eligible
+        # for another background lease. Never queue multiple passes on it.
+        lock=WORKER_LOCKS[endpoint]
+        if not lock.acquire(blocking=False):
+            return False
+        try:
+            with db_connect(self.db) as con:
+                mode,target,model=con.execute(
+                    "SELECT mode,target,model_id FROM cr_config WHERE id=1").fetchone()
+            if mode!='running' or target not in ('auto',worker):
+                return False
+            # Avoid consuming attempts on an offline or wrong-model endpoint.
+            if not worker_healthy(endpoint) or model not in local_model_ids(endpoint):
+                return False
+            return self.continuous.run_once(self._continuous_infer,
+                                            worker=worker,model_id=model)
+        finally:
+            lock.release()
 
     def _continuous_infer(self, messages, target, model_id, job_id):
         worker, endpoint = choose_worker(job_id,target,self.gpu_percent,model_id=model_id,preferred_gpu='nvidia')

@@ -112,6 +112,56 @@ class ContinuousResearchTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.research.control("configure",value={"background_concurrency":bad})
 
+    def test_auto_pool_distinct_workers_and_atomic_leases(self):
+        self.add_doc()
+        with sqlite3.connect(self.pdf) as db:
+            for page in (3,4,5):
+                db.execute("INSERT INTO excerpts VALUES(?,?,?,?)",
+                           (SHA,page,1,"Independent source section "+str(page)))
+            db.execute("UPDATE documents SET pages=5,excerpts=4 WHERE sha256=?",(SHA,))
+        self.research.inventory()
+        self.research.control("configure",value={"target":"auto","background_concurrency":3})
+        self.research.control("enable")
+        def claim(worker):
+            return self.research.claim(worker=worker,model_id="sirussofts-coder")
+        workers=("cpu","amd","nvidia")
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            leases=list(pool.map(claim,workers))
+        self.assertTrue(all(leases))
+        self.assertEqual({x["target"] for x in leases},set(workers))
+        self.assertEqual(len({x["id"] for x in leases}),3)
+        for name in workers:
+            self.assertIsNone(claim(name))
+        with connect(self.db) as db:
+            self.assertEqual({row[0] for row in db.execute(
+                "SELECT worker FROM cr_jobs WHERE state='leased'")},set(workers))
+        for lease in leases:
+            self.assertTrue(self.research.finish(lease,"draft",lease["target"]))
+        self.assertIsNotNone(claim("amd"))
+
+    def test_bound_claim_honors_target_model_and_worker_limit(self):
+        self.add_doc()
+        self.research.inventory()
+        self.research.control("enable")
+        self.assertIsNone(self.research.claim(worker="cpu",model_id="sirussofts-coder"))
+        self.assertIsNone(self.research.claim(worker="nvidia",model_id="wrong-model"))
+        self.assertIsNotNone(self.research.claim(worker="nvidia",model_id="sirussofts-coder"))
+
+    def test_dispatch_skips_offline_worker_without_claim(self):
+        self.research.control("configure",value={"target":"auto","background_concurrency":3})
+        self.research.control("enable")
+        engine=ai.Engine.__new__(ai.Engine)
+        engine.db=self.db
+        engine.continuous=self.research
+        with patch.object(ai,"worker_healthy",return_value=False), \
+             patch.object(self.research,"run_once",side_effect=AssertionError("claimed offline work")):
+            self.assertFalse(engine._continuous_step("cpu"))
+        with patch.object(ai,"worker_healthy",return_value=True), \
+             patch.object(ai,"local_model_ids",return_value=["sirussofts-coder"]), \
+             patch.object(self.research,"run_once",return_value=True) as run:
+            self.assertTrue(engine._continuous_step("amd"))
+            self.assertEqual(run.call_args.kwargs,{"worker":"amd","model_id":"sirussofts-coder"})
+
     def test_inference_energy_uses_attempt_start_settings_and_measured_time(self):
         self.add_doc()
         self.research.inventory()
