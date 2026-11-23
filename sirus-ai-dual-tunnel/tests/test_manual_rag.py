@@ -510,6 +510,32 @@ class ManualRagTests(unittest.TestCase):
         self.assertIn("No APPROVED matching excerpts were retrieved for MY27",context)
         self.assertNotIn("MY21 Summit",context)
 
+    def test_real_2026_summit_850_not_600r_or_turbo_r(self):
+        normal,turbo,sixhundred,old=("1"*64,"2"*64,"3"*64,"4"*64)
+        self.add(normal,"SKI-DOO 2026 SUMMIT (850 E-TEC Gen5) - Shop Manual_SM11Y026_en.pdf",
+                 "approved",1,"R.A.V.E. exhaust valve service test",page=96)
+        self.add(turbo,"SKI-DOO 2026 SUMMIT (850 E-TEC TurboR Gen5) - Shop Manual_SM11Y026_en.pdf",
+                 "approved",1,"RAVE exhaust valve troubleshooting",page=102)
+        self.add(sixhundred,"SKI-DOO 2026 SUMMIT ADRENALINE - EDGE (600R E-TEC Gen5) - Shop Manual_SM11Y026_en.pdf",
+                 "approved",1,"RAVE exhaust valve troubleshooting",page=94)
+        self.add(old,"SKI-DOO 2021 SUMMIT (850 E-TEC Gen4) - Shop Manual.pdf",
+                 "approved",1,"RAVE exhaust valve troubleshooting",page=40)
+        rag.sync(self.source,self.index)
+        query="MY26 Summit 850 R.A.V.E. exhaust valve troubleshooting"
+        refs=rag.retrieve(query,self.source,self.index,limit=8)
+        self.assertEqual({r["sha256"] for r in refs},{normal})
+        self.assertEqual(refs[0]["page"],96)
+        turbo_query="MY26 Summit 850 Turbo R RAVE exhaust valve troubleshooting"
+        self.assertEqual({r["sha256"] for r in rag.retrieve(turbo_query,self.source,self.index,limit=8)},{turbo})
+        self.assertEqual(rag.retrieve("MY27 Summit 850 RAVE exhaust valve",self.source,self.index),[])
+
+    def test_only_600r_not_represented_as_850(self):
+        self.add("5"*64,"SKI-DOO 2026 SUMMIT (600R E-TEC Gen5) - Shop Manual.pdf",
+                 "approved",1,"RAVE exhaust valve service details",page=60)
+        rag.sync(self.source,self.index)
+        self.assertEqual(rag.retrieve("MY26 Summit 850 R.A.V.E. exhaust valve",
+                                       self.source,self.index),[])
+
     def test_fail_closed_offline(self):
         with self.assertRaises(rag.RetrievalUnavailable):
             rag.retrieve("torque",self.source,self.index)

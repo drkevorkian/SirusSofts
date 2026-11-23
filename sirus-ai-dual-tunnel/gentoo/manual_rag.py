@@ -175,6 +175,24 @@ def _snowmobile_title_match(query, title):
                           normalized))
 
 
+def _snowmobile_engine_match(query, filename):
+    """Keep Ski-Doo engine and induction variants separate for service instructions."""
+    if not (_summit_requested(query) or re.search(r"\bski[\s_-]*doo\b", query, re.I)):
+        return True
+    pattern = r"\b(?:600r|600|850|900|1200)\b"
+    requested = {s.lower() for s in re.findall(pattern, query, re.I)}
+    if not requested:
+        return True
+    named = {s.lower() for s in re.findall(pattern, filename, re.I)}
+    if named and not named.intersection(requested):
+        return False
+    if "850" in requested and "850" in named:
+        turbo = r"\bturbo(?:[\s_-]*r)?\b|\bturbor\b"
+        if bool(re.search(turbo, query, re.I)) != bool(re.search(turbo, filename, re.I)):
+            return False
+    return True
+
+
 def _rave_requested(query):
     return bool(re.search(r"\b(?:e[\s-]*)?r[\.\s]*a[\.\s]*v[\.\s]*e\b",query,re.I))
 
@@ -389,6 +407,8 @@ def _vehicle_scope(query, approved, source_db=None):
         if years and not (model_years(str(row["filename"])) & years):
             continue
         if not _snowmobile_title_match(query, str(row["filename"])):
+            continue
+        if not _snowmobile_engine_match(query, str(row["filename"])):
             continue
         engine_unverified = False
         if model_id and model_id not in compact:
@@ -627,8 +647,11 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
                     valid[key] = (rank, dict(
                         sha256=sha, filename=row["filename"], page=row["page"],
                         part=row["part"], text=row["body"],
-                        variant_unverified=(_summit_requested(query) and
-                            not re.search(r"\bsummit\b",str(row["filename"]),re.I))))
+                        variant_unverified=(
+                            (_summit_requested(query) and
+                             not re.search(r"\bsummit\b",str(row["filename"]),re.I))
+                            or (bool(re.search(r"\b850\b",query,re.I))
+                                and not bool(re.search(r"\b850\b",str(row["filename"]),re.I))))))
             # A strong match within the explicit shop manual is preferable
             # to broad hits in another manual.
             if scoped and stage <= 2 and sum(
@@ -806,9 +829,9 @@ def augment(messages, question, source: Path = SOURCE, index: Path = INDEX):
                            "HD10 compatibility. Check the manual coverage "
                            "before relying on circuits.\n" + passage)
         if ref.get("variant_unverified"):
-            passage = ("SUMMIT VARIANT UNVERIFIED: This matching-year source "
-                       "does not name Summit in its title. Verify applicability "
-                       "inside the manual; year and brand do not prove it.\n"
+            passage = ("SUMMIT ENGINE/VARIANT UNVERIFIED: This source title "
+                       "does not confirm the requested Summit 850 engine. "
+                       "Verify vehicle coverage before using its procedures.\n"
                        + passage)
         context += heading+"[BEGIN MANUAL DATA]\n"+passage+"\n[END MANUAL DATA]\n"
     return [{"role":"system","content":context}, *messages]
