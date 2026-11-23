@@ -1192,7 +1192,9 @@ class ContinuousResearch:
             return True
 
     def status(self):
-        self.sample_resources()
+        # Admin status is a read operation: never contend for a write lock
+        # merely to sample telemetry while inventory/learning is busy.
+        # Resource samples remain available through the explicit sampler.
         with connect(self.db_path) as db:
             config=dict(db.execute("SELECT * FROM cr_config WHERE id=1").fetchone())
             rows=db.execute("""SELECT state,count(*) n FROM cr_jobs GROUP BY state""").fetchall()
