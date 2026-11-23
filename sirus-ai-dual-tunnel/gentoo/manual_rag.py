@@ -134,9 +134,62 @@ def sync(source: Path = SOURCE, index: Path = INDEX, *, batch_limit=None, progre
                 "new_or_changed": len(changed), "removed": len(removed)}
 
 
+def model_years(text):
+    """Parse MY26, MY 26, MY2026 and 2026 as model year 2026."""
+    years = set(int(hit) for hit in re.findall(r"\b20\d{2}\b", text, re.I))
+    for token in re.findall(r"\bmy[\s_-]*(20\d{2}|\d{2})\b", text, re.I):
+        years.add(int(token) if len(token) == 4 else 2000 + int(token))
+    return years
+
+
+def requested_model_years(query):
+    """Exclude explicitly negated years from the requested-year set."""
+    without_exclusions = re.sub(
+        r"\b(?:not|never|avoid|exclude|excluding|without)\s+"
+        r"(?:(?:using|substituting|substitute|the|an|a|older|manuals?|for|from)\s+){0,5}"
+        r"(?:my[\s_-]*(?:20)?\d{2}|20\d{2})\b",
+        "", query, flags=re.I)
+    return model_years(without_exclusions)
+
+
+def _summit_requested(query):
+    return bool(re.search(r"\bsummit\b", query, re.I))
+
+
+def _snowmobile_title_match(query, title):
+    """Allow matching-year Ski-Doo or REV family sources, not unrelated vehicles.
+
+    Generic platform titles are not proof that a Summit model is covered.
+    """
+    if not _summit_requested(query) and not re.search(r"\bski[\s_-]*doo\b",query,re.I):
+        return True
+    normalized = re.sub(r"[_-]+", " ", title.lower())
+    if re.search(r"\b(?:defender|traxter|commander|maverick|atv|ssv|sea doo|watercraft)\b",
+                 normalized):
+        return False
+    if _summit_requested(query):
+        other = r"\b(?:renegade|expedition|grand touring|skandic|tundra|mx\s*z|backcountry|freeride)\b"
+        if re.search(other,normalized) and not re.search(r"\bsummit\b",normalized):
+            return False
+    return bool(re.search(r"\b(?:summit|ski\s*doo|snowmobile|rev\s*gen\s*\d)\b",
+                          normalized))
+
+
+def _rave_requested(query):
+    return bool(re.search(r"\b(?:e[\s-]*)?r[\.\s]*a[\.\s]*v[\.\s]*e\b",query,re.I))
+
+
+def _rave_evidence(text):
+    # The term "850" alone never establishes a R.A.V.E. component match.
+    return bool(re.search(
+        r"\b(?:e[\s-]*)?r[\.\s]*a[\.\s]*v[\.\s]*e\b"
+        r"|\bexhaust[\s-]+(?:power[\s-]+)?valves?\b", text, re.I))
+
+
 def keywords(text):
     found = []
-    for word in TERMS.findall(text[:4000].lower()):
+    normalized = re.sub(r"\br\s*\.\s*a\s*\.\s*v\s*\.\s*e\s*\.?", "rave", text[:4000], flags=re.I)
+    for word in TERMS.findall(normalized.lower()):
         if len(word) < 3 or word in STOP or word in found:
             continue
         found.append(word)
@@ -310,7 +363,7 @@ def _vehicle_scope(query, approved, source_db=None):
     A wiring diagram isn't the same document as a shop manual.
     """
     query_l = query.lower()
-    year = re.search(r"\b20[12]\d\b", query_l)
+    years = requested_model_years(query)
     model = re.search(r"\bhd[\s_-]*(?:\d{1,2})\b", query_l)
     model_id = re.sub(r"[\s_-]+", "", model.group()) if model else ""
     shop_pattern = r"\b(?:shop|service|repair)\s+manuals?\b"
@@ -333,7 +386,9 @@ def _vehicle_scope(query, approved, source_db=None):
     for row in approved:
         title = str(row["filename"]).lower().replace("_", " ").replace("-", " ")
         compact = re.sub(r"[\s_-]+", "", title)
-        if year and year.group() not in title:
+        if years and not (model_years(str(row["filename"])) & years):
+            continue
+        if not _snowmobile_title_match(query, str(row["filename"])):
             continue
         engine_unverified = False
         if model_id and model_id not in compact:
@@ -345,7 +400,7 @@ def _vehicle_scope(query, approved, source_db=None):
             # are never substitutes.
             named_engines = re.findall(r"\bhd\s*(\d{1,2})\b", title)
             engine_unverified = bool(
-                browse_wiring and asks_wiring and year and
+                browse_wiring and asks_wiring and years and
                 title.lstrip().startswith("ssv ") and not named_engines
                 and not re.search(r"\bx\s*3\b", title))
             if not engine_unverified:
@@ -388,17 +443,29 @@ def _vehicle_scope(query, approved, source_db=None):
 
     if browse_wiring and asks_wiring and not asks_shop and not qualified:
         qualified = shop_fallback
-    constrained = bool(year or model or platform or asks_shop or asks_wiring)
+    constrained = bool(years or model or platform or asks_shop or asks_wiring
+                       or _summit_requested(query)
+                       or re.search(r"\bski[\s_-]*doo\b", query_l))
     if constrained:
-        # If the user specified a model/year, do not broaden to another.
+        # Reserve matching titles for each requested year before taking the
+        # 24-document shortlist. Otherwise a large MY26 corpus hides MY27.
         qualified.sort(key=lambda r: (-r[0], str(r[2]).lower()))
-        return qualified[:24]
+        first, used = [], set()
+        for requested in sorted(years):
+            for row in qualified:
+                if row[1] not in used and requested in model_years(str(row[2])):
+                    first.append(row)
+                    used.add(row[1])
+                    break
+        first.extend(row for row in qualified if row[1] not in used)
+        return first[:24]
     return []
 
 
 def _topic_terms(query):
     """Separate component/procedure terminology from vehicle/source identifiers."""
     skip = STOP | {"can", "am", "shop", "service", "repair", "source", "page",
+                    "summit", "ski-doo", "ski", "doo", "snowmobile",
                    "pages", "numbers", "exact", "name", "title", "2024", "2025",
                    "2026", "2027", "defender", "traxter", "commander",
                    "maverick", "mav", "hd10", "hd11", "hd9", "ssv", "atv",
@@ -410,11 +477,15 @@ def _topic_terms(query):
                  "schematic", "schematics", "circuit", "circuits",
                  "drawing", "drawings", "print", "prints"}
     return [word for word in keywords(query) if word not in skip
-            and not re.fullmatch(r"20\d\d|hd[-_]?\d{1,2}", word)]
+            and not re.fullmatch(r"20\d\d|my(?:20)?\d{2}|hd[-_]?\d{1,2}", word)]
 
 
 def _fts_passes(query, scoped):
     terms = _topic_terms(query)
+    if _rave_requested(query):
+        # FTS5 splits R.A.V.E. into four tokens; match that phrase too.
+        return ['body : ("r a v e" OR "rave" OR "e rave" OR '
+                '"exhaust valve" OR "exhaust valves" OR "exhaust power valve")']
     if _broad_wiring_lookup(query):
         # Exact visual diagram PDFs often have only a textual legend, or
         # nothing except front-matter text. These are hints, not proof.
@@ -474,7 +545,9 @@ def _matched_excerpt(text, query, max_chars=1150):
     if len(text) <= max_chars:
         return text
     terms = _topic_terms(query)
-    if _broad_wiring_lookup(query):
+    if _rave_requested(query):
+        anchors = ["r.a.v.e", "rave", "exhaust valve", "exhaust power valve"]
+    elif _broad_wiring_lookup(query):
         anchors = ["wiring diagram", "wire diagram", "circuit diagram",
                    "electrical schematic", "schematics", "wiring", "circuit"]
     else:
@@ -512,8 +585,11 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
         doc_ids = {r["sha256"] for r in approved}
         scoped = _vehicle_scope(query, approved, original)
         scope_ids = [r[1] for r in scoped]
-        if (re.search(r"\b20[12]\d\b|\bhd[\s_-]*\d+\b", query.lower())
+        if (requested_model_years(query)
+                or re.search(r"\bhd[\s_-]*\d+\b", query.lower())
                 or "shop manual" in query.lower()
+                or _summit_requested(query)
+                or re.search(r"\bski[\s_-]*doo\b", query,re.I)
                 or re.search(WIRING_PATTERN, query.lower())) and not scoped:
             return []  # fail closed on a requested year/variant/document type
         if scoped:
@@ -535,6 +611,8 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
             sql += " ORDER BY score LIMIT 400"
             candidates = dst.execute(sql, params).fetchall()
             for row in candidates:
+                if _rave_requested(query) and not _rave_evidence(row["body"]):
+                    continue  # Ignore pages that only mention the model/850.
                 sha = row["sha256"]
                 if sha not in doc_ids:
                     continue
@@ -548,7 +626,9 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
                 if key not in valid or rank < valid[key][0]:
                     valid[key] = (rank, dict(
                         sha256=sha, filename=row["filename"], page=row["page"],
-                        part=row["part"], text=row["body"]))
+                        part=row["part"], text=row["body"],
+                        variant_unverified=(_summit_requested(query) and
+                            not re.search(r"\bsummit\b",str(row["filename"]),re.I))))
             # A strong match within the explicit shop manual is preferable
             # to broad hits in another manual.
             if scoped and stage <= 2 and sum(
@@ -560,6 +640,17 @@ def retrieve(query: str, source: Path = SOURCE, index: Path = INDEX, limit=5):
                 break
         ranked = sorted(valid.values(), key=lambda item:(item[0], item[1]["filename"],item[1]["page"]))
         results, per_document, seen_page = [], {}, set()
+        if len(requested_model_years(query)) > 1:
+            for year in sorted(requested_model_years(query)):
+                for _, part in ranked:
+                    if year not in model_years(str(part["filename"])):
+                        continue
+                    sha = part["sha256"]
+                    if (sha,part["page"]) not in seen_page:
+                        results.append(part)
+                        seen_page.add((sha,part["page"]))
+                        per_document[sha] = per_document.get(sha,0)+1
+                    break
         for _, part in ranked:
             sha = part["sha256"]
             if (sha, part["page"]) in seen_page:
@@ -660,8 +751,17 @@ def augment(messages, question, source: Path = SOURCE, index: Path = INDEX):
                     "that the user can browse the full manual in the image-only "
                     "viewer; ask for vehicle platform if multiple manuals match. "
                     "Do not refuse simply because the query is brief.\n")
+    requested = requested_model_years(question)
+    coverage = set().union(*(model_years(str(r["filename"])) for r in refs)) if refs else set()
+    missing = sorted(requested-coverage)
+    if missing:
+        context += ("No APPROVED matching excerpts were retrieved for " +
+                    ", ".join("MY"+str(y)[-2:] for y in missing) +
+                    ". Do not replace a missing model year with an older manual.\n")
     if not refs:
-        context += "No APPROVED matching manual excerpts were found; say that the search returned no evidence.\n"
+        context += ("No APPROVED matching manual excerpts were found for this "
+                    "exact request. Say that no matching excerpt was retrieved "
+                    "and do not invent or cite another model year.\n")
     for i, ref in enumerate(refs, 1):
         title = str(ref["filename"]).replace("\n"," ").replace("\r"," ")[:140]
         heading = f"\n[M{i}] {title} | PDF page {ref['page']} | SHA256 {ref['sha256']}\n"
@@ -705,6 +805,11 @@ def augment(messages, question, source: Path = SOURCE, index: Path = INDEX):
                            "Even a page mentioning wiring cannot establish "
                            "HD10 compatibility. Check the manual coverage "
                            "before relying on circuits.\n" + passage)
+        if ref.get("variant_unverified"):
+            passage = ("SUMMIT VARIANT UNVERIFIED: This matching-year source "
+                       "does not name Summit in its title. Verify applicability "
+                       "inside the manual; year and brand do not prove it.\n"
+                       + passage)
         context += heading+"[BEGIN MANUAL DATA]\n"+passage+"\n[END MANUAL DATA]\n"
     return [{"role":"system","content":context}, *messages]
 
@@ -723,7 +828,10 @@ def repair_false_no_access(answer, messages):
     if not sources:
         return answer
     denial = re.search(
-        r"\b(?:i (?:don't|do not|cannot|can't|lack|haven't got|have no) "
+        r"\b(?:no (?:matching |relevant |approved )?(?:results|manuals|sources|references)"
+        r"(?:\s+(?:were|are)\s+found|\s+found)?\b"
+        r"|(?:found|retrieved)\s+(?:no|zero)\s+(?:results|manuals|sources|references)\b"
+        r"|i (?:don't|do not|cannot|can't|lack|haven't got|have no) "
         r"(?:have )?(?:access|the (?:specific )?(?:manual|document))|"
         r"i (?:am not|was not) able to access|"
         r"i (?:can't|cannot) (?:access|view|read) (?:the|any) (?:service )?manual)",

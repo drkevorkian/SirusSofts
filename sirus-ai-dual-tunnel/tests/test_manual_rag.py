@@ -440,6 +440,76 @@ class ManualRagTests(unittest.TestCase):
                             self.source,self.index)
         self.assertEqual(rows, [])
 
+    def test_my26_my27_summit_rave_exact_years(self):
+        old,old_alt,new26,new27,other,wrong,generic=(
+            "8"*64,"9"*64,"a"*64,"b"*64,"c"*64,"d"*64,"e"*64)
+        self.add(old,"Ski-Doo MY21 Summit 850 Shop Manual.pdf","approved",1,
+                 "R.A.V.E. exhaust valve adjustment MY21",page=31)
+        self.add(old_alt,"Ski-Doo 2021 Summit 850 Shop Manual.pdf","approved",1,
+                 "RAVE exhaust valve adjustment 2021",page=31)
+        self.add(new26,"Ski-Doo MY26 Summit 850 Shop Manual.pdf","approved",1,
+                 "R.A.V.E. exhaust valve actuation and testing MY26",page=62)
+        self.add(new27,"Ski-Doo MY 27 Summit 850 Shop Manual.pdf","approved",1,
+                 "RAVE exhaust valve maintenance procedure MY27",page=68)
+        self.add(other,"Ski-Doo MY26 Renegade 850 Shop Manual.pdf","approved",1,
+                 "RAVE exhaust valve troubleshooting for Renegade",page=12)
+        self.add(wrong,"Can-Am MY27 Defender HD11 Shop Manual.pdf","approved",1,
+                 "RAVE exhaust valve work",page=22)
+        self.add(generic,"Ski-Doo MY26 REV Gen5 Shop Manual.pdf","approved",1,
+                 "RAVE exhaust valve inspection in this model family.",page=20)
+        rag.sync(self.source,self.index)
+        query="Find MY26-MY27 Ski-Doo Summit 850 R.A.V.E. exhaust valve instructions"
+        self.assertEqual(rag.requested_model_years(query),{2026,2027})
+        self.assertEqual(rag.requested_model_years("MY26, not MY21"),{2026})
+        self.assertEqual(rag.model_years("BRP MY 27.pdf"),{2027})
+        self.assertEqual(rag.model_years("SSV 2026 Diagram.pdf"),{2026})
+        self.assertEqual(rag.model_years("BRP_219101142.pdf"),set())
+        refs=rag.retrieve(query,self.source,self.index)
+        self.assertTrue(refs)
+        got={r["sha256"] for r in refs}
+        self.assertIn(new26,got)
+        self.assertIn(new27,got)
+        self.assertFalse(got.intersection({old,old_alt,other,wrong}))
+        self.assertTrue(all(rag._rave_evidence(r["text"]) for r in refs))
+        self.assertTrue(all(rag.model_years(r["filename"]) & {2026,2027} for r in refs))
+        generic_match=next((r for r in refs if r["sha256"]==generic),None)
+        if generic_match:
+            self.assertTrue(generic_match["variant_unverified"])
+        prompt=rag.augment([{"role":"user","content":query}],query,
+                           self.source,self.index)[0]["content"]
+        self.assertNotIn("MY21 Summit",prompt)
+        self.assertIn("MY26 Summit",prompt)
+        self.assertIn("MY 27 Summit",prompt)
+
+    def test_my26_rave_does_not_return_generic_850_or_my21(self):
+        self.add("f"*64,"MY21 Ski-Doo Summit 850 Shop Manual.pdf","approved",1,
+                 "R.A.V.E. valve diagram",page=5)
+        self.add("a"*64,"MY26 Ski-Doo Summit 850 Shop Manual.pdf","approved",1,
+                 "Summit 850 engine crankshaft alignment only",page=5)
+        rag.sync(self.source,self.index)
+        query="MY26 Summit 850 R.A.V.E. valve troubleshooting"
+        self.assertEqual(rag.retrieve(query,self.source,self.index),[])
+        prompt=rag.augment([{"role":"user","content":query}],query,
+                           self.source,self.index)[0]["content"]
+        self.assertIn("No APPROVED matching excerpts",prompt)
+        self.assertNotIn("MY21 Ski-Doo",prompt)
+        self.assertNotIn("[M1]",prompt)
+
+    def test_my27_missing_no_my21_substitution(self):
+        self.add("b"*64,"Ski-Doo MY21 Summit 850 Shop Manual.pdf","approved",1,
+                 "RAVE exhaust valve adjustment for old engine",page=3)
+        self.add("c"*64,"Ski-Doo MY26 Summit 850 Shop Manual.pdf","approved",1,
+                 "RAVE exhaust valve inspection and adjustment",page=5)
+        rag.sync(self.source,self.index)
+        query="MY26-MY27 Summit 850 R.A.V.E. valve procedure, not MY21"
+        refs=rag.retrieve(query,self.source,self.index)
+        self.assertTrue(refs)
+        self.assertTrue(all("MY26" in r["filename"] for r in refs))
+        context=rag.augment([{"role":"user","content":query}],query,
+                            self.source,self.index)[0]["content"]
+        self.assertIn("No APPROVED matching excerpts were retrieved for MY27",context)
+        self.assertNotIn("MY21 Summit",context)
+
     def test_fail_closed_offline(self):
         with self.assertRaises(rag.RetrievalUnavailable):
             rag.retrieve("torque",self.source,self.index)
