@@ -163,10 +163,10 @@ function cms_operations_page(PDO $db): void
           <small>1-minute load: <?=isset($m['load_1'])?cms_esc((string)$m['load_1']):'N/A'?></small>
         </div>
         <div class="node-metric">
-          <span>Memory</span>
+          <span>Memory<?=($node['os']==='macos'?' (active estimate)':'')?></span>
           <strong data-live-metric="memory" data-live-metric-node="<?=cms_esc($node['node_id'])?>"><?=isset($m['memory_used_bytes'])?cms_esc(cms_node_size($memoryUsed)):'Unavailable'?> / <?=cms_esc(cms_node_size($memoryTotal))?></strong>
           <?php if(isset($m['memory_used_bytes'])):?><progress max="100" value="<?=cms_esc((string)$memoryPct)?>">Memory used</progress><?php endif;?>
-          <small><?=isset($m['memory_used_bytes'])?cms_esc((string)$memoryPct).'% used':'Awaiting updated agent'?></small>
+          <small><?=($node['os']==='macos' ? 'Active + wired + compressed (approx.); file cache excluded. Pressure: '.cms_esc((string)($m['mac']['memory_pressure']??'unknown')) : (isset($m['memory_used_bytes'])?cms_esc((string)$memoryPct).'% used':'Awaiting updated agent'))?></small>
         </div>
         <div class="node-metric">
           <span>Root filesystem</span>
@@ -177,6 +177,7 @@ function cms_operations_page(PDO $db): void
         <div class="node-metric">
           <span>CPU temperature</span>
           <strong data-live-metric="cpu_temp_c" data-live-metric-node="<?=cms_esc($node['node_id'])?>"><?=$cpuTemp===null?'Unavailable':cms_esc(number_format((float)$cpuTemp,1)).' °C'?></strong>
+          <?php if($node['os']==='macos'):?><small>CPU temperature not exposed to unprivileged agent. OS speed limit: <?=isset($m['mac']['cpu_speed_limit_pct'])?cms_esc((string)$m['mac']['cpu_speed_limit_pct']).'%':'Unknown'?></small><?php endif;?>
           <small>Uptime:
             <?=isset($m['uptime_seconds'])?cms_esc(cms_node_uptime((int)$m['uptime_seconds'])):'N/A'?></small>
         </div>
@@ -195,11 +196,11 @@ function cms_operations_page(PDO $db): void
       <?php endif;?>
       <h3>Running services and application health</h3>
       <div data-live-node-services="<?=cms_esc($node['node_id'])?>">
-        <p>OpenRC services:
+        <p><?=($node['os']==='macos'?'launchd agent':($node['init_system']==='openrc'?'OpenRC services':'Reported services'))?>:
           <?=!isset($m['services'])?'Not reported by this installed agent':
              cms_esc(implode(', ',(array)$m['services'])?:'No services reported')?></p>
         <p>Local applications:
-          <?php if(!isset($m['applications'])):?>Not reported by this installed agent<?php endif;?>
+          <?php if(!isset($m['applications'])):?><?=($node['os']==='macos'?'Not monitored by default (privacy)':'Not reported by this installed agent')?><?php endif;?>
           <?php foreach((array)($m['applications']??[]) as $app):?>
             <?=cms_esc($app['name']??'app')?>:
             <?=!empty($app['healthy'])?'Healthy':'Unavailable'?>
@@ -225,8 +226,10 @@ function cms_operations_page(PDO $db): void
               ($device['usage_pct']??null)===null && ($device['temp_c']??null)===null):?>
               <small class="muted">NVIDIA card detected; driver telemetry is unavailable to the Gentoo node. Check nvidia-smi or NVML.</small>
             <?php endif;?>
-            <small>VRAM: <?=isset($device['vram_used_bytes'])?cms_esc(cms_node_size((int)$device['vram_used_bytes'])):'N/A'?>
-              / <?=isset($device['vram_total_bytes'])?cms_esc(cms_node_size((int)$device['vram_total_bytes'])):'N/A'?></small>
+            <small><?=($device['memory_kind']??'dedicated')==='shared'?'Shared GPU memory (reported max)':'Dedicated VRAM'?>:
+              <?=isset($device['vram_used_bytes'])?cms_esc(cms_node_size((int)$device['vram_used_bytes'])):'Usage unavailable'?>
+              / <?=isset($device['vram_total_bytes'])?cms_esc(cms_node_size((int)$device['vram_total_bytes'])):'Capacity unavailable'?></small>
+            <?php if($node['os']==='macos'):?><small>Unprivileged GPU load and temperature sensors unavailable.</small><?php endif;?>
           </div>
         <?php endforeach;?>
       </div>
@@ -485,17 +488,21 @@ function cms_mac_page(PDO $db): void {
         <div class="node-metric"><span>CPU</span><strong><?=isset($m['cpu_pct'])?cms_esc((string)$m['cpu_pct']).'%':'Unavailable'?></strong>
         <small>Logical threads: <?=(int)$node['cpu_threads']?> · Target: <?=cms_esc((string)($mac['worker_cpu_target']??'Unknown'))?>%</small></div>
         <div class="node-metric"><span>Memory</span><strong><?=isset($m['memory_used_bytes'])?cms_esc(cms_node_size((int)$m['memory_used_bytes'])):'Unknown'?> / <?=cms_esc(cms_node_size((int)$node['ram_bytes']))?></strong>
-        <small>Pressure: <?=cms_esc((string)($mac['memory_pressure']??'Unknown'))?></small></div>
+        <small>Active + wired + compressed (approx.); file cache excluded. Pressure: <?=cms_esc((string)($mac['memory_pressure']??'Unknown'))?></small></div>
         <div class="node-metric"><span>Power</span><strong><?=cms_esc((string)($mac['power_source']??'Unknown'))?></strong><small>Battery: <?=isset($mac['battery_pct'])?cms_esc((string)$mac['battery_pct']).'%':'Unknown'?></small></div>
         <div class="node-metric"><span>Storage</span><strong><?=isset($m['disk_used_bytes'],$m['disk_total_bytes'])?cms_esc(cms_node_size((int)$m['disk_used_bytes']).' / '.cms_node_size((int)$m['disk_total_bytes'])):'Unavailable'?></strong>
         <small>Uptime: <?=isset($m['uptime_seconds'])?cms_esc(cms_node_uptime((int)$m['uptime_seconds'])):'Unknown'?></small></div>
       </div>
-      <p>Sleep prevention requested: <?=!empty($mac['sleep_assertion'])?'Yes':'No'?>.
+      <p>OS CPU speed limit: <?=isset($mac['cpu_speed_limit_pct'])?cms_esc((string)$mac['cpu_speed_limit_pct']).'%':'Not reported'?> (not temperature).</p>
+       <p>Sleep prevention requested: <?=!empty($mac['sleep_assertion'])?'Yes':'No'?>.
       Last authenticated heartbeat: <?=cms_esc(gmdate('Y-m-d H:i:s',(int)$node['last_seen']))?> UTC.</p>
       <h3>GPU hardware</h3>
       <?php foreach((array)($m['gpus']??[]) as $gpu):?>
         <p><?=cms_esc((string)($gpu['name']??'GPU'))?> · vendor <?=cms_esc((string)($gpu['vendor']??'Unknown'))?>
-        (utilization and dedicated VRAM may be unavailable).</p>
+        · <?=($gpu['memory_kind']??'dedicated')==='shared'?'Shared memory':'Dedicated VRAM'?>:
+         <?=isset($gpu['vram_total_bytes'])?cms_esc(cms_node_size((int)$gpu['vram_total_bytes'])):'Capacity unavailable'?>
+         · Utilization: <?=isset($gpu['usage_pct'])?cms_esc((string)$gpu['usage_pct']).'%':'Unavailable'?>
+         · Temperature: <?=isset($gpu['temp_c'])?cms_esc((string)$gpu['temp_c']).' °C':'Unavailable'?></p>
       <?php endforeach;?>
       </section>
     <?php endforeach;?>

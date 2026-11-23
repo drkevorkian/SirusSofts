@@ -18,7 +18,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 KIND = {"health_snapshot", "compute_selftest"}
 HEX_ID = re.compile(r"^[a-f0-9]{32}$")
 STOP = False
@@ -46,6 +46,18 @@ def hardware():
     return {"arch": arch, "model": model, "ram": ram, "cpus": cpus}
 
 
+def gpu_memory_bytes(value):
+    """Parse only a reported capacity; do not guess dedicated VRAM."""
+    if not isinstance(value, str):
+        return None
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(GiB|MiB|GB|MB)\b", value, re.I)
+    if not match:
+        return None
+    scale = 1024 ** (3 if match.group(2).lower().startswith("g") else 2)
+    amount = round(float(match.group(1)) * scale)
+    return amount if 0 < amount <= 1024 ** 4 else None
+
+
 def gpu_inventory():
     raw = run(["/usr/sbin/system_profiler", "SPDisplaysDataType", "-xml"], timeout=12)
     if not raw:
@@ -63,9 +75,20 @@ def gpu_inventory():
                 "0x8086" if "intel" in vendor or "intel" in name.lower() else (
                 "0x1002" if "amd" in vendor or "ati" in vendor else (
                 "0x10de" if "nvidia" in vendor else "0x106b")))
+            # Intel and Apple integrated graphics use system/shared memory.
+            memory_kind = "shared" if code in ("0x8086", "0x106b") else "dedicated"
+            capacity = None
+            for field in ("spdisplays_vram_shared", "spdisplays_vram_dyn",
+                          "spdisplays_vram", "spdisplays_vram_total"):
+                capacity = gpu_memory_bytes(item.get(field))
+                if capacity is not None:
+                    if field in ("spdisplays_vram_shared", "spdisplays_vram_dyn"):
+                        memory_kind = "shared"
+                    break
             devices.append({"vendor": code, "name": name, "usage_pct": None,
                             "temp_c": None, "vram_used_bytes": None,
-                            "vram_total_bytes": None})
+                            "vram_total_bytes": capacity,
+                            "memory_kind": memory_kind})
     return devices[:16]
 
 
@@ -78,18 +101,40 @@ def power_info():
             percentage if percentage is None or percentage <= 100 else None)
 
 
-def memory_info():
+def memory_info(total_bytes):
+    """Report approx active physical RAM, excluding reclaimable file cache."""
     stats = run(["/usr/bin/memory_pressure", "-Q"])
     match = re.search(r"System-wide free memory percentage:\s*(\d+)", stats)
-    free = int(match.group(1)) if match else None
-    pressure = "unknown" if free is None else (
-        "high" if free < 10 else "moderate" if free < 25 else "normal")
-    vm = sysctl("vm.page_free_count")
-    page_size = sysctl("hw.pagesize")
-    if not vm or not page_size:
+    free_pct = int(match.group(1)) if match else None
+    pressure = "unknown" if free_pct is None or free_pct > 100 else (
+        "high" if free_pct < 10 else "moderate" if free_pct < 25 else "normal")
+    vm = run(["/usr/bin/vm_stat"])
+    header = re.search(r"page size of (\d+) bytes", vm)
+    if not header:
         return None, pressure
-    return max(0, int(vm) * int(page_size)), pressure
+    page_size = int(header.group(1))
+    if not 4096 <= page_size <= 65536:
+        return None, pressure
 
+    def pages(label):
+        found = re.search(r"^" + re.escape(label) + r":\s*([0-9]+)\.?",
+                          vm, re.M)
+        return int(found.group(1)) if found else None
+
+    active, wired = pages("Pages active"), pages("Pages wired down")
+    if active is None or wired is None:
+        return None, pressure
+    compressor = pages("Pages occupied by compressor") or 0
+    used = min(total_bytes, (active + wired + compressor) * page_size)
+    return max(0, total_bytes - used), pressure
+
+
+def thermal_limit():
+    """Optional OS CPU speed limit, never misrepresented as temperature."""
+    raw = run(["/usr/bin/pmset", "-g", "therm"])
+    match = re.search(r"CPU_Speed_Limit\s*=\s*(\d{1,3})", raw)
+    percent = int(match.group(1)) if match else None
+    return percent if percent is not None and 0 <= percent <= 100 else None
 
 def uptime():
     data = run(["/usr/sbin/sysctl", "-n", "kern.boottime"])
@@ -109,22 +154,27 @@ def cpu_percent():
 def snapshot(config, sleep_active=False):
     hw = hardware()
     usage = shutil.disk_usage("/")
-    available, pressure = memory_info()
+    available, pressure = memory_info(hw["ram"])
     source, battery = power_info()
     gpus = gpu_inventory()
     mac = {"model": hw["model"], "arch": hw["arch"],
            "os_version": platform.mac_ver()[0][:96] or "Unknown",
            "power_source": source, "memory_pressure": pressure,
+           "memory_basis": "active+wired+compressed",
            "sleep_assertion": bool(sleep_active),
            "worker_cpu_target": float(config.get("cpu_target_percent", 90))}
     if battery is not None:
         mac["battery_pct"] = battery
+    limit = thermal_limit()
+    if limit is not None:
+        mac["cpu_speed_limit_pct"] = limit
     metrics = {"cpu_pct": cpu_percent(), "cpu_temp_c": None,
                "load_1": round(os.getloadavg()[0], 2),
-               "memory_used_bytes": max(0, hw["ram"] - available) if available is not None else 0,
                "disk_used_bytes": usage.used, "disk_total_bytes": usage.total,
                "uptime_seconds": uptime(), "gpus": gpus,
                "services": ["sirus-mac-node"], "mac": mac}
+    if available is not None:
+        metrics["memory_used_bytes"] = max(0, hw["ram"] - available)
     return {"node_id": config["node_id"], "sent_at": int(time.time()),
             "nonce": secrets.token_hex(16), "os": "macos", "init": "launchd",
             "agent_version": VERSION, "cpu_threads": hw["cpus"],

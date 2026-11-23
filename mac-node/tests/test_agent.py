@@ -45,6 +45,43 @@ class AgentTests(unittest.TestCase):
             self.assertEqual(payload["metrics"]["memory_used_bytes"],4294967296)
             self.assertEqual(payload["metrics"]["mac"]["arch"],"x86_64")
 
+    def test_memory_excludes_reclaimable_cache(self):
+        vm = ("Mach Virtual Memory Statistics: (page size of 4096 bytes)\n"
+              "Pages free: 1000.\nPages active: 100.\n"
+              "Pages inactive: 900.\nPages wired down: 200.\n"
+              "Pages occupied by compressor: 50.\n")
+        def fake_run(args, timeout=5):
+            return vm if args[0].endswith("/vm_stat") else (
+                "System-wide free memory percentage: 48" if
+                args[0].endswith("/memory_pressure") else "")
+        with mock.patch.object(mac, "run", side_effect=fake_run):
+            free, pressure = mac.memory_info(8 * 1024 ** 3)
+        self.assertEqual(free, 8 * 1024 ** 3 - 350 * 4096)
+        self.assertEqual(pressure, "normal")
+
+    def test_memory_missing_probe_is_unknown(self):
+        with mock.patch.object(mac, "run", return_value=""):
+            self.assertEqual(mac.memory_info(8 * 1024 ** 3),
+                             (None, "unknown"))
+
+    def test_dynamic_intel_gpu_is_shared_memory(self):
+        import plistlib
+        report = plistlib.dumps([{"_items": [{
+            "sppci_model": "Intel HD Graphics 6000",
+            "spdisplays_vendor": "Intel",
+            "spdisplays_vram_dyn": "1536 MB (Dynamic, Max)",
+        }]}]).decode()
+        with mock.patch.object(mac, "run", return_value=report):
+            result = mac.gpu_inventory()
+        self.assertEqual(result[0]["vendor"], "0x8086")
+        self.assertEqual(result[0]["memory_kind"], "shared")
+        self.assertEqual(result[0]["vram_total_bytes"], 1536 * 1024 ** 2)
+        self.assertIsNone(result[0]["usage_pct"])
+
+    def test_unknown_temperature_is_not_invented(self):
+        with mock.patch.object(mac, "run", return_value=""):
+            self.assertIsNone(mac.thermal_limit())
+
     def test_unknown_job_rejected(self):
         with self.assertRaises(ValueError):
             mac.execute("shell",{},False)

@@ -301,7 +301,8 @@
           if (key === "cpu_temp_c" && typeof metrics.cpu_temp_c === "number")
             value = metrics.cpu_temp_c.toFixed(1) + " °C";
           if (key === "memory" && typeof metrics.memory_used_bytes === "number")
-            value = fmtGiB(metrics.memory_used_bytes);
+            value = fmtGiB(metrics.memory_used_bytes) +
+              " / " + fmtGiB(node.ram_bytes || 0);
           if (key === "disk" && typeof metrics.disk_total_bytes === "number")
             value = fmtGiB(metrics.disk_used_bytes) + " / " + fmtGiB(metrics.disk_total_bytes);
         }
@@ -328,7 +329,10 @@
               " / " + fmtGiB(gpu.vram_total_bytes) : "Unavailable";
           card.appendChild(element("strong", "GPU load: " + percent));
           card.appendChild(element("small", "Temperature: " + temperature));
-          card.appendChild(element("small", "VRAM: " + vram));
+          card.appendChild(element("small", (gpu.memory_kind === "shared"
+             ? "Shared GPU memory (reported max): " : "Dedicated VRAM: ") + vram));
+          if (node.os === "macos")
+            card.appendChild(element("small", "Unprivileged GPU load and temperature sensors unavailable."));
           if (!node.online) {
             card.appendChild(element("small", "Historical readings — node heartbeat stale."));
           } else if (gpu.vendor === "0x10de" && typeof gpu.temp_c !== "number" &&
@@ -349,12 +353,15 @@
           ? "Inventory not reported by installed agent"
           : (running.join(", ") || "None detected");
         const appsLabel = !Array.isArray(metrics.applications)
-          ? "Health probes not reported by installed agent"
+          ? (node.os === "macos" ? "Not monitored by default (privacy)" :
+            "Health probes not reported by installed agent")
           : (apps.map(app => String(app.name || "app") + ": " +
               (node.online ? (app.healthy ? "Healthy" : "Unhealthy") : "Last-known status")).join(" · ") ||
              "No applications in configured health probes");
-        const summary = element("p", (node.online ? "OpenRC running: " :
-          "Last reported OpenRC services (node offline): ") + servicesLabel);
+        const serviceType = node.os === "macos" ? "launchd agent" :
+          node.init_system === "openrc" ? "OpenRC services" : "Reported services";
+        const summary = element("p", (node.online ? serviceType + ": " :
+          "Last reported " + serviceType + " (node offline): ") + servicesLabel);
         const appSummary = element("p", "Local applications: " + appsLabel);
         services.replaceChildren(summary, appSummary);
       }

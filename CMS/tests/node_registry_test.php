@@ -100,6 +100,26 @@ try {
         $registry->acceptHeartbeat($badMac,hash_hmac('sha256',$badMac,$key),$macResolver,$now);
         throw new RuntimeException('Invalid Mac CPU limit accepted');
     } catch(InvalidArgumentException $expected){}
+    // New macOS 0.2 telemetry must pass strict validation without weakening it.
+    $macData['metrics']['mac']['worker_cpu_target']=90.0;
+    $macData['metrics']['mac']['memory_basis']='active+wired+compressed';
+    $macData['metrics']['mac']['cpu_speed_limit_pct']=100;
+    $macData['metrics']['gpus'][0]['memory_kind']='shared';
+    $macData['metrics']['gpus'][0]['vram_total_bytes']=1536*1024*1024;
+    $macData['nonce']=bin2hex(random_bytes(16));
+    $macV2=json_encode($macData,JSON_THROW_ON_ERROR);
+    $registry->acceptHeartbeat($macV2,hash_hmac('sha256',$macV2,$key),$macResolver,$now);
+    $reported=$registry->getNode('mac-research-01',$now)['metrics'];
+    nodeCheck($reported['gpus'][0]['memory_kind']==='shared' &&
+              $reported['mac']['cpu_speed_limit_pct']===100,
+              'Mac 0.2 signed telemetry retained');
+    $macData['nonce']=bin2hex(random_bytes(16));
+    $macData['metrics']['gpus'][0]['memory_kind']='unknown';
+    $badGpu=json_encode($macData,JSON_THROW_ON_ERROR);
+    try {
+        $registry->acceptHeartbeat($badGpu,hash_hmac('sha256',$badGpu,$key),$macResolver,$now);
+        throw new RuntimeException('Unknown GPU memory kind accepted');
+    } catch(InvalidArgumentException $expected){}
     echo "PASS: signed node registry, replay rejection, offline detection and queued assignment\n";
 } finally {
     foreach (glob($dir . '/*') ?: [] as $file) { @unlink($file); }

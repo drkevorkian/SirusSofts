@@ -98,8 +98,10 @@ final class SirusNodeRegistry
                     !preg_match('/^[^\x00-\x1F\x7F]{1,80}$/uD',$item['name']) ||
                     array_diff(array_keys($item),[
                         'vendor','name','usage_pct','temp_c',
-                        'vram_used_bytes','vram_total_bytes'
+                        'vram_used_bytes','vram_total_bytes','memory_kind'
                     ])) throw new InvalidArgumentException('Invalid GPU identity');
+                if(isset($item['memory_kind']) && !in_array($item['memory_kind'],['shared','dedicated'],true))
+                    throw new InvalidArgumentException('Invalid GPU memory kind');
                 foreach (['usage_pct'=>[0,100], 'temp_c'=>[-20,140]] as $key=>$range) {
                     $val=$item[$key]??null;
                     if ($val!==null && ((!is_int($val)&&!is_float($val)) ||
@@ -116,15 +118,15 @@ final class SirusNodeRegistry
         if(isset($metrics['mac'])){
             $mac=$metrics['mac'];
             if(!is_array($mac) || array_is_list($mac) ||
-               array_diff(array_keys($mac),['model','arch','os_version','power_source','battery_pct','sleep_assertion','worker_cpu_target','memory_pressure'])) {
+               array_diff(array_keys($mac),['model','arch','os_version','power_source','battery_pct','sleep_assertion','worker_cpu_target','memory_pressure','memory_basis','cpu_speed_limit_pct'])) {
                 throw new InvalidArgumentException('Invalid Mac metrics');
             }
-            foreach(['model','arch','os_version','power_source','memory_pressure'] as $field){
+            foreach(['model','arch','os_version','power_source','memory_pressure','memory_basis'] as $field){
                 if(isset($mac[$field]) && (!is_string($mac[$field]) ||
                    !preg_match('/^[^\\x00-\\x1F\\x7F]{1,96}$/uD',$mac[$field])))
                    throw new InvalidArgumentException('Invalid Mac field');
             }
-            foreach(['battery_pct','worker_cpu_target'] as $field){
+            foreach(['battery_pct','worker_cpu_target','cpu_speed_limit_pct'] as $field){
                 if(isset($mac[$field]) && ((!is_int($mac[$field])&&!is_float($mac[$field])) ||
                    !is_finite((float)$mac[$field]) || $mac[$field]<0 || $mac[$field]>100))
                    throw new InvalidArgumentException('Invalid Mac gauge');

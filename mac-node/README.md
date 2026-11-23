@@ -244,3 +244,19 @@ avoiding SwiftBridging module-map imports. No Xcode/CLT or OCLP files are
 modified. It stages a full bundle and refuses to replace a pre-existing app;
 move an old broken bundle aside before building. The Python launchd worker
 operates independently of the optional menu.
+
+## macOS telemetry semantics (agent 0.2.0)
+
+- Memory is an **approximation of active physical RAM**: active + wired +
+  pages occupied by the compressor from `vm_stat`; inactive/file-cache
+  pages are excluded. Independent `memory_pressure -Q` is also reported.
+  If the probe fails, usage is omitted, not shown as zero.
+- GPU capacity is parsed only when `system_profiler SPDisplaysDataType -xml`
+  provides it. Intel and Apple integrated graphics are labeled **shared**
+  rather than dedicated VRAM. A reported dynamic maximum is not usage.
+- GPU load, GPU temperature and CPU temperature remain unreported without
+  validated unprivileged sensors; a zero measurement is never invented.
+- Optional `pmset -g therm` CPU speed limit is not a temperature.
+- The agent does not upload private application/process inventories.
+- Update the Ubuntu CMS validator **before** installing agent 0.2.0,
+  then preserve the existing config and heartbeat key on the Mac.
