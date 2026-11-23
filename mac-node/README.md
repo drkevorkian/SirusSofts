@@ -236,3 +236,11 @@ The builder uses the selected `xcrun` compiler, SDK and fresh module cache,
 and does not publish an executable when compilation fails. If errors persist,
 inspect the installed Xcode/Command Line Tools selection and compatibility;
 do not delete Apple SDK headers or disable system security settings.
+
+## Objective-C Cocoa menu build for SwiftBridging toolchain failures
+
+The menu builder now uses MenuApp.m and clang -fno-modules instead of Swift,
+avoiding SwiftBridging module-map imports. No Xcode/CLT or OCLP files are
+modified. It stages a full bundle and refuses to replace a pre-existing app;
+move an old broken bundle aside before building. The Python launchd worker
+operates independently of the optional menu.
