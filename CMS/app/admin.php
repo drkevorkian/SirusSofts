@@ -397,6 +397,14 @@ function cms_admin_run(PDO $db,string $path): never {
         http_response_code(403);exit('Administrator permission required.');
     }
     if($path==='/admin/logout'||$path==='/admin/account'){cms_go('/admin');}
+    if(preg_match('#^/admin/ai/panel/(continuous|evidence|procedures|pdf)$#D',$path,$panel)){
+        // Each route is independently admin-gated by cms_admin_run + the renderer.
+        // Never allow a panel GET to execute an administrative POST operation.
+        if(($_SERVER['REQUEST_METHOD']??'GET')!=='GET'){
+            header('Allow: GET');http_response_code(405);exit('GET required.');
+        }
+        cms_ai_panel_fragment($db,$panel[1]);exit;
+    }
     if($path==='/admin/ai/gentoo-status'){cms_gentoo_pdf_status_json();exit;}
     if($path==='/admin/ai'){cms_ai_page($db,$error);exit;}
     if($path==='/admin/users'){cms_users_page($db,$error);exit;}
