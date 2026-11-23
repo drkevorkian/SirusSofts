@@ -72,10 +72,12 @@ class WalGuard:
     def close(self):
         handle = getattr(self, "_handle", None)
         if handle is not None and handle.value:
-            self._handle = ctypes.c_void_p()
             rc = self._lib.sqlite3_close(handle)
             if rc:
+                # SQLITE_BUSY leaves the native handle open. Preserve it so
+                # a later close can retry instead of leaking the connection.
                 raise RuntimeError(f"SQLite WAL guard close failed ({rc})")
+            self._handle = ctypes.c_void_p()
 
 
 class PersistentWalConnection(sqlite3.Connection):
@@ -90,8 +92,10 @@ class PersistentWalConnection(sqlite3.Connection):
             super().close()
         finally:
             if guard is not None:
-                self._wal_guard = None
+                # Retain the guard on failure: a second close() must be able
+                # to release the still-open native SQLite handle.
                 guard.close()
+                self._wal_guard = None
 
 
 def open_persistent_wal(path, *, timeout=30):

@@ -114,6 +114,24 @@ class PersistentWalTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "existing regular"):
             WalGuard(self.path)
 
+    def test_native_close_failure_retains_handle_for_retry(self):
+        # SQLite can return SQLITE_BUSY without destroying its native handle.
+        # The Python connection must retain that handle for a later retry.
+        db = open_persistent_wal(self.path)
+        db.execute("CREATE TABLE t(n INTEGER)")
+        guard = db._wal_guard
+        original_handle = guard._handle.value
+        with patch.object(guard._lib, "sqlite3_close", return_value=5) as native_close:
+            with self.assertRaisesRegex(RuntimeError, "close failed"):
+                db.close()
+            native_close.assert_called_once()
+        self.assertEqual(guard._handle.value, original_handle)
+        self.assertIs(db._wal_guard, guard)
+        db.close()
+        self.assertFalse(guard._handle.value)
+        self.assertIsNone(db._wal_guard)
+        self.assertTrue(all(p.is_file() for p in self.sidecars()))
+
     def test_scoped_read_acl_never_grants_write(self):
         db = open_persistent_wal(self.path)
         db.execute("CREATE TABLE t(n)")
