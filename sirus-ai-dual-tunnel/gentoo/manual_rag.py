@@ -168,9 +168,11 @@ def _snowmobile_title_match(query, title):
                  normalized):
         return False
     if _summit_requested(query):
-        other = r"\b(?:renegade|expedition|grand touring|skandic|tundra|mx\s*z|backcountry|freeride)\b"
-        if re.search(other,normalized) and not re.search(r"\bsummit\b",normalized):
-            return False
+        # "SKI-DOO 2026 (600EFI)" used to pass as a Summit 850 reference
+        # merely because its filename contained the brand and correct year.
+        # Exact Summit procedure requests must use Summit-labeled documents.
+        # Shared-platform manuals need separately verified applicability.
+        return bool(re.search(r"\bsummit\b", normalized))
     return bool(re.search(r"\b(?:summit|ski\s*doo|snowmobile|rev\s*gen\s*\d)\b",
                           normalized))
 
@@ -179,12 +181,17 @@ def _snowmobile_engine_match(query, filename):
     """Keep Ski-Doo engine and induction variants separate for service instructions."""
     if not (_summit_requested(query) or re.search(r"\bski[\s_-]*doo\b", query, re.I)):
         return True
-    pattern = r"\b(?:600r|600|850|900|1200)\b"
-    requested = {s.lower() for s in re.findall(pattern, query, re.I)}
+    # BRP titles use both "600 EFI" and "600EFI", and "600R".
+    # A word-boundary check for bare 600 misses "600EFI" completely.
+    pattern = r"(?<![a-z0-9])(?:600(?:[\s_-]*(?:rr|r|efi))?|850|900|1200)(?![a-z0-9])"
+    normalize = lambda m: re.sub(r"[\s_-]+", "", m.lower())
+    requested = {normalize(s) for s in re.findall(pattern, query, re.I)}
     if not requested:
         return True
-    named = {s.lower() for s in re.findall(pattern, filename, re.I)}
-    if named and not named.intersection(requested):
+    named = {normalize(s) for s in re.findall(pattern, filename, re.I)}
+    # Do not infer that a generic, unnamed engine manual covers a specified
+    # engine. A specific model's service instructions require title evidence.
+    if not named or not requested.intersection(named):
         return False
     if "850" in requested and "850" in named:
         turbo = r"\bturbo(?:[\s_-]*r)?\b|\bturbor\b"

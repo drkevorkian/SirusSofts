@@ -536,6 +536,63 @@ class ManualRagTests(unittest.TestCase):
         self.assertEqual(rag.retrieve("MY26 Summit 850 R.A.V.E. exhaust valve",
                                        self.source,self.index),[])
 
+    def test_real_my26_600efi_leak_and_exact_summit_engine(self):
+        """Regression for live Gentoo results that mixed generic 600EFI with Summit 850."""
+        std,turbo,neo,r600,generic,duplicate,unknown = (
+            "1"*64,"2"*64,"3"*64,"4"*64,"5"*64,"6"*64,"7"*64)
+        self.add(std,
+            "SKI-DOO 2026 SUMMIT (850 E-TEC Gen5) - Shop Manual_SM11Y026_en.pdf",
+            "approved",1,"R.A.V.E. exhaust valve testing",page=96)
+        self.add(turbo,
+            "SKI-DOO 2026 SUMMIT (850 E-TEC TurboR Gen5) - Shop Manual_SM11Y026_en.pdf",
+            "approved",1,"R.A.V.E. exhaust valve testing Turbo R",page=102)
+        self.add(neo,
+            "SKI-DOO 2026 SUMMIT NEO SERIES (600 EFI Gen5) - Shop Manual_SM11Y026_en.pdf",
+            "approved",1,"R.A.V.E. exhaust valve testing",page=94)
+        self.add(r600,
+            "SKI-DOO 2026 SUMMIT ADRENALINE - EDGE (600R E-TEC Gen5) - Shop Manual_SM11Y026_en.pdf",
+            "approved",1,"R.A.V.E. exhaust valve testing",page=94)
+        self.add(generic,
+            "SKI-DOO 2026 (600EFI) - Shop Manual_SM11Y026_en.pdf",
+            "approved",1,"R.A.V.E. exhaust valve testing",page=91)
+        self.add(duplicate,
+            "SKI-DOO 2026 (600EFI) - Shop Manual_SM11Y026_en (1).pdf",
+            "approved",1,"R.A.V.E. exhaust valve testing",page=50)
+        self.add(unknown,
+            "SKI-DOO 2026 SUMMIT - Shop Manual.pdf",
+            "approved",1,"R.A.V.E. exhaust valve testing",page=22)
+        rag.sync(self.source,self.index)
+        standard="MY26 Summit 850 R.A.V.E. exhaust valve"
+        std_refs=rag.retrieve(standard,self.source,self.index,limit=8)
+        self.assertEqual({r["sha256"] for r in std_refs},{std})
+        turbo_refs=rag.retrieve(
+            "MY26 Summit 850 Turbo R R.A.V.E. exhaust valve",
+            self.source,self.index,limit=8)
+        self.assertEqual({r["sha256"] for r in turbo_refs},{turbo})
+        # No such manual title is approved for MY27 in this corpus.
+        self.assertEqual(rag.retrieve(
+            "MY27 Summit 850 R.A.V.E. exhaust valve",
+            self.source,self.index),[])
+        # A general Summit request without a specified engine can still
+        # discover its different variants; it is not constrained to 850.
+        broad=rag.retrieve("2026 Summit RAVE exhaust valve",
+                           self.source,self.index,limit=8)
+        self.assertTrue(any(r["sha256"]==neo for r in broad))
+
+    def test_600efi_tokens_are_not_unknown_engines(self):
+        self.assertFalse(rag._snowmobile_engine_match(
+            "MY26 Summit 850 R.A.V.E. exhaust valve",
+            "SKI-DOO 2026 (600EFI) - Shop Manual.pdf"))
+        self.assertFalse(rag._snowmobile_engine_match(
+            "MY26 Summit 850 R.A.V.E. exhaust valve",
+            "SKI-DOO 2026 SUMMIT (600 EFI Gen5) - Shop Manual.pdf"))
+        self.assertFalse(rag._snowmobile_engine_match(
+            "MY26 Summit 850 R.A.V.E. exhaust valve",
+            "SKI-DOO 2026 SUMMIT - Shop Manual.pdf"))
+        self.assertTrue(rag._snowmobile_engine_match(
+            "MY26 Summit 850 R.A.V.E. exhaust valve",
+            "SKI-DOO 2026 SUMMIT (850 E-TEC Gen5) - Shop Manual.pdf"))
+
     def test_fail_closed_offline(self):
         with self.assertRaises(rag.RetrievalUnavailable):
             rag.retrieve("torque",self.source,self.index)
