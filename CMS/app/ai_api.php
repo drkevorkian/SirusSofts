@@ -216,6 +216,10 @@ function cms_ai_api_request(PDO $db,array $identity,array $input):array {
        ? 'guest-ip:'.hash('sha256',(string)($_SERVER['REMOTE_ADDR']??'unknown'))
        : $actor;
     cms_ai_api_rate($db,$rateActor,$role);
+    // A lost browser poll is not a live generation. Recover completed
+    // output for THIS account before applying the concurrency limit or the
+    // legacy one-hour expiry. No user may reconcile another account.
+    cms_ai_api_reconcile($db,$actor);
     $db->prepare("UPDATE cms_ai_requests SET state='error' WHERE account=? AND
       state IN ('queued','running') AND created_at < ?")->execute([$actor,gmdate('Y-m-d\TH:i:s\Z',time()-3600)]);
     $st=$db->prepare("SELECT COUNT(*) FROM cms_ai_requests
@@ -276,14 +280,52 @@ function cms_ai_api_request(PDO $db,array $identity,array $input):array {
       ->execute([$job,$actor,$conversation,cms_now(),cms_now()]);
     return ['job_id'=>$job,'model_id'=>$selected,'local_only'=>true];
 }
+/**
+ * Reconcile a bounded number of THIS account's unfinished jobs on page load
+ * and before a new submit. Completion is already durable on the private
+ * Ubuntu output gateway, even when a browser tab is closed mid-inference.
+ * The ordinary collector owns all quota, ownership and exactly-once checks.
+ *
+ * $snapshot is used only by offline PHP tests; public endpoints never accept
+ * a caller-selected callback or output source.
+ */
+function cms_ai_api_reconcile(PDO $db,string $actor,int $limit=3,
+                              ?callable $snapshot=null):void {
+    $st=$db->prepare("SELECT job_id FROM cms_ai_requests
+        WHERE account=? AND state IN ('queued','running')
+        ORDER BY created_at ASC LIMIT ?");
+    $st->bindValue(1,$actor);
+    $st->bindValue(2,max(1,min(3,$limit)),PDO::PARAM_INT);
+    $st->execute();
+    foreach($st->fetchAll(PDO::FETCH_COLUMN) as $job) {
+        $after=-1;
+        // The output gateway pages at 32 events; two pages cover the
+        // maximum bounded CMS message plus the final completed sentinel.
+        for($page=0;$page<2;$page++) {
+            try {
+                $row=cms_ai_api_collect($db,$actor,$job,$snapshot);
+            } catch(RuntimeException|JsonException $e) {
+                // An unreachable output tunnel is not evidence that an
+                // inference finished. Keep the job intact for the next poll.
+                break;
+            }
+            if(in_array($row['state'],['completed','error'],true) ||
+               (int)$row['last_seq']===$after)break;
+            $after=(int)$row['last_seq'];
+        }
+    }
+}
 /** Atomic event folding: duplicate polls cannot duplicate saved assistant messages. */
-function cms_ai_api_collect(PDO $db,string $actor,string $job):array {
+function cms_ai_api_collect(PDO $db,string $actor,string $job,
+                            ?callable $snapshot=null):array {
     if(!preg_match('/^[a-f0-9]{32}$/D',$job))throw new InvalidArgumentException('Invalid job ID.');
     $st=$db->prepare('SELECT * FROM cms_ai_requests WHERE job_id=? AND account=?');
     $st->execute([$job,$actor]);$row=$st->fetch(PDO::FETCH_ASSOC);
     if(!$row)throw new RuntimeException('Task not found.');
     if(!in_array($row['state'],['completed','error'],true)) {
-        $events=cms_ai_api_upstream('output','/api/out/snapshot/'.$job.'?after='.(int)$row['last_seq']);
+        $events=$snapshot!==null
+            ? $snapshot($job,(int)$row['last_seq'])
+            : cms_ai_api_upstream('output','/api/out/snapshot/'.$job.'?after='.(int)$row['last_seq']);
         foreach($events['events']??[] as $event) {
             if(!is_array($event)||($event['job_id']??null)!==$job)continue;
             $seq=$event['seq']??null; $kind=$event['type']??null;
@@ -340,6 +382,9 @@ function cms_ai_api_run(PDO $db,string $path): never {
             cms_ai_api_json(405,['error'=>'Method not allowed']);
         if($method!=='GET')cms_ai_api_csrf();
         if($path==='/ai/api/state'&&$method==='GET'){
+            // Recover interrupted browser sessions without requiring the
+            // old page to know or poll each unfinished job identifier.
+            cms_ai_api_reconcile($db,$actor);
             $models=[];try {
                 $models=cms_ai_api_upstream('input','/api/in/health')['models']??[];
             }catch(Throwable $e){}

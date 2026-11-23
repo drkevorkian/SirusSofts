@@ -113,4 +113,71 @@ if($hasFts) {
     check(cms_ai_recall($db,$bob,'carburetor research')==='',
           'FTS5 retrieval remains account-isolated');
 }
-echo "PASS: account isolation, quota, category ACL, private document and recall tests\n";
+// A completed Gentoo response must not permanently consume a CMS slot when
+// its browser tab stopped polling. Replay the PRIVATE snapshot for this user
+// without an HTTP request, preserving account isolation and exactly-once saves.
+$mine1=str_repeat('b',32);
+$mine2=str_repeat('c',32);
+$theirs=str_repeat('d',32);
+$foreignConversation=cms_ai_conversation_new($db,$bob,'Independent owner');
+$insert=$db->prepare("INSERT INTO cms_ai_requests
+    (job_id,account,conversation_id,state,last_seq,worker,created_at,updated_at)
+    VALUES(?,?,?,'running',?,?,?,?)");
+$insert->execute([$mine1,$alice,$id,2,'amd',$now,$now]);
+$insert->execute([$mine2,$alice,$id,1,'',$now,$now]);
+$insert->execute([$theirs,$bob,$foreignConversation,1,'',$now,$now]);
+$completed=['job_id'=>$mine1,'seq'=>3,'type'=>'completed',
+            'content'=>'Recovered first answer','worker'=>'amd'];
+$events=[
+    $mine1=>[$completed],
+    $mine2=>[
+        ['job_id'=>$mine2,'seq'=>2,'type'=>'started','content'=>'','worker'=>'amd'],
+        ['job_id'=>$mine2,'seq'=>3,'type'=>'completed',
+         'content'=>'Recovered second answer','worker'=>'amd']
+    ],
+    $theirs=>[
+        ['job_id'=>$theirs,'seq'=>2,'type'=>'started','content'=>'','worker'=>'amd'],
+        ['job_id'=>$theirs,'seq'=>3,'type'=>'completed',
+         'content'=>'Private other-account answer','worker'=>'amd']
+    ]
+];
+$fetched=[];
+$readSnapshot=static function(string $job,int $after)use($events,&$fetched):array{
+    $fetched[]=$job;
+    return ['events'=>array_values(array_filter($events[$job]??[],
+                  static fn(array $event):bool=>$event['seq']>$after))];
+};
+$beforeUsage=cms_ai_quota_used($db,$alice);
+cms_ai_api_reconcile($db,$alice,3,$readSnapshot);
+$st=$db->prepare('SELECT state,last_seq,output FROM cms_ai_requests WHERE job_id=?');
+foreach([[$mine1,'Recovered first answer'],
+         [$mine2,'Recovered second answer']] as [$job,$answer]){
+    $st->execute([$job]);$saved=$st->fetch(PDO::FETCH_ASSOC);
+    check($saved['state']==='completed' && (int)$saved['last_seq']===3 &&
+          $saved['output']===$answer,'Interrupted completed job safely reconciled');
+}
+$st->execute([$theirs]);
+check($st->fetch(PDO::FETCH_ASSOC)['state']==='running',
+      'Reconciliation never modifies another account');
+check(!in_array($theirs,$fetched,true),
+      'Reconciliation never requests a foreign account snapshot');
+$recovered=cms_ai_message_history($db,$alice,$id,10);
+check(count(array_filter($recovered,static fn(array $m):bool=>
+      $m['role']==='assistant' && str_starts_with($m['content'],'Recovered ')))===2,
+      'Recovered completions appear once in the original conversation');
+$afterUsage=cms_ai_quota_used($db,$alice);
+check($afterUsage-$beforeUsage===strlen('Recovered first answer')+
+      strlen('Recovered second answer'),
+      'Reconciled outputs charged to the owner exactly once');
+cms_ai_api_reconcile($db,$alice,3,$readSnapshot);
+check(cms_ai_quota_used($db,$alice)===$afterUsage,
+      'Repeated reconciliation cannot charge or save twice');
+// An unfinished job is not marked error or freed before inference completes.
+$pending=str_repeat('e',32);
+$insert->execute([$pending,$alice,$id,1,'',$now,$now]);
+cms_ai_api_reconcile($db,$alice,3,
+    static fn(string $job,int $after):array=>['events'=>[]]);
+$st->execute([$pending]);
+check($st->fetch(PDO::FETCH_ASSOC)['state']==='running',
+      'Unfinished inference remains active while output is pending');
+echo "PASS: account isolation, quota, category ACL, private document, recall and chat-reconciliation tests\n";
