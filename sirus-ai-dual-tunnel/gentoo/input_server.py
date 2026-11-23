@@ -119,7 +119,8 @@ def init_db(path):
           id TEXT PRIMARY KEY, messages TEXT NOT NULL, target TEXT NOT NULL,
           state TEXT NOT NULL, created REAL NOT NULL, worker TEXT DEFAULT '',
            profile TEXT NOT NULL DEFAULT 'auto', model_id TEXT NOT NULL DEFAULT 'sirussofts-coder',
-          skip_knowledge INTEGER NOT NULL DEFAULT 0, max_tokens INTEGER
+          skip_knowledge INTEGER NOT NULL DEFAULT 0, max_tokens INTEGER,
+          use_manuals INTEGER NOT NULL DEFAULT 0, manual_query TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS outbox (
           job_id TEXT NOT NULL, seq INTEGER NOT NULL, type TEXT NOT NULL,
@@ -172,6 +173,10 @@ def init_db(path):
             con.execute('ALTER TABLE jobs ADD COLUMN skip_knowledge INTEGER NOT NULL DEFAULT 0')
         if 'max_tokens' not in cols:
             con.execute('ALTER TABLE jobs ADD COLUMN max_tokens INTEGER')
+        if 'use_manuals' not in cols:
+            con.execute("ALTER TABLE jobs ADD COLUMN use_manuals INTEGER NOT NULL DEFAULT 0")
+        if 'manual_query' not in cols:
+            con.execute("ALTER TABLE jobs ADD COLUMN manual_query TEXT NOT NULL DEFAULT ''")
         # If Gentoo reboots mid-inference, retry the task from the beginning.
         con.execute("UPDATE jobs SET state='queued' WHERE state='running'")
         # Resume interrupted multi-pass analysis from the last committed pass.
@@ -336,20 +341,32 @@ class Engine:
         self.continuous = ContinuousResearch(self.db)
         self.evidence = EvidenceLedger(self.continuous)
 
-    def enqueue(self, messages, target, profile='auto', model_id=DEFAULT_MODEL, skip_knowledge=False, max_tokens=None):
+    def enqueue(self, messages, target, profile='auto', model_id=DEFAULT_MODEL,
+                skip_knowledge=False, max_tokens=None, use_manuals=False, manual_query=''):
         if not isinstance(model_id,str) or not MODEL_ID.fullmatch(model_id):
             raise ValueError('Invalid local model ID')
         if type(skip_knowledge) is not bool:
             raise ValueError('Invalid local knowledge policy')
         if max_tokens is not None and (type(max_tokens) is not int or not 64 <= max_tokens <= 8192):
             raise ValueError('Invalid token budget')
+        if type(use_manuals) is not bool or not isinstance(manual_query, str):
+            raise ValueError('Invalid manual retrieval policy')
+        if use_manuals and not 0 < len(manual_query) <= MAX_TEXT:
+            raise ValueError('Invalid manual search query')
+        if not use_manuals and manual_query:
+            raise ValueError('Unexpected manual query without permission')
         job_id = uuid.uuid4().hex
         with db_connect(self.db) as con:
             queue_size = con.execute("SELECT count(*) FROM jobs WHERE state IN ('queued','running')").fetchone()[0]
             if queue_size >= STALE_JOB_LIMIT:
                 raise RuntimeError('Inference queue full; try again after current tasks finish')
-            con.execute('INSERT INTO jobs(id,messages,target,state,created,worker,profile,model_id,skip_knowledge,max_tokens) VALUES(?,?,?,?,?,?,?,?,?,?)',
-                        (job_id,json.dumps(messages),target,'queued',time.time(),'',profile,model_id,int(skip_knowledge),max_tokens))
+            con.execute('''INSERT INTO jobs
+                (id,messages,target,state,created,worker,profile,model_id,
+                 skip_knowledge,max_tokens,use_manuals,manual_query)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
+                (job_id,json.dumps(messages),target,'queued',time.time(),'',
+                 profile,model_id,int(skip_knowledge),max_tokens,
+                 int(use_manuals),manual_query))
             add_event(con, job_id, 1, 'queued')
         return job_id
 
@@ -610,22 +627,29 @@ class Engine:
             if not con.execute("SELECT 1 FROM jobs WHERE state='queued' LIMIT 1").fetchone():
                 return False
             con.execute('BEGIN IMMEDIATE')
-            row = con.execute("SELECT id,messages,target,profile,model_id,skip_knowledge,max_tokens FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
+            row = con.execute("SELECT id,messages,target,profile,model_id,skip_knowledge,max_tokens,use_manuals,manual_query FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
             if not row:
                 con.execute('COMMIT')
                 return False
-            job_id,raw_messages,target,profile,model_id,skip_knowledge,max_tokens = row
+            job_id,raw_messages,target,profile,model_id,skip_knowledge,max_tokens,use_manuals,manual_query = row
             con.execute("UPDATE jobs SET state='running' WHERE id=?", (job_id,))
             con.execute('COMMIT')
         worker = ''
         try:
+            prompt_messages=json.loads(raw_messages)
+            # PDF lookup may require seconds of FTS and disk I/O. Never block
+            # the Ubuntu HTTP submission waiting for this approved-source work.
+            if use_manuals:
+                try:
+                    prompt_messages=augment_manuals(prompt_messages,manual_query)
+                except (RetrievalUnavailable,sqlite3.Error,OSError) as exc:
+                    raise RuntimeError('Approved local manual retrieval unavailable') from exc
+            if self.knowledge and not skip_knowledge:
+                prompt_messages=self.knowledge.augment_messages(prompt_messages,profile)
             worker, url = choose_worker(job_id, target, self.gpu_percent, model_id=model_id,preferred_gpu='amd')
             with db_connect(self.db) as con:
                 con.execute('UPDATE jobs SET worker=? WHERE id=?', (worker, job_id))
                 add_event(con, job_id, 2, 'started', '', worker)
-            prompt_messages=json.loads(raw_messages)
-            if self.knowledge and not skip_knowledge:
-                prompt_messages=self.knowledge.augment_messages(prompt_messages,profile)
             try:
                 answer = chat(url,prompt_messages,model_id=model_id,max_tokens=max_tokens)
             except (TimeoutError, OSError, urllib.error.URLError, ValueError, KeyError) as exc:
@@ -870,14 +894,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             use_manuals=data.get('use_manuals',False)
             if type(use_manuals) is not bool:
                 raise ValueError('Invalid manual retrieval policy')
+            question=''
             if use_manuals:
                 question=data.get('manual_query',messages[-1]['content'])
                 if not isinstance(question,str) or not 0<len(question)<=MAX_TEXT:
                     raise ValueError('Invalid manual search query')
-                # These are source-backed system references, not user messages;
-                # keep the original chat and selected model unchanged.
-                messages=augment_manuals(messages,question)
-            job_id = self.server.engine.enqueue(messages,target,profile,model_id,skip_knowledge,max_tokens)
+                # The exact query is stored for the background worker to
+                # retrieve approved manuals; the HTTP handler never blocks on FTS.
+            job_id = self.server.engine.enqueue(
+                messages,target,profile,model_id,skip_knowledge,max_tokens,
+                use_manuals=use_manuals,manual_query=question)
             self.respond(202, {'job_id':job_id, 'status':'queued', 'model_id':model_id, 'local_only':True, 'output':'separate-output-tunnel'})
         except (ValueError, KeyError, TypeError) as e:
             self.respond(400, {'error': str(e)[:150]})

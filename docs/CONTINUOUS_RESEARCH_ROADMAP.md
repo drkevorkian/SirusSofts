@@ -6,7 +6,7 @@
 **Platform:** Gentoo local AI workers + Ubuntu public CMS gateway  
 **Objective:** Enable the local LLM to continuously revisit, analyze, cross-reference, and improve its understanding of the entire available knowledge library without requiring a user to initiate each research session.
 
-### Deployment state — verified operator observations, 2026-11-23
+**2026-11-23 async interactive manual search (source only):** The Gentoo input HTTP handler no longer performs approved PDF FTS retrieval before returning an inference job ID. Manual-query policy is stored durably in the existing local SQLite job queue and the approved-source retrieval is performed by a bounded existing chat worker. A missing or inaccessible approved manual index fails the queued job rather than producing a false citation or silently disabling manual search. Additive DB migration and offline regression coverage are included. This is a response-latency hardening increment, **not** proof of successful production inference or completion of autonomous research requirements. No roadmap checkbox changes from this increment.\n\n### Deployment state — verified operator observations, 2026-11-23
 
 - Gentoo continuous research inventory now lists **4,700 PDF sources and 309,285 current research sections**, and the previous OperationalError was cleared. A separate inventory scan request was still pending.
 - The sirus-ai-input and sirus-pdf-ingest services reported started; the operator reports CPU and both GPUs in use. Actual model inference, worker attribution, thermal limits, throughput, training, and end-to-end acceptance are not yet independently validated.
