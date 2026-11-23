@@ -2,9 +2,17 @@
    The browser NEVER receives the node key or contacts Gentoo directly. */
 (() => {
   "use strict";
-  const panel = document.querySelector("[data-gentoo-pdf]");
-  if (!panel) return;
-  const status = panel.querySelector("[data-gentoo-live]");
+  let active = null;
+  let cleanup = null;
+  function initialize() {
+    const panel = document.querySelector("[data-gentoo-pdf]");
+    if (panel === active) return;
+    if (cleanup) cleanup();
+    active = panel;
+    cleanup = null;
+    if (!panel) return;
+    const status = panel.querySelector("[data-gentoo-live]");
+    if (!status) return;
   const qs = new URLSearchParams(window.location.search);
   const url = new URL("/admin/ai/gentoo-status", window.location.origin);
   for (const key of ["pdf_state", "pdf_search", "pdf_page"]) {
@@ -58,6 +66,19 @@
       busy = false;
     }
   }
-  const timer = window.setInterval(refresh, 12000);
-  window.addEventListener("pagehide", () => window.clearInterval(timer), {once: true});
+    const timer = window.setInterval(refresh, 12000);
+    cleanup = () => window.clearInterval(timer);
+  }
+  document.addEventListener("sirus:ai-panel-loaded", initialize);
+  document.addEventListener("sirus:navigated", initialize);
+  window.addEventListener("pagehide", () => {
+    if (cleanup) cleanup();
+    cleanup = null;
+    active = null;
+  });
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initialize, {once: true});
+  } else {
+    initialize();
+  }
 })();
