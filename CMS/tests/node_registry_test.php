@@ -71,6 +71,35 @@ try {
     $registry->assignWorkload('job-example-0001','gentoo-home','example','compute');
     $jobs = $registry->workloadsFor('gentoo-home');
     nodeCheck(count($jobs) === 1 && $jobs[0]['state'] === 'queued', 'Assignment persisted');
+    // Cross-platform signed Mac heartbeat and strict optional hardware schema.
+    $macData=$data;
+    $macData['node_id']='mac-research-01';
+    $macData['os']='macos';
+    $macData['init']='launchd';
+    $macData['nonce']=bin2hex(random_bytes(16));
+    $macData['metrics']=[
+      'cpu_pct'=>41.5, 'memory_used_bytes'=>2147483648,
+      'disk_used_bytes'=>10737418240, 'disk_total_bytes'=>107374182400,
+      'uptime_seconds'=>3600, 'gpus'=>[
+         ['vendor'=>'0x8086','name'=>'Intel HD Graphics 6000',
+          'usage_pct'=>null,'temp_c'=>null,'vram_used_bytes'=>null,'vram_total_bytes'=>null]
+      ], 'services'=>['sirus-mac-node'],
+      'mac'=>['model'=>'MacBookAir7,2','arch'=>'x86_64','os_version'=>'14.8.9',
+              'power_source'=>'AC','battery_pct'=>82,'sleep_assertion'=>true,
+              'worker_cpu_target'=>90.0,'memory_pressure'=>'normal']
+    ];
+    $macResolver=fn(string $id): string=>$id==='mac-research-01'?$key:'';
+    $macBody=json_encode($macData,JSON_THROW_ON_ERROR);
+    $registry->acceptHeartbeat($macBody,hash_hmac('sha256',$macBody,$key),$macResolver,$now);
+    nodeCheck(($registry->getNode('mac-research-01',$now)['metrics']['mac']['arch']??'')==='x86_64',
+              'Mac telemetry preserved');
+    $macData['nonce']=bin2hex(random_bytes(16));
+    $macData['metrics']['mac']['worker_cpu_target']=101;
+    $badMac=json_encode($macData,JSON_THROW_ON_ERROR);
+    try {
+        $registry->acceptHeartbeat($badMac,hash_hmac('sha256',$badMac,$key),$macResolver,$now);
+        throw new RuntimeException('Invalid Mac CPU limit accepted');
+    } catch(InvalidArgumentException $expected){}
     echo "PASS: signed node registry, replay rejection, offline detection and queued assignment\n";
 } finally {
     foreach (glob($dir . '/*') ?: [] as $file) { @unlink($file); }
