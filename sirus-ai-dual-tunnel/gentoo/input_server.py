@@ -198,7 +198,7 @@ def worker_healthy(url, timeout=0.7):
         return False
 
 
-def choose_worker(job_id, target, gpu_percent=90, probe=worker_healthy, model_id=None):
+def choose_worker(job_id, target, gpu_percent=90, probe=worker_healthy, model_id=None, preferred_gpu=None):
     workers = {'nvidia': NVIDIA, 'amd': AMD, 'cpu': CPU}
     if target not in ('auto', *workers):
         raise ValueError('Unrecognized compute worker')
@@ -212,6 +212,16 @@ def choose_worker(job_id, target, gpu_percent=90, probe=worker_healthy, model_id
         if not probe(workers[target]):
             raise RuntimeError(target.upper() + ' worker is unavailable')
         return target, workers[target]
+    if preferred_gpu is not None:
+        if preferred_gpu not in ('amd', 'nvidia'):
+            raise ValueError('Invalid preferred local GPU')
+        # AMD interactive requests may fall back to CPU. Autonomous research
+        # must NEVER silently fall back to CPU inference when NVIDIA is busy.
+        if probe(workers[preferred_gpu]):
+            return preferred_gpu, workers[preferred_gpu]
+        if preferred_gpu == 'amd' and probe(CPU):
+            return 'cpu', CPU
+        raise RuntimeError(preferred_gpu.upper() + ' role worker is unavailable')
     gpu = [w for w in ('nvidia', 'amd') if probe(workers[w])]
     dice = int.from_bytes(hashlib.sha256(job_id.encode('ascii')).digest()[:4], 'big') % 100
     if gpu and (dice < gpu_percent or not probe(CPU)):
@@ -441,7 +451,7 @@ class Engine:
                 segments=[{'text':src_text,'pages':[]}]
                 if sections_per_pass and sections_per_pass!=1:
                     raise RuntimeError('Unexpected research checkpoint section count.')
-            worker,endpoint=choose_worker(job_id,target,self.gpu_percent,model_id=model_id)
+            worker,endpoint=choose_worker(job_id,target,self.gpu_percent,model_id=model_id,preferred_gpu='nvidia')
             with db_connect(self.db) as con:
                 con.execute('UPDATE research_jobs SET worker=?,updated=? WHERE id=?',
                             (worker,time.time(),job_id))
@@ -558,7 +568,7 @@ class Engine:
                 self.stop.wait(2)
 
     def _continuous_infer(self, messages, target, model_id, job_id):
-        worker, endpoint = choose_worker(job_id,target,self.gpu_percent,model_id=model_id)
+        worker, endpoint = choose_worker(job_id,target,self.gpu_percent,model_id=model_id,preferred_gpu='nvidia')
         content,metrics=chat(endpoint,messages,timeout=180,model_id=model_id,
                              max_tokens=2048,include_metrics=True)
         return content,worker,metrics
@@ -580,7 +590,7 @@ class Engine:
             con.execute('COMMIT')
         worker = ''
         try:
-            worker, url = choose_worker(job_id, target, self.gpu_percent, model_id=model_id)
+            worker, url = choose_worker(job_id, target, self.gpu_percent, model_id=model_id,preferred_gpu='amd')
             with db_connect(self.db) as con:
                 con.execute('UPDATE jobs SET worker=? WHERE id=?', (worker, job_id))
                 add_event(con, job_id, 2, 'started', '', worker)
