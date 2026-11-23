@@ -281,7 +281,6 @@ function cms_gentoo_pdf_panel(PDO $cms):void {
         </div>
         </details>
       <?php endif;?>
-      <script defer src="/assets/gentoo-pdf-admin.js"></script>
       <?php endif;?>
     </section>
     <?php
