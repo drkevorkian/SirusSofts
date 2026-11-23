@@ -19,38 +19,166 @@ model is hardcoded. Actual legacy OCLP behavior is not guaranteed.
 
 ## Not yet implemented
 
-No GUI/menu-bar application, process-kill or elevated helper, automatic RAM
-reclamation, genuine research/PDF ingestion, CPU quota enforcement, precise
-GPU telemetry, 90% total-system resource reservation, or closed-lid headless
-operation. The 90% CPU setting is a policy target awaiting a scheduler. Nothing
-in this package runs as root or starts until manually installed/configured.
+An optional menu-bar control app and local PDF text-extraction staging now
+exist in source, but neither is confirmed on all hardware. Still missing:
+privileged helper, automatic safe process reclamation, automatic transfer into
+Gentoo's approved knowledge index, enforced CPU quota, precise GPU telemetry,
+90% total-system resource reservation, and closed-lid headless operation.
+The 90% CPU setting is a policy target awaiting a scheduler. Nothing in this
+package runs as root or starts until explicitly configured.
 
-## Install
+## Complete installation from GitHub ZIP (no preexisting checkout)
 
-On the Mac, review source and run:
+These instructions are for Terminal on **the Mac**, not Ubuntu or Gentoo.
+Review the downloaded source before installing. For a repeatable install,
+pin to a reviewed commit rather than using a moving main branch.
 
-    sh mac-node/install-macos.sh --plan
-    sh mac-node/install-macos.sh --install
+### 1. Download and unpack the entire SirusSofts main branch
 
-Install modern Python 3 if absent; the installer uses the first python3 on
-PATH. In ~/.config/sirus-mac-node/config.json set key_file to the actual path
-of ~/.config/sirus-mac-node/heartbeat.key. Enroll the binary 32-byte key
-on the Ubuntu host under its existing private node key directory, named after
-your configured node_id. Transfer only using an authenticated encrypted channel;
-do not paste keys into a website/chat/GitHub.
+```sh
+cd "$HOME/Downloads"
+curl -fL --retry 3 \
+  https://github.com/drkevorkian/SirusSofts/archive/refs/heads/main.zip \
+  -o SirusSofts-main.zip
+unzip -q SirusSofts-main.zip
+cd SirusSofts-main
+```
 
-The CMS must be upgraded from the reviewed matching Git commit before the Mac
-reports: older CMS versions reject os=macos and init=launchd. After enrollment:
+If `SirusSofts-main/` already exists, rename or remove the old extracted
+folder **only after preserving any local modifications**, or extract to a
+fresh download directory. Do not merge archives into an old checkout.
 
-    launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.sirussofts.mac-node.plist"
-    launchctl kickstart -k gui/$(id -u)/com.sirussofts.mac-node
+Alternative for Macs with Git installed:
 
-Check ~/Library/Application Support/SirusMacNode/stderr.log or run
-python3 mac-node/agent.py --config ~/.config/sirus-mac-node/config.json --probe
-locally without contacting the network.
+```sh
+cd "$HOME/Downloads"
+git clone https://github.com/drkevorkian/SirusSofts.git
+cd SirusSofts
+```
 
-To stop background startup:
-    sh mac-node/install-macos.sh --uninstall
+### 2. Verify prerequisites and preview
+
+```sh
+python3 --version
+sh mac-node/install-macos.sh --plan
+```
+
+Python 3.9+ is required. The menu app is optional and requires the Xcode
+Command Line Tools (Swift compiler). The PDF stage is optional and requires
+Poppler's `pdftotext`. No Docker or root-level agent is required.
+
+### 3. Install the Mac worker into your account
+
+```sh
+sh mac-node/install-macos.sh --install
+```
+
+This copies `agent.py` and `research.py` to
+`~/Library/Application Support/SirusMacNode/`, creates a user LaunchAgent
+under `~/Library/LaunchAgents/`, and, on first installation, creates
+`~/.config/sirus-mac-node/config.json` and a **private binary 32-byte key**
+at `~/.config/sirus-mac-node/heartbeat.key`.
+It deliberately does not start the service, ask for sudo, or change the
+system sleep policy. A reinstall preserves an existing configuration and key.
+
+### 4. Inspect the configuration and test hardware locally
+
+```sh
+cat "$HOME/.config/sirus-mac-node/config.json"
+python3 mac-node/agent.py \
+  --config "$HOME/.config/sirus-mac-node/config.json" --probe
+```
+
+Check that the `key_file` points to the generated file for **this user's**
+home folder, and `node_id` is unique across all Mac nodes. Never print the
+key or commit it to GitHub. The installer fills `key_file` automatically
+for a new config; optional research-directory placeholders need adjustment
+before enabling research.
+
+### 5. Enroll this Mac node on the Ubuntu VPS (required for online reporting)
+
+**Important:** First upgrade the Ubuntu CMS using the repository's reviewed
+Hestia upgrade procedure so it recognizes `os=macos` / `init=launchd`.
+A GitHub push or ZIP download does not update your live Ubuntu installation.
+Do not run an unreviewed CMS upgrade on the production website.
+
+Your Mac and Ubuntu need the same private HMAC key. The CMS expects the key
+in its private node-key directory, named `<node_id>.key`, owned by `sirusweb`.
+Using an authenticated SSH session and the server's actual trusted hostname,
+one possible transfer from the **Mac** is:
+
+```sh
+scp "$HOME/.config/sirus-mac-node/heartbeat.key" \
+  root@YOUR_UBUNTU_SSH_HOST:/root/mac-research-01.key
+```
+
+Then, on **Ubuntu**, after verifying the node ID and private key directory:
+
+```sh
+install -o sirusweb -g sirusweb -m 0600 \
+  /root/mac-research-01.key \
+  /home/sirusweb/web/sirussofts.com/private/sirus-cms/nodes/keys/mac-research-01.key
+wc -c /home/sirusweb/web/sirussofts.com/private/sirus-cms/nodes/keys/mac-research-01.key
+rm -f /root/mac-research-01.key
+```
+
+`wc -c` should report exactly **32 bytes**. Do not paste the key into chats,
+logs, websites, or the repository. If root SSH is disabled, use your usual
+authorized non-root SSH account and a separately approved privilege elevation
+to move the key inside the Ubuntu host. Never enable root SSH solely for this.
+
+### 6. Start the background service on the Mac
+
+Only **after** the updated CMS is deployed, the key is enrolled, and the Mac
+probe succeeds, run these commands on the **Mac**:
+
+```sh
+launchctl bootstrap "gui/$(id -u)" \
+  "$HOME/Library/LaunchAgents/com.sirussofts.mac-node.plist"
+launchctl kickstart -k "gui/$(id -u)/com.sirussofts.mac-node"
+launchctl print "gui/$(id -u)/com.sirussofts.mac-node"
+```
+
+Then sign in as SirusSofts administrator and open:
+
+- https://sirussofts.com/admin/infrastructure
+- https://sirussofts.com/mac
+
+The Mac should appear after a successful signed heartbeat. The CMS may show
+stale/offline data until the heartbeat is accepted; do not interpret a
+registered node alone as a live or working worker.
+
+### 7. Optional native menu-bar application
+
+With Apple's Swift compiler installed:
+
+```sh
+sh mac-node/build-menu-app.sh
+open "$HOME/Applications/SirusMacNode.app"
+```
+
+The menu can start/stop the LaunchAgent, open its configuration file, and
+open the web dashboard. Quitting the menu app does not terminate the background
+worker. A Mac with OpenCore Legacy Patcher may require extra compatibility
+validation.
+
+### 8. Verify operation, recover, and uninstall
+
+```sh
+tail -n 60 "$HOME/Library/Application Support/SirusMacNode/stderr.log"
+launchctl print "gui/$(id -u)/com.sirussofts.mac-node"
+python3 -m unittest discover -s mac-node/tests -v
+```
+
+To stop and remove background autostart without deleting credentials:
+
+```sh
+sh mac-node/install-macos.sh --uninstall
+```
+
+Re-run `--plan` and `--install` from the newly downloaded source to upgrade.
+The installer intentionally does **not** copy server code or start a root
+process. Mac closed-lid sleep is not defeated by `caffeinate -i`.
 
 ## Operational constraints
 
