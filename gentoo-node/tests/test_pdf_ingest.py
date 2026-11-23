@@ -4,12 +4,14 @@ import importlib.util
 import os
 from pathlib import Path
 import sqlite3
+import sys
 import tempfile
 import time
 import unittest
 from unittest import mock
 
 MODULE = Path(__file__).resolve().parents[1] / "pdf_ingest.py"
+sys.path.insert(0, str(MODULE.parent))
 spec = importlib.util.spec_from_file_location("pdf_ingest", MODULE)
 ing = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ing)

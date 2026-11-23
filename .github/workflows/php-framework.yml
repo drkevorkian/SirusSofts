@@ -94,6 +94,7 @@ jobs:
           python3 -m unittest discover -s gentoo-node/tests -p 'test_pdf_admin.py' -v
           python3 -m unittest discover -s gentoo-node/tests -p 'test_manual_view.py' -v
           python3 gentoo-node/pdf_ingest.py --check
+          python3 -m unittest discover -s gentoo-node/tests -p 'test_pdf_wal_guard.py' -v
           python3 sirus-ai-dual-tunnel/gentoo/manual_rag.py --check
           python3 -m unittest discover -s sirus-ai-dual-tunnel/tests -p 'test_manual_rag.py' -v
           bash -n sirus-ai-dual-tunnel/gentoo/upgrade-in-place.sh

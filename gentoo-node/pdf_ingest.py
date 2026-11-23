@@ -17,6 +17,8 @@ import re
 import shutil
 import sqlite3
 import stat
+
+from pdf_wal_guard import open_persistent_wal, grant_reader_sidecars
 import subprocess
 import sys
 import tempfile
@@ -47,13 +49,20 @@ def require_storage(root: Path, *, strict: bool = True) -> None:
 
 
 def connect(root: Path) -> sqlite3.Connection:
-    db = sqlite3.connect(root / "databases" / "pdf_ingest.sqlite3", timeout=30,
-                         isolation_level=None)
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA busy_timeout=30000")
-    db.execute("PRAGMA foreign_keys=ON")
-    db.execute("PRAGMA journal_mode=WAL")
-    return db
+    path = root / "databases" / "pdf_ingest.sqlite3"
+    # An extra SQLite handle closes AFTER this writer, retaining the sidecars.
+    db = open_persistent_wal(path, timeout=30)
+    try:
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA busy_timeout=30000")
+        db.execute("PRAGMA foreign_keys=ON")
+        if root == DEFAULT_ROOT:
+            # Never grant the AI worker database or directory write rights.
+            grant_reader_sidecars(path)
+        return db
+    except BaseException:
+        db.close()
+        raise
 
 
 def schema(db: sqlite3.Connection) -> None:

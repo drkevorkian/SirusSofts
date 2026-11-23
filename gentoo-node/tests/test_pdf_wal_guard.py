@@ -1,0 +1,84 @@
+"""Regression tests for persistent read-only WAL access on writer shutdown."""
+import os
+from pathlib import Path
+import sqlite3
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from pdf_wal_guard import WalGuard, grant_reader_sidecars, open_persistent_wal
+
+
+class PersistentWalTests(unittest.TestCase):
+    def setUp(self):
+        self.work = tempfile.TemporaryDirectory()
+        self.addCleanup(self.work.cleanup)
+        self.path = Path(self.work.name) / "pdf_ingest.sqlite3"
+
+    def sidecars(self):
+        return [Path(str(self.path) + suffix) for suffix in ("-wal", "-shm")]
+
+    def test_reader_without_directory_write_after_writer_closes(self):
+        db = open_persistent_wal(self.path)
+        db.execute("CREATE TABLE documents(sha TEXT)")
+        db.execute("INSERT INTO documents VALUES('test-pdf')")
+        db.close()
+        self.assertTrue(all(p.is_file() for p in self.sidecars()))
+        directory = self.path.parent
+        directory.chmod(0o500)
+        try:
+            reader = sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)
+            try:
+                self.assertEqual(
+                    reader.execute("SELECT sha FROM documents").fetchone()[0],
+                    "test-pdf")
+            finally:
+                reader.close()
+            self.assertTrue(all(p.is_file() for p in self.sidecars()))
+        finally:
+            directory.chmod(0o700)
+
+    def test_repeated_writes_retain_sidecars(self):
+        db = open_persistent_wal(self.path)
+        db.execute("CREATE TABLE t(n INTEGER)")
+        db.close()
+        for n in range(3):
+            db = open_persistent_wal(self.path)
+            db.execute("INSERT INTO t VALUES(?)", (n,))
+            db.close()
+            self.assertTrue(all(p.is_file() for p in self.sidecars()))
+            reader = sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)
+            self.assertEqual(reader.execute("SELECT count(*) FROM t").fetchone()[0], n + 1)
+            reader.close()
+
+    def test_guard_refuses_missing_or_symlinked_database(self):
+        with self.assertRaisesRegex(RuntimeError, "existing regular"):
+            WalGuard(self.path)
+        target = self.path.parent / "real.sqlite3"
+        sqlite3.connect(target).close()
+        self.path.symlink_to(target)
+        with self.assertRaisesRegex(RuntimeError, "existing regular"):
+            WalGuard(self.path)
+
+    def test_scoped_read_acl_never_grants_write(self):
+        db = open_persistent_wal(self.path)
+        db.execute("CREATE TABLE t(n)")
+        db.close()
+        with patch("pdf_wal_guard.pwd.getpwnam", return_value=object()), \
+             patch("pdf_wal_guard.subprocess.run") as execute:
+            self.assertTrue(grant_reader_sidecars(self.path))
+        self.assertEqual(execute.call_count, 2)
+        for call, sidecar in zip(execute.call_args_list, self.sidecars()):
+            self.assertEqual(
+                call.args[0],
+                ("setfacl", "-m", "u:sirusai:r--", os.fspath(sidecar)))
+
+    def test_pdf_ingest_works_before_ai_account_exists(self):
+        with patch("pdf_wal_guard.pwd.getpwnam", side_effect=KeyError):
+            self.assertFalse(grant_reader_sidecars(self.path))
+
+
+if __name__ == "__main__":
+    unittest.main()

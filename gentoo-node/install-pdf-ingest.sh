@@ -7,7 +7,10 @@ if [[ $# -gt 0 ]]; then mode="$1"; shift; fi
 [[ $# -eq 0 && ( "$mode" == --check || "$mode" == --plan || "$mode" == --install ) ]] ||
   fail 'Usage: bash gentoo-node/install-pdf-ingest.sh --check|--plan|--install'
 base="$(cd "$(dirname "$0")" && pwd)"
-python3 -m py_compile "$base/pdf_ingest.py" || fail 'PDF module has invalid Python syntax'
+[[ -f "$base/pdf_wal_guard.py" && ! -L "$base/pdf_wal_guard.py" ]] ||
+  fail 'PDF WAL guard missing or linked'
+python3 -m py_compile "$base/pdf_ingest.py" "$base/pdf_wal_guard.py" ||
+  fail 'PDF module has invalid Python syntax'
 if [[ "$mode" == --check ]]; then
   echo 'PASS: offline PDF module and installer syntax; no changes made'
   exit 0
@@ -50,6 +53,7 @@ if ! id siruspdf >/dev/null 2>&1; then
 fi
 install -d -o root -g root -m 0755 /opt/sirus-pdf
 install -o root -g root -m 0755 "$base/pdf_ingest.py" /opt/sirus-pdf/pdf_ingest.py
+install -o root -g root -m 0644 "$base/pdf_wal_guard.py" /opt/sirus-pdf/pdf_wal_guard.py
 install -d -m 0750 -o siruspdf -g siruspdf "$root/manuals/objects" "$root/databases"
 # The watcher needs directory deletion rights to atomically move completed PDFs.
 # Existing files are preserved; no chown, rewrite, or bulk manual copying.
