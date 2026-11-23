@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import sqlite3
+import sys
 import tempfile
 import time
 import unittest
@@ -12,6 +13,7 @@ spec = importlib.util.spec_from_file_location("manual_rag", ROOT / "gentoo" / "m
 rag = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rag)
 ingest_path = ROOT.parent / "gentoo-node" / "pdf_ingest.py"
+sys.path.insert(0, str(ingest_path.parent))
 spec2 = importlib.util.spec_from_file_location("pdf_ingest", ingest_path)
 ingest = importlib.util.module_from_spec(spec2)
 spec2.loader.exec_module(ingest)
