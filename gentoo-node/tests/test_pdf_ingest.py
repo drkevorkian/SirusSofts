@@ -50,6 +50,15 @@ class GentooPdfIngestTest(unittest.TestCase):
                         (time.time() - ing.STABLE_SECONDS - 1,))
         return ing.scan(self.root, self.db)
 
+    def test_openrc_supervisor_has_bounded_respawn_window(self):
+        # OpenRC warns when respawn-period <= 50 seconds; a tight restart
+        # loop must not spin indefinitely on a broken SQLite/WAL setup.
+        script = (MODULE.parent / "openrc" / "sirus-pdf-ingest").read_text()
+        self.assertIn('supervisor=supervise-daemon', script)
+        self.assertIn('command_user="siruspdf:siruspdf"', script)
+        self.assertIn('--respawn-delay 5 --respawn-period 60', script)
+        self.assertIn('mountpoint -q /srv/sirussofts/storage', script)
+
     def test_no_partial_processing_and_deduplicate_identical_files(self):
         first = self.pdf()
         self.assertEqual(self.stable_scan()["imported_or_deduplicated"], 1)

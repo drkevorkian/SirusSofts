@@ -5,7 +5,7 @@ command=/usr/bin/python3
 command_args="/opt/sirus-pdf/pdf_ingest.py --serve"
 command_user="siruspdf:siruspdf"
 pidfile="/run/sirus-pdf-ingest.pid"
-supervise_daemon_args="--respawn-delay 5"
+supervise_daemon_args="--respawn-delay 5 --respawn-period 60"
 depend() {
   need localmount
 }
