@@ -95,6 +95,11 @@ class PersistentWalConnection(sqlite3.Connection):
 
 
 def open_persistent_wal(path, *, timeout=30):
+    path = Path(path)
+    # Check before sqlite3.connect: SQLite may create or modify a symlink target
+    # before WalGuard gets a chance to reject it. New regular DBs are allowed.
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise RuntimeError("SQLite WAL path must be a regular file, not a symlink")
     db = sqlite3.connect(
         path, timeout=timeout, isolation_level=None,
         factory=PersistentWalConnection)

@@ -88,6 +88,23 @@ class PersistentWalTests(unittest.TestCase):
             guarded.close()
         self.assertTrue(all(p.is_file() for p in self.sidecars()))
 
+    def test_open_rejects_symlink_before_sqlite_can_write_target(self):
+        target = self.path.parent / "original.sqlite3"
+        with sqlite3.connect(target) as db:
+            db.execute("CREATE TABLE original(n INTEGER)")
+            db.execute("INSERT INTO original VALUES(7)")
+        original_bytes = target.read_bytes()
+        self.path.symlink_to(target)
+        with self.assertRaisesRegex(RuntimeError, "not a symlink"):
+            open_persistent_wal(self.path)
+        self.assertEqual(target.read_bytes(), original_bytes)
+        self.assertFalse(any(p.exists() for p in self.sidecars()))
+
+    def test_open_rejects_directory_before_sqlite_connect(self):
+        self.path.mkdir()
+        with self.assertRaisesRegex(RuntimeError, "regular file"):
+            open_persistent_wal(self.path)
+
     def test_guard_refuses_missing_or_symlinked_database(self):
         with self.assertRaisesRegex(RuntimeError, "existing regular"):
             WalGuard(self.path)

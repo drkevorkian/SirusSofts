@@ -13,7 +13,7 @@
 - The Ubuntu CMS administration page displays continuous research status, but installed CMS and Gentoo commit identities have not been independently attested from running processes.
 - A real read-only SQLite WAL sidecar failure was isolated and temporarily repaired by starting the PDF ingestion service and granting read-only access to exact -wal/-shm files.
 - Source-only PDF ingestion WAL persistence and regression coverage were implemented in gentoo-node/pdf_wal_guard.py and gentoo-node/pdf_ingest.py. This source update is NOT deployed. Other SQLite writers still need lifecycle review and a separate safe in-place PDF-worker upgrade.
-- Source-only OpenRC supervision hardening sets a 60-second respawn accounting window (with existing 5-second delay) to eliminate the observed supervise-daemon warning; a regression test guards the service configuration. This is NOT deployed and closes no additional checklist item.
+- Source-only WAL hardening rejects symlink and nonregular PDF database paths before SQLite opens them, preventing accidental writes to a redirected target. Synthetic regression tests cover both cases; a full race-resistant open and live upgrade remain unverified. No checklist item closes from this narrow protection.\n- Source-only OpenRC supervision hardening sets a 60-second respawn accounting window (with existing 5-second delay) to eliminate the observed supervise-daemon warning; a regression test guards the service configuration. This is NOT deployed and closes no additional checklist item.
 - **Checklist:** 78/139 source requirements checked, 61 remain; real-system Section 11 remains 0/12 fully accepted. Verified PDF inventory does not establish all supported knowledge or autonomous learning.
 
 ### Checklist rules
