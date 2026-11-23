@@ -629,6 +629,61 @@ class ManualRagTests(unittest.TestCase):
         self.assertEqual(rag.guard_manual_answer(
             response,[{"role":"user","content":"Explain the device"}]),response)
 
+    def test_full_cms_prompt_negated_600_and_turbo_not_positive_targets(self):
+        """Reproduces live job b6174ee9d9c6, not an abbreviated Python query."""
+        regular = "1"*64
+        turbo = "2"*64
+        sixhundred = "3"*64
+        old = "4"*64
+        self.add(regular,
+            "SKI-DOO 2026 SUMMIT (850 E-TEC Gen5) - Shop Manual_SM11Y026_en.pdf",
+            "approved",1,"R.A.V.E. exhaust valve inspection and troubleshooting",page=96)
+        self.add(turbo,
+            "SKI-DOO 2026 SUMMIT (850 E-TEC TurboR Gen5) - Shop Manual_SM11Y026_en.pdf",
+            "approved",1,"R.A.V.E. exhaust valve inspection and troubleshooting",page=102)
+        self.add(sixhundred,
+            "SKI-DOO 2026 SUMMIT ADRENALINE - EDGE (600R E-TEC Gen5) - Shop Manual_SM11Y026_en.pdf",
+            "approved",1,"R.A.V.E. exhaust valve inspection and troubleshooting",page=94)
+        self.add(old,
+            "SKI-DOO 2021 SUMMIT (850 E-TEC Gen4) - Shop Manual.pdf",
+            "approved",1,"R.A.V.E. exhaust valve inspection and troubleshooting",page=82)
+        rag.sync(self.source,self.index)
+        q = ("Using only the approved MY26 Ski-Doo Summit 850 E-TEC Gen5 "
+             "shop manual, explain the R.A.V.E. exhaust valve system, its "
+             "operation, inspection, and troubleshooting. Cite the exact PDF "
+             "pages. Do not substitute MY21, 600 EFI, 600R, or Turbo R manuals.")
+        self.assertEqual(rag.requested_model_years(q),{2026})
+        self.assertEqual(rag._positive_variant_question(q).count("850"),1)
+        self.assertNotIn("600R",rag._positive_variant_question(q))
+        self.assertNotIn("Turbo R",rag._positive_variant_question(q))
+        refs=rag.retrieve(q,self.source,self.index,limit=8)
+        self.assertEqual({ref["sha256"] for ref in refs},{regular})
+        ctx=rag.augment([{"role":"user","content":q}],q,
+                        self.source,self.index)[0]["content"]
+        self.assertIn("PDF page 96",ctx)
+        self.assertNotIn("TurboR Gen5",ctx)
+        self.assertNotIn("600R E-TEC Gen5",ctx)
+        self.assertNotIn("2021 SUMMIT",ctx)
+
+    def test_omit_negated_engine_and_turbo_phrases_not_user_scope(self):
+        std = "SKI-DOO MY26 SUMMIT (850 E-TEC Gen5).pdf"
+        turbo = "SKI-DOO MY26 SUMMIT (850 E-TEC TurboR Gen5).pdf"
+        six = "SKI-DOO MY26 SUMMIT (600R E-TEC Gen5).pdf"
+        pairs = [
+            ("MY26 Summit 850, not Turbo R",std),
+            ("MY26 Summit 850; exclude Turbo R and 600R manuals.",std),
+            ("MY26 Summit 850 without Turbo R",std),
+            ("MY26 Summit 850 non-turbo",std),
+            ("MY26 Summit 850 Turbo R, do not use 600R",turbo),
+            ("MY26 Summit 850 Turbo R but not 600R",turbo),
+            ("MY26 Summit 600R, don't use 850",six),
+        ]
+        for q, expected in pairs:
+            with self.subTest(q=q):
+                winners=[name for name in (std,turbo,six)
+                         if rag._snowmobile_engine_match(q,name)]
+                self.assertEqual(winners,[expected])
+
     def test_fail_closed_offline(self):
         with self.assertRaises(rag.RetrievalUnavailable):
             rag.retrieve("torque",self.source,self.index)

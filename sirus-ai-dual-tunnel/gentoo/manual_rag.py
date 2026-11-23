@@ -177,6 +177,41 @@ def _snowmobile_title_match(query, title):
                           normalized))
 
 
+def _positive_variant_question(query):
+    """Ignore explicitly excluded engine/trim examples during source selection.
+
+    The original full user message is still sent unchanged to the model.
+    This helper is only for retrieval constraints. Thus a request like
+    'Summit 850 ... Do not substitute MY21, 600 EFI, 600R or Turbo R'
+    targets standard 850, not the three excluded variants.
+    """
+    exclude = re.compile(
+        r"\b(?:do\s+not|don't|never)\s+"
+        r"(?:(?:use|using|substitute|substituting|include|including|cite|"
+        r"reference|show|list|select)\s+)?"
+        r"|\b(?:avoid|exclude|excluding|without|rather\s+than|instead\s+of)\s+"
+        r"|\bnot\s+(?!only\b|just\b)",
+        re.I)
+    # Treat a full negative clause or comma-separated exclusion list as
+    # out of scope until a sentence boundary, semicolon, contrast, or end.
+    # Do not split commas: '600 EFI, 600R, or Turbo R' is a single list.
+    parts = []
+    offset = 0
+    for match in exclude.finditer(query):
+        if match.start() < offset:
+            continue
+        parts.append(query[offset:match.start()])
+        remainder = query[match.end():]
+        end = re.search(r"[.!?;\n]|\b(?:but|however|instead|whereas)\b", remainder, re.I)
+        offset = match.end() + end.start() if end else len(query)
+        # When a contrast ('but') ends the exclusion, its subsequent
+        # positive scope must remain available for matching.
+    parts.append(query[offset:])
+    result = "".join(parts)
+    # The term 'non-turbo' explicitly requests a standard engine.
+    return re.sub(r"\bnon[\s_-]*turbo\b", "standard", result, flags=re.I)
+
+
 def _snowmobile_engine_match(query, filename):
     """Keep Ski-Doo engine and induction variants separate for service instructions."""
     if not (_summit_requested(query) or re.search(r"\bski[\s_-]*doo\b", query, re.I)):
@@ -185,7 +220,8 @@ def _snowmobile_engine_match(query, filename):
     # A word-boundary check for bare 600 misses "600EFI" completely.
     pattern = r"(?<![a-z0-9])(?:600(?:[\s_-]*(?:rr|r|efi))?|850|900|1200)(?![a-z0-9])"
     normalize = lambda m: re.sub(r"[\s_-]+", "", m.lower())
-    requested = {normalize(s) for s in re.findall(pattern, query, re.I)}
+    positive = _positive_variant_question(query)
+    requested = {normalize(s) for s in re.findall(pattern, positive, re.I)}
     if not requested:
         return True
     named = {normalize(s) for s in re.findall(pattern, filename, re.I)}
@@ -195,7 +231,7 @@ def _snowmobile_engine_match(query, filename):
         return False
     if "850" in requested and "850" in named:
         turbo = r"\bturbo(?:[\s_-]*r)?\b|\bturbor\b"
-        if bool(re.search(turbo, query, re.I)) != bool(re.search(turbo, filename, re.I)):
+        if bool(re.search(turbo, positive, re.I)) != bool(re.search(turbo, filename, re.I)):
             return False
     return True
 
