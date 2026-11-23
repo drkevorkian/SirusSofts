@@ -62,6 +62,7 @@ jobs:
           php CMS/tests/gpt_portal_test.php
           php CMS/tests/smoke.php
           php CMS/tests/theme_test.php
+          php CMS/tests/asset_version_test.php
       - name: Storage, backup, and migration tests
         run: |
           php CMS/tests/storage_adapter_test.php
@@ -107,6 +108,7 @@ jobs:
         run: |
           node --check CMS/assets/cms.js
           node --check CMS/assets/live.js
+          node CMS/tests/live_submit_test.cjs
           node --check sirus-ai-dual-tunnel/ubuntu/web/app.js
           node --check sirus-ai-dual-tunnel/ubuntu/web/manual.js
           node --check sirus-ai-dual-tunnel/ubuntu/web/manual_sources.js
