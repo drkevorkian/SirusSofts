@@ -5,6 +5,7 @@ Only listens on Gentoo loopback. Ubuntu's AI input SSH tunnel is the caller.
 Uses SQLite WAL for durable tasks and outbound events. No external modules.
 """
 import argparse
+import ctypes
 from contextlib import contextmanager
 import hashlib
 import http.server
@@ -21,6 +22,24 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+
+def role_thread(role, func, *args):
+    """Name Linux worker threads for the opt-in Gentoo CPU affinity policy.
+
+    This does not change affinity by itself. The separate reviewed OpenRC CPU
+    policy may pin 'sirus-learn' threads away from GUI/web/tunnel cores.
+    """
+    if role not in ('learn', 'web'):
+        raise ValueError('Invalid CPU role')
+    if sys.platform.startswith('linux'):
+        try:
+            # PR_SET_NAME=15; 15-byte Linux task name plus NUL terminator.
+            label = b'sirus-learn' if role == 'learn' else b'sirus-web'
+            ctypes.CDLL(None).prctl(15, ctypes.c_char_p(label), 0, 0, 0)
+        except (OSError, AttributeError):
+            pass
+    return func(*args)
+
 
 CPU = 'http://127.0.0.1:18482'
 NVIDIA = 'http://127.0.0.1:18486'
@@ -525,7 +544,8 @@ class Engine:
     def continuous_loop(self):
         # Fixed bounded pool. The scheduler admits only the configured number
         # of leases, defaults to one, and leaves excess threads idle.
-        workers = [threading.Thread(target=self._continuous_worker, daemon=True)
+        workers = [threading.Thread(target=role_thread,
+                    args=('learn', self._continuous_worker), daemon=True)
                    for _ in range(4)]
         for worker in workers:
             worker.start()
@@ -845,10 +865,10 @@ def main():
     for _ in range(args.workers):
         threading.Thread(target=engine.worker_loop, daemon=True).start()
     threading.Thread(target=engine.dispatch_loop, daemon=True).start()
-    threading.Thread(target=engine.research_loop, daemon=True).start()
-    threading.Thread(target=engine.continuous_loop, daemon=True).start()
-    threading.Thread(target=engine.continuous_inventory_loop, daemon=True).start()
-    threading.Thread(target=manual_index_loop,args=(engine.stop,),daemon=True).start()
+    threading.Thread(target=role_thread, args=('learn',engine.research_loop), daemon=True).start()
+    threading.Thread(target=role_thread, args=('learn',engine.continuous_loop), daemon=True).start()
+    threading.Thread(target=role_thread, args=('learn',engine.continuous_inventory_loop), daemon=True).start()
+    threading.Thread(target=role_thread,args=('learn',manual_index_loop,engine.stop),daemon=True).start()
     server = http.server.ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     server.engine = engine
     print('Sirus AI INPUT listening on 127.0.0.1:%s' % args.port, flush=True)
