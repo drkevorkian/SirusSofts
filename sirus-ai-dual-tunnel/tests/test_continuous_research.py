@@ -40,6 +40,18 @@ class ContinuousResearchTests(unittest.TestCase):
             """)
         self.research=ContinuousResearch(self.db,self.pdf,self.base/"index.sqlite3")
 
+    def test_admin_status_does_not_write_telemetry(self):
+        # An admin refresh must not acquire a writer lock simply to sample
+        # resources while the PDF inventory is using the same SQLite DB.
+        with patch.object(self.research, "sample_resources",
+                          side_effect=AssertionError("status wrote telemetry")):
+            first=self.research.status()
+            second=self.research.status()
+        self.assertEqual(first["config"]["mode"], second["config"]["mode"])
+        with sqlite3.connect(self.db) as db:
+            self.assertEqual(db.execute(
+                "SELECT count(*) FROM cr_resource_samples").fetchone()[0], 0)
+
     def add_doc(self, sha=SHA, status="ready", text="Verified source sentence.",
                 pages=3, updated=1):
         with sqlite3.connect(self.pdf) as con:
