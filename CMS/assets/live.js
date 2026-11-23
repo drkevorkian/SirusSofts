@@ -426,8 +426,13 @@
     event.preventDefault();
     const button = form.querySelector('button[type="submit"]');
     if (button && button.disabled) return;
+    const feedback = form.querySelector("[data-live-form-message]");
+    const report = message => {
+      status(message);
+      if (feedback) feedback.textContent = message;
+    };
     if (button) button.disabled = true;
-    status("submitting job");
+    report("Submitting work request…");
     try {
       const reply = await fetch(form.action, {
         method: "POST", credentials: "same-origin",
@@ -436,14 +441,14 @@
       });
       const data = await reply.json();
       if (!reply.ok || !data.ok) throw new Error(data.error || "Job was rejected");
-      status(data.state === "planned" ? "release plan created" :
+      report(data.state === "planned" ? "release plan created" :
              data.state === "approved" ? "revision approved (not installed)" :
              data.state === "canceled" ? "release plan canceled" :
              data.state === "queued" ? "deployment queued" :
              "queued " + String(data.request_id).slice(0, 8));
       document.dispatchEvent(new CustomEvent("sirus:job-queued", {detail: data}));
     } catch (error) {
-      status("job error: " + String(error.message || "request failed").slice(0, 120));
+      report("Work request failed: " + String(error.message || "request failed").slice(0, 160));
     } finally {
       if (button) button.disabled = false;
     }

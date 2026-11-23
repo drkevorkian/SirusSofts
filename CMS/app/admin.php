@@ -107,7 +107,7 @@ function cms_admin_post(PDO $db,string $path): void {
     if($path==='/admin/updates' && in_array($action,['check_package_updates','check_source_updates'],true)){
         cms_updates_post($db,$action);
     }
-    if($path==='/admin/infrastructure' && $action==='enqueue_gentoo_job'){
+    if($path==='/admin/infrastructure' && in_array($action,['enqueue_gentoo_job','enqueue_node_job'],true)){
         cms_operations_post($db,$action);
     }
     if($action==='github_import_request' && $path==='/admin/github'){

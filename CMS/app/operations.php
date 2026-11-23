@@ -66,10 +66,10 @@ function cms_operations_snapshot(): array
     return $snapshot;
 }
 
-/** Enqueue Gentoo-only work from an authenticated administrator, never PHP. */
+/** Enqueue fixed-type work on a connected Gentoo or macOS node, never PHP. */
 function cms_operations_post(PDO $db,string $action): never {
     cms_need_admin();
-    if($action!=='enqueue_gentoo_job')
+    if(!in_array($action,['enqueue_gentoo_job','enqueue_node_job'],true))
         throw new InvalidArgumentException('Unsupported infrastructure operation.');
     $nodeId=(string)($_POST['node_id']??'');
     $kind=(string)($_POST['kind']??'');
@@ -79,14 +79,14 @@ function cms_operations_post(PDO $db,string $action): never {
     $nodeDir=cms_private_directory().'/nodes';
     $nodeDb=$nodeDir.'/registry.sqlite3';
     if(!is_file($nodeDb)||is_link($nodeDb))
-        throw new InvalidArgumentException('No registered Gentoo node has connected.');
+        throw new InvalidArgumentException('No registered compute node has connected.');
     $registry=new SirusNodeRegistry($nodeDb);
     $node=$registry->getNode($nodeId);
     if(!$node || $node['health']!=='online')
-        throw new InvalidArgumentException('The selected Gentoo node is offline. Wait for a fresh signed heartbeat.');
+        throw new InvalidArgumentException('The selected compute node is offline. Wait for a fresh signed heartbeat.');
     $broker=new SirusWorkBroker($nodeDir.'/work.sqlite3');
     $id=$broker->enqueue($nodeId,$kind);
-    cms_audit($db,'enqueue-gentoo-work',$nodeId.':'.$kind.':'.$id);
+    cms_audit($db,'enqueue-node-work',$nodeId.':'.$kind.':'.$id);
     if(str_contains((string)($_SERVER['HTTP_ACCEPT']??''),'application/json')) {
         header('Content-Type: application/json; charset=utf-8');
         header('Cache-Control: no-store');
@@ -94,7 +94,7 @@ function cms_operations_post(PDO $db,string $action): never {
         echo json_encode(['ok'=>true,'request_id'=>$id,'node_id'=>$nodeId],JSON_THROW_ON_ERROR);
         exit;
     }
-    cms_flash('Work queued for Gentoo: '.$id.'. Gentoo will claim it on its next authenticated poll.');
+    cms_flash('Work queued for node: '.$id.'. The selected node will claim it on its next authenticated poll.');
     cms_go('/admin/infrastructure');
 }
 
@@ -118,7 +118,7 @@ function cms_operations_page(PDO $db): void
       <p>Gentoo/OpenRC and macOS/launchd nodes send independently signed, outbound
       HTTPS heartbeats to the Ubuntu coordinator. Last-seen data is considered online
       only within three minutes; readings from disconnected nodes are historical.
-      Ubuntu only brokers work; approved task execution happens on Gentoo.</p>
+      Ubuntu only brokers work; approved task execution happens on each selected worker.</p>
       <p>Private node registry: <strong><?=cms_esc($snapshot['nodes_state'])?></strong></p>
       <?php if(!$snapshot['nodes']):?>
         <p class="empty-state">No compute node has reported yet. Install an outbound
@@ -234,16 +234,16 @@ function cms_operations_page(PDO $db): void
     </section>
     <?php endforeach;?>
         <div class="admin-panel">
-      <h2>Gentoo → Ubuntu delegated work</h2>
-      <p>Ubuntu hosts the website and queues work. The separate Gentoo Python
-      node polls the CMS over authenticated HTTPS, executes approved tasks
-      on Gentoo, and returns results. PHP/Ubuntu does not execute these jobs.</p>
+      <h2>Delegated compute work — Gentoo and macOS</h2>
+      <p>Ubuntu queues work; registered Gentoo and macOS workers poll over authenticated HTTPS,
+      execute approved fixed-type tasks locally, and return results. PHP/Ubuntu does not execute these jobs.</p>
       <?php $flash=cms_take_flash();if($flash):?>
         <p class="flash-message"><?=cms_esc($flash['message'])?></p>
       <?php endif;?>
       <form method="post" action="/admin/infrastructure" data-live-submit>
+        <p class="muted small" data-live-form-message role="status" aria-live="polite">Select an online node and a task, then submit.</p>
         <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
-        <input type="hidden" name="action" value="enqueue_gentoo_job">
+        <input type="hidden" name="action" value="enqueue_node_job">
         <label>Worker node
           <select name="node_id" required>
             <?php foreach($snapshot['nodes'] as $node):
@@ -252,15 +252,15 @@ function cms_operations_page(PDO $db): void
             <?php endforeach;?>
           </select>
         </label>
-        <label>Approved Gentoo task
+        <label>Approved worker task
           <select name="kind">
-            <option value="health_snapshot">Gentoo hardware health snapshot</option>
-            <option value="compute_selftest">Gentoo bounded CPU computation self-test</option>
+            <option value="health_snapshot">Hardware health snapshot</option>
+            <option value="compute_selftest">Bounded CPU computation self-test</option>
           </select>
         </label>
         <button type="submit" class="btn primary"
            <?=!array_filter($snapshot['nodes'],static fn($n)=>$n['health']==='online')?'disabled':''?>>
-           Delegate work to Gentoo
+           Delegate work to selected node
         </button>
       </form>
       <p class="muted small">Only authenticated administrators may enqueue.
@@ -282,7 +282,7 @@ function cms_operations_page(PDO $db): void
                 <pre class="source-content"><code><?=cms_esc((string)$job['result_json'])?></code></pre>
                 <?php if($job['error']):?><p><?=cms_esc($job['error'])?></p><?php endif;?>
               </details>
-            <?php else:?>Awaiting Gentoo<?php endif;?></td>
+            <?php else:?>Awaiting worker<?php endif;?></td>
         </tr>
         <?php endforeach;?>
       </tbody></table></div>
