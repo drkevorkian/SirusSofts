@@ -128,7 +128,8 @@ def sync(*, source, index, batch=MAX_BATCH, force=False):
             doc=approved[sha]
             excerpts=src.execute("""SELECT page,part,text FROM excerpts WHERE sha256=?
                ORDER BY page,part LIMIT ?""", (sha,MAX_EXCERPTS_PER_DOC+1)).fetchall()
-            complete=len(excerpts)<=MAX_EXCERPTS_PER_DOC
+            complete=(len(excerpts)<=MAX_EXCERPTS_PER_DOC and
+                      len(excerpts)==int(doc["excerpts"]))
             mentions=[]
             for item in excerpts[:MAX_EXCERPTS_PER_DOC]:
                 # Every extracted quote must originate from this original
@@ -199,7 +200,8 @@ def search(*, source, index, kind, term, source_ids, limit=20, offset=0):
             originals=src.execute("""SELECT text FROM excerpts WHERE sha256=? AND page=?
                 AND part=?""",(row["sha"],row["page"],row["part"])).fetchall()
             matched=any(e["quote"]==row["quote"] and
-                e["quote_sha256"]==hashlib.sha256(e["quote"].encode()).hexdigest()
+                e["quote_sha256"]==row["quote_sha256"] and
+                row["quote_sha256"]==hashlib.sha256(row["quote"].encode()).hexdigest()
                 for source_row in originals for e in _extract(
                     row["sha"],row["page"],row["part"],source_row["text"])
                 if e["kind"]==row["kind"] and e["token"]==row["token"])

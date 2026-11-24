@@ -113,6 +113,24 @@ class ProcedureDependenciesTests(unittest.TestCase):
                          "different_declared_scope")
         self.assertIn("revision", report["comparisons"][0]["scope_differences"])
 
+    def test_revision_change_flags_review_without_guessing_age(self):
+        report = self.inspect(self.request(b_scope=scope(revision="B")))
+        record = report["comparisons"][0]
+        candidate = record["revision_review"]
+        self.assertEqual(record["status"], "different_declared_scope")
+        self.assertEqual(record["candidates"], [])
+        self.assertEqual(candidate["status"], "possible_outdated_procedure_review")
+        self.assertIsNone(candidate["older_source_id"])
+        self.assertFalse(candidate["supersession_verified"])
+        self.assertEqual(candidate["left"]["heading"]["source_id"], "pdf:" + A)
+        self.assertEqual(candidate["right"]["steps"][0]["page"], 8)
+        self.assertNotIn("revision_review", self.inspect(
+            self.request(b_scope=scope(year=2025, revision="B")))["comparisons"][0])
+        with sqlite3.connect(self.source) as db:
+            db.execute("UPDATE excerpts SET text=? WHERE sha256=?", (BASE, B))
+        self.assertNotIn("revision_review", self.inspect(
+            self.request(b_scope=scope(revision="B")))["comparisons"][0])
+
     def test_unapproved_and_stale_catalog_fails_closed(self):
         with sqlite3.connect(self.source) as db:
             db.execute("UPDATE documents SET reviewed=0 WHERE sha256=?", (B,))

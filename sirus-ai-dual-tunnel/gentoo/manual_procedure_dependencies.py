@@ -210,6 +210,32 @@ def _compare_explicit(a, b):
     return result
 
 
+def _revision_review(a, b, differences):
+    """Flag changed printed windows across declared revisions, not their age.
+
+    Revision names and catalog timestamps are not publication chronology.
+    Neither manual is asserted obsolete; a human must check supersession.
+    """
+    if set(differences) != {"revision"} or _norm(a["heading"]) != _norm(b["heading"]):
+        return None
+    def signature(window):
+        return (tuple(step["key"] for step in window["steps"]),
+                tuple((rel["marker"], _norm(rel["prerequisite"]), _norm(rel["dependent"]))
+                      for rel in window["explicit_relations"]))
+    left, right = signature(a), signature(b)
+    if left == right or not any(left) or not any(right):
+        return None
+    def evidence(window):
+        return {"heading": window["heading_citation"],
+                "steps": [s["citation"] for s in window["steps"]],
+                "explicit_relations": [r["citation"] for r in window["explicit_relations"]]}
+    return {"status": "possible_outdated_procedure_review",
+            "declared_revisions": differences["revision"],
+            "left": evidence(a), "right": evidence(b),
+            "older_source_id": None, "supersession_verified": False,
+            "note": "Printed changes across declared revisions; verify publication and applicability before use."}
+
+
 def inspect(request, *, source, index):
     """Read only approved originals. Fail closed on stale/ambiguous windows."""
     ids, scopes = _validate(request)
@@ -241,6 +267,9 @@ def inspect(request, *, source, index):
                   "scope_differences": differences, "candidates": []}
         if differences:
             record["status"] = "different_declared_scope"
+            revision_review = _revision_review(a, b, differences)
+            if revision_review is not None:
+                record["revision_review"] = revision_review
         elif _norm(a["heading"]) != _norm(b["heading"]):
             record["status"] = "different_selected_headings"
         else:

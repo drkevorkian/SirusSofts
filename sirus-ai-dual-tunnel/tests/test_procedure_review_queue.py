@@ -140,6 +140,25 @@ class ProcedureQueueTests(unittest.TestCase):
         self.assertEqual(after["current_candidate_count"],2)
         self.assertEqual(len(history(queue=self.q,target=target)["observations"]),4)
 
+    def test_revision_candidate_is_durable_and_revocation_blocks(self):
+        req=request()
+        req["selections"][1]["scope"]["revision"]="B"
+        target=self.reg(req)["id"]
+        result=self.check_once()
+        self.assertEqual(result["current_candidate_count"],1)
+        self.assertFalse(result["verified_conflict"])
+        rows=history(queue=self.q,target=target,include_evidence=True)["observations"]
+        candidate=rows[0]["historical_unverified_evidence"][0]
+        self.assertEqual(candidate["type"],"possible_outdated_procedure_review")
+        self.assertIsNone(candidate["evidence"]["older_source_id"])
+        self.assertFalse(candidate["evidence"]["supersession_verified"])
+        with sqlite3.connect(self.src) as db:
+            db.execute("UPDATE documents SET reviewed=0 WHERE sha256=?",(B,))
+        request_recheck(queue=self.q,target=target)
+        self.assertEqual(self.check_once(now=20)["status"],"blocked")
+        rows=history(queue=self.q,target=target,include_evidence=True)["observations"]
+        self.assertEqual([row["count"] for row in rows],[0,1])
+
     def test_different_declared_year_never_enqueues_conflict(self):
         item=self.reg(request(2024))
         result=self.check_once()

@@ -68,6 +68,23 @@ class RelationshipIndexTests(unittest.TestCase):
         self.assertEqual(self.search()["status"],"stale_original_excerpts")
         self.sync(force=True)
         self.assertEqual(len(self.search()["matches"]),1)
+    def test_tampered_derived_hash_fails_closed(self):
+        self.sync()
+        with sqlite3.connect(self.index) as db:
+            db.execute("UPDATE rel_mentions SET quote_sha256=? WHERE sha=?",
+                       ("0"*64, B))
+        result=self.search()
+        self.assertEqual(result["status"],"stale_original_excerpts")
+        self.assertEqual(result["matches"],[])
+
+    def test_catalog_excerpt_count_mismatch_is_incomplete(self):
+        with sqlite3.connect(self.source) as db:
+            db.execute("UPDATE documents SET excerpts=2 WHERE sha256=?",(A,))
+        result=self.sync()
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["partial_refreshed"],1)
+        self.assertFalse(self.search()["complete"])
+
     def test_explicit_scope_and_paging(self):
         self.sync()
         self.assertEqual(len(self.search(limit=1)["matches"]),1)

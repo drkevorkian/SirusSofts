@@ -182,9 +182,11 @@ def _snapshot(report, target):
         return [], None
     all_candidates = []
     for comparison in report["comparisons"]:
-        if comparison["status"] != "possible_order_disagreement":
-            continue
-        for candidate in comparison["candidates"]:
+        candidates = (comparison["candidates"]
+                      if comparison["status"] == "possible_order_disagreement" else [])
+        if comparison.get("revision_review") is not None:
+            candidates = [*candidates, comparison["revision_review"]]
+        for candidate in candidates:
             key = {
                 "kind": candidate["status"],
                 "source_ids": comparison["source_ids"],
