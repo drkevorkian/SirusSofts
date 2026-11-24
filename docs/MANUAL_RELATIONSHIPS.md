@@ -481,3 +481,8 @@ side of the selected quotation so reviewers can see qualifications or exclusions
 Historical procedure links bind the digest that received the displayed vote.
 Synthetic recovery tests terminate a separate SQLite writer immediately before
 commit, reopen the private queue, and complete the interrupted review once.
+
+
+### Revision-change suggestions (2026-11-24, source only)
+
+Existing opted-in discovery seeds now search exact indexed procedure headings across manuals whose current CMS-admin-declared manufacturer, model, year, engine and assembly match, including different revisions. Changed printed steps or temporal clauses are shown as possible outdated-procedure review candidates, never as same-revision order conflicts. The same signed CMS detail/accept/reject path revalidates the source evidence fingerprint and records decisions; acceptance only registers a private periodic recheck. Revision candidates are explicitly excluded from the dual-review order-conflict packet. Existing order-candidate fingerprints are unchanged. No automatic chronology, supersession, actual fitment or repair approval is inferred. Discovery still requires an explicit seed and checks bounded excerpt windows, not complete procedures. Production deployment and private-corpus acceptance remain outstanding.

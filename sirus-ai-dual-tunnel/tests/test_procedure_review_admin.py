@@ -39,6 +39,30 @@ class AdminProcedureTests(unittest.TestCase):
         self.assertEqual(len(item["windows"][0]["steps"][0]["citation"]["quote_sha256"]),64)
         self.assertIn("not_independently_verified",item["scope_authority"])
 
+    def test_revision_suggestion_is_reviewable_but_not_a_conflict_packet(self):
+        from procedure_review_admin import _procedure_packet
+        with sqlite3.connect(self.args["research_db"]) as db:
+            scope="brp/defender/2026/hd10/clutch/rev-b"
+            db.execute("UPDATE cr_evidence_scopes SET applicability=? WHERE source_id=?",
+                       (scope,"pdf:"+"b"*64))
+            db.execute("INSERT INTO cr_scope_versions VALUES(?,2,?,'cms-admin:1')",
+                       ("pdf:"+"b"*64,scope))
+        self.assertFalse(self.current()["reviewable"])
+        scan_once(**self.args,now=10000)
+        seen=self.current()
+        self.assertTrue(seen["reviewable"])
+        self.assertEqual(seen["candidates"][0]["status"],"possible_outdated_procedure_review")
+        self.assertFalse(seen["candidates"][0]["supersession_verified"])
+        with sqlite3.connect(self.args["queue"]) as db:
+            db.row_factory=sqlite3.Row
+            with self.assertRaisesRegex(ValueError,"not order conflicts"):
+                _procedure_packet(db,self.suggestion,"a"*64,"b"*64,
+                                  self.args["source"],self.args["index"],self.args["research_db"])
+        outcome=decide(**self.args,suggestion_id=self.suggestion,action="accept",
+                       actor="cms-admin:42",expected_hash=seen["evidence_hash"],
+                       confirmation="ACCEPT FOR REVIEW",reason="Review revision changes")
+        self.assertFalse(outcome["verified_repair"])
+
     def test_explicit_accept_is_atomic_and_audited_without_knowledge_approval(self):
         seen=self.current()
         result=decide(**self.args,suggestion_id=self.suggestion,

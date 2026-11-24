@@ -34,7 +34,7 @@ from procedure_discovery import scan_once as discover_registered
 
 def discover_if_idle(*, enabled, interactive, queue, source, index, research_db,
                      run=discover_registered):
-    """Discover up to four same-scope candidate peers per explicitly opted-in seed.
+    """Discover up to four matching equipment-scope peers per explicitly opted-in seed.
 
     No automatic review registration; CMS-admin scope is a declaration, not
     confirmed applicability. Disabled/interactive work never invokes discovery.

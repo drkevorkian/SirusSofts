@@ -269,9 +269,11 @@ function cms_ai_procedures_panel(PDO $db):void {
       <?php endforeach; ?>
       <h2>Cross-manual procedure suggestions — administrator review</h2>
       <p>Only exact approved original-PDF citations appear here. Scope entries are
-      <strong>administrator declarations, not verified fitment</strong>. A reversed
-      procedure order is an unreviewed candidate, not a verified contradiction
-      or service instruction. Accepting adds the selected pair to the separate
+      <strong>administrator declarations, not verified fitment</strong>. Reversed
+      procedure order and changed printed steps across revisions are unreviewed
+      candidates, not verified contradictions or service instructions.
+      Revision labels alone do not establish which manual is older or superseded.
+      Accepting adds the selected pair to the separate
       private recheck queue, never to model training or approved knowledge.</p>
       <p>Opt-in discovery: <?=!empty($overview['configured'])?'Configured':'Not configured'?>.
       Suggestions shown: <?=count($list)?> (bounded page of ten).</p>
@@ -376,7 +378,7 @@ function cms_ai_procedures_panel(PDO $db):void {
                <code><?=cms_esc((string)($citation['quote']??''))?></code></p>
           <?php endforeach;?>
         <?php endforeach;?>
-        <p>Order-disagreement candidates:
+        <p>Procedure review candidates:
           <?=count(is_array($detail['candidates']??null)?$detail['candidates']:[])?>.
           These are printed-text comparisons only, not service approvals.</p>
         <?php foreach(array_slice(is_array($detail['candidates']??null)?

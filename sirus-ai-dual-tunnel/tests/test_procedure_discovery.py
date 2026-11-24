@@ -114,6 +114,23 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(result["status"],"monitoring")
         self.assertEqual(result["current_candidate_count"],2)
 
+    def test_cross_revision_discovery_and_review_preserve_scope_boundaries(self):
+        with sqlite3.connect(self.research) as db:
+            scope="brp/defender/2026/hd10/clutch/rev-b"
+            db.execute("UPDATE cr_evidence_scopes SET applicability=? WHERE source_id=?",
+                       (scope,"pdf:"+B))
+            db.execute("INSERT INTO cr_scope_versions VALUES(?,2,?,'cms-admin:1')",
+                       ("pdf:"+B,scope))
+        self.seed()
+        self.assertEqual(scan_once(**self.args(),now=10)["suggestions_observed"],1)
+        visible=suggestions(**self.args())["suggestions"]
+        self.assertEqual(visible[0]["source_ids"],["pdf:"+A,"pdf:"+B])
+        self.assertEqual(visible[0]["status"],"unreviewed_suggestion")
+        self.assertFalse(accept(**self.args(),suggestion_id=visible[0]["id"])["automatically_verified"])
+        result=tick(queue=self.queue,source=self.src,index=self.idx,now=20)
+        self.assertEqual(result["current_candidate_count"],1)
+        self.assertFalse(result["verified_conflict"])
+
     def test_revocation_blocks_stale_suggestion_and_manual_acceptance(self):
         self.seed()
         scan_once(**self.args(),now=10)

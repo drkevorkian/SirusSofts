@@ -15,7 +15,7 @@ import time
 
 from procedure_discovery import (_configured, _connect, _validate_suggestion,
                                  _schema as discovery_schema, _report,
-                                 register_seed, configure_seed)
+                                 register_seed, configure_seed, review_candidates)
 from procedure_review_queue import _json, _sha, _source_signature
 import equipment_attestation as attestation
 from manual_procedure_dependencies import inspect
@@ -98,10 +98,8 @@ def _fresh(row, *, source, index, research_db):
     report = inspect(request, source=source, index=index)
     if report.get("complete") is not True or len(report.get("comparisons",[])) != 1:
         return None
-    comparison = report["comparisons"][0]
-    if comparison.get("status") != "possible_order_disagreement":
-        return None
-    if _sha(_json(comparison["candidates"])) != row["evidence_hash"]:
+    candidates = review_candidates(report)
+    if not candidates or _sha(_json(candidates)) != row["evidence_hash"]:
         return None
     return request, report
 
@@ -169,8 +167,8 @@ def detail(*, queue, suggestion_id, source, index, research_db):
             "steps":w["steps"][:32],
             "explicit_relations":w["explicit_relations"][:16],
         } for w in report["windows"][:2]],
-        "candidates":report["comparisons"][0]["candidates"][:MAX_EVIDENCE],
-        "warning":"UNVERIFIED order candidate. Confirm original PDFs and vehicle applicability before deciding; no action approves a repair.",
+        "candidates":review_candidates(report)[:MAX_EVIDENCE],
+        "warning":"UNVERIFIED procedure candidate. Revision changes do not establish which manual is older or superseded. Confirm original PDFs and applicability; no action approves a repair.",
     }
 
 
@@ -310,6 +308,8 @@ def _procedure_packet(db, id, left_scope, right_scope, source, index, research_d
     if fresh is None:
         raise ValueError("Procedure source or declared scope changed")
     request, report = fresh
+    if report["comparisons"][0]["status"] != "possible_order_disagreement":
+        raise ValueError("Revision-change candidates are not order conflicts; use private candidate review")
     scopes = []
     for key, selection in zip((left_scope,right_scope),request["selections"]):
         item = attestation._inspect(db,key,source,research_db)

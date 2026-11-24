@@ -215,16 +215,29 @@ def _peer_page(index, heading, anchor_sha, after_sha):
     return [r["sha"] for r in rows[:MAX_PEERS]], len(rows) > MAX_PEERS
 
 
-def _report(source, index, request):
-    report = inspect(request, source=source, index=index)
+def review_candidates(report):
+    """Keep legacy order fingerprints stable; revision changes are not conflicts."""
     if report.get("complete") is not True:
-        return None
-    pairs = report["comparisons"]
-    if len(pairs) != 1 or pairs[0]["status"] != "possible_order_disagreement":
-        return None
-    if pairs[0]["scope_differences"] or not pairs[0]["candidates"]:
-        return None
-    return _sha(_json(pairs[0]["candidates"]))
+        return []
+    pairs = report.get("comparisons", [])
+    if len(pairs) != 1:
+        return []
+    pair = pairs[0]
+    if pair["status"] == "possible_order_disagreement" and not pair["scope_differences"]:
+        return pair["candidates"]
+    revision = pair.get("revision_review")
+    if (pair["status"] == "different_declared_scope"
+            and set(pair["scope_differences"]) == {"revision"}
+            and revision is not None
+            and revision.get("status") == "possible_outdated_procedure_review"
+            and revision.get("supersession_verified") is False):
+        return [revision]
+    return []
+
+
+def _report(source, index, request):
+    candidates = review_candidates(inspect(request, source=source, index=index))
+    return _sha(_json(candidates)) if candidates else None
 
 
 def scan_once(*, queue, source, index, research_db, now=None):
@@ -255,7 +268,9 @@ def scan_once(*, queue, source, index, research_db, now=None):
                 for sha in batch:
                     sid = "pdf:" + sha
                     peer = _selection(metadata, sid, seed["heading"])
-                    if peer is None or peer["scope"] != anchor["scope"]:
+                    if peer is None or any(
+                            peer["scope"][key] != anchor["scope"][key]
+                            for key in anchor["scope"] if key != "revision"):
                         continue
                     if _exact_heading(source=source, index=index,
                                       sid=sid, heading=seed["heading"]) is None:
