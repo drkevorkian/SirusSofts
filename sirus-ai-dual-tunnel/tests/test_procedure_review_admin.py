@@ -157,6 +157,21 @@ class AdminProcedureTests(unittest.TestCase):
                 control(record,**self.args)
         self.assertEqual(overview(**self.args)["decisions"],[])
 
+    def test_signed_auto_discovery_control_requires_exact_confirmation(self):
+        for actor,confirmation in (("model:1","ENABLE AUTO DISCOVERY"),
+                                   ("cms-admin:1","YES")):
+            with self.assertRaises(ValueError):
+                control({"local_only":True,"action":"auto_enable","actor":actor,
+                         "confirmation":confirmation},**self.args)
+        self.assertFalse(overview(**self.args)["automatic_discovery"]["enabled"])
+        result=control({"local_only":True,"action":"auto_enable","actor":"cms-admin:1",
+                        "confirmation":"ENABLE AUTO DISCOVERY"},**self.args)
+        self.assertTrue(result["enabled"])
+        self.assertTrue(overview(**self.args)["automatic_discovery"]["enabled"])
+        control({"local_only":True,"action":"auto_pause","actor":"cms-admin:1",
+                 "confirmation":"PAUSE AUTO DISCOVERY"},**self.args)
+        self.assertFalse(overview(**self.args)["automatic_discovery"]["enabled"])
+
     def test_initial_overview_does_not_create_queue(self):
         self.args["queue"].unlink()
         result=overview(**self.args)

@@ -11,9 +11,15 @@ function cms_ai_procedures_payload(array $post,string $actor):array {
         throw new InvalidArgumentException('An authenticated administrator is required.');
     $operation=$post['operation']??null;
     if(!is_string($operation) ||
-       !in_array($operation,['seed','accept','reject','pause','resume','propose_scope','review_scope','vote_procedure'],true))
+       !in_array($operation,['seed','accept','reject','pause','resume','propose_scope','review_scope','vote_procedure','auto_enable','auto_pause'],true))
         throw new InvalidArgumentException('Unknown procedure-review operation.');
     $out=['local_only'=>true,'action'=>$operation,'actor'=>$actor];
+    if(in_array($operation,['auto_enable','auto_pause'],true)){
+        $required=$operation==='auto_enable'?'ENABLE AUTO DISCOVERY':'PAUSE AUTO DISCOVERY';
+        if(($post['confirmation']??null)!==$required)
+            throw new InvalidArgumentException('Exact automatic discovery confirmation required.');
+        return $out+['confirmation'=>$required];
+    }
     if($operation==='propose_scope'){
         foreach(['page','part'] as $field){
             $value=filter_var($post[$field]??null,FILTER_VALIDATE_INT,
@@ -97,6 +103,10 @@ function cms_ai_procedures_post(PDO $db,array $post):never {
     if(in_array($action,['accept','reject','propose_scope','review_scope','vote_procedure'],true) &&
        (($result['recorded']??null)!==true||($result['action']??null)!==$action))
         throw new RuntimeException('Private procedure review was not confirmed.');
+    if(in_array($action,['auto_enable','auto_pause'],true)&&
+       (($result['recorded']??null)!==true||
+        ($result['enabled']??null)!==($action==='auto_enable')))
+        throw new RuntimeException('Private automatic discovery control not confirmed.');
     if($action==='seed' && ($result['seed_id']??null)===null)
         throw new RuntimeException('Private procedure discovery seed not confirmed.');
     if(in_array($action,['pause','resume'],true)&&($result['found']??null)!==true)
@@ -292,6 +302,22 @@ function cms_ai_procedures_panel(PDO $db):void {
       <p class="muted small">The selected PDF must have a current complete
       CMS-admin-declared manufacturer/model/year/engine/assembly/revision scope.
       Without operator opt-in, no automatic cross-manual discovery starts.</p>
+      <?php $auto=is_array($overview['automatic_discovery']??null)?
+          $overview['automatic_discovery']:[]; $enabled=($auto['enabled']??false)===true; ?>
+      <h3>Automatic heading enrollment</h3>
+      <p><?=$enabled?'Enabled':'Disabled'?> · enrolled <?=(int)($auto['enrolled']??0)?>
+          / <?=(int)($auto['capacity']??128)?> · <?=cms_esc((string)($auto['last_reason']??''))?></p>
+      <p>Only eligible approved PDFs with full declared scope are considered.
+      No automatic review acceptance. Pausing stops automatic seeds, not manual seeds
+      or previously accepted private rechecks.</p>
+      <form method="post" action="/admin/ai">
+        <input type="hidden" name="csrf" value="<?=cms_esc(cms_csrf())?>">
+        <input type="hidden" name="action" value="ai_procedure_review">
+        <input type="hidden" name="operation" value="<?=$enabled?'auto_pause':'auto_enable'?>">
+        <label>Type <?=$enabled?'PAUSE AUTO DISCOVERY':'ENABLE AUTO DISCOVERY'?>
+          <input name="confirmation" required></label>
+        <button type="submit"><?=$enabled?'Pause automatic discovery':'Enable automatic discovery'?></button>
+      </form>
       <?php if($seeds):?>
       <h3>Opted-in discovery seeds</h3>
       <div class="table-scroll"><table><thead><tr><th>Original PDF / heading</th>

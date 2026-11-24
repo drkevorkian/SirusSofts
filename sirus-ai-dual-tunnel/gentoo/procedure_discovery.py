@@ -23,6 +23,8 @@ from procedure_review_queue import (_connect, _schema as _queue_schema,
 from research_evidence import SCOPE, ACTOR
 
 MAX_PEERS = 4
+AUTO_BATCH = 4
+MAX_AUTO_SEEDS = 128
 MAX_SUGGESTIONS = 512
 MAX_INPUT = 4096
 SCAN_INTERVAL = 30
@@ -119,6 +121,18 @@ def _schema(db):
     );
     CREATE INDEX IF NOT EXISTS procedure_discovery_suggestions_order
        ON procedure_discovery_suggestions(status,created,id);
+    CREATE TABLE IF NOT EXISTS procedure_auto_config (
+       id INTEGER PRIMARY KEY CHECK(id=1),
+       enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1)),
+       generation INTEGER NOT NULL DEFAULT 0,
+       cursor_token TEXT NOT NULL DEFAULT '', cursor_sha TEXT NOT NULL DEFAULT '',
+       next_due REAL NOT NULL DEFAULT 0, last_reason TEXT NOT NULL DEFAULT '',
+       actor TEXT NOT NULL DEFAULT '', updated REAL NOT NULL DEFAULT 0
+    );
+    INSERT OR IGNORE INTO procedure_auto_config(id) VALUES(1);
+    CREATE TABLE IF NOT EXISTS procedure_auto_seeds (
+       seed_id TEXT PRIMARY KEY REFERENCES procedure_discovery_seeds(id)
+    );
     """)
 
 
@@ -129,6 +143,110 @@ def _configured(queue):
     with closing(_connect(queue, writable=False)) as db:
         return db.execute("""SELECT 1 FROM sqlite_master
             WHERE type='table' AND name='procedure_discovery_seeds'""").fetchone() is not None
+
+
+def auto_status(queue):
+    """Read-only status; legacy and missing queues default to disabled."""
+    default = {"enabled": False, "enrolled": 0, "capacity": MAX_AUTO_SEEDS,
+               "last_reason": "", "actor": ""}
+    if not _configured(queue):
+        return default
+    with closing(_connect(queue, writable=False)) as db:
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                      "AND name='procedure_auto_config'").fetchone() is None:
+            return default
+        row = db.execute("SELECT * FROM procedure_auto_config WHERE id=1").fetchone()
+        if row is None:
+            return default
+        return {**default, "enabled": bool(row["enabled"]), "actor": row["actor"],
+                "last_reason": row["last_reason"],
+                "enrolled": db.execute("SELECT COUNT(*) FROM procedure_auto_seeds").fetchone()[0]}
+
+
+def configure_auto(*, queue, enabled, actor, confirmation):
+    """Explicit authenticated opt-in. Pause fences auto-seed workers only."""
+    if type(enabled) is not bool or not isinstance(actor, str) or not ACTOR.fullmatch(actor):
+        raise ValueError("Authenticated administrator required")
+    if confirmation != ("ENABLE AUTO DISCOVERY" if enabled else "PAUSE AUTO DISCOVERY"):
+        raise ValueError("Exact automatic discovery confirmation required")
+    with closing(_connect(queue, writable=True)) as db:
+        _schema(db)
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            db.execute("""UPDATE procedure_auto_config SET enabled=?,generation=generation+1,
+                next_due=0,actor=?,updated=?,last_reason='' WHERE id=1""",
+                (int(enabled), actor, time.time()))
+            if not enabled:
+                db.execute("""UPDATE procedure_discovery_seeds SET state='pending',
+                    token='',lease_until=0 WHERE state='leased' AND id IN
+                    (SELECT seed_id FROM procedure_auto_seeds)""")
+            db.execute("COMMIT")
+        except Exception:
+            db.execute("ROLLBACK")
+            raise
+    return {"recorded": True, "enabled": enabled, "automatic_review_registration": False}
+
+
+def _auto_enroll(*, queue, source, index, research_db, stamp):
+    """One bounded keyset page. No model calls or automatic review enrollment."""
+    with closing(_connect(queue, writable=False)) as db:
+        config = dict(db.execute("SELECT * FROM procedure_auto_config WHERE id=1").fetchone())
+        count = db.execute("SELECT COUNT(*) FROM procedure_auto_seeds").fetchone()[0]
+    if not config["enabled"] or config["next_due"] > stamp:
+        return 0
+    rows, eligible, reason = [], [], ""
+    try:
+        if count >= MAX_AUTO_SEEDS:
+            reason = "auto_seed_capacity_reached"
+        else:
+            with closing(open_index(index)) as idx:
+                rows = idx.execute("""SELECT m.token,m.sha,MIN(m.quote) AS heading
+                    FROM rel_mentions m JOIN rel_docs d ON d.sha=m.sha AND d.complete=1
+                    WHERE m.kind='procedure_heading' AND (m.token,m.sha)>(?,?)
+                    GROUP BY m.token,m.sha HAVING COUNT(*)=1
+                    ORDER BY m.token,m.sha LIMIT ?""",
+                    (config["cursor_token"], config["cursor_sha"], AUTO_BATCH)).fetchall()
+            with closing(_research(research_db)) as metadata:
+                for row in rows:
+                    sid, heading = "pdf:" + row["sha"], row["heading"]
+                    if _selection(metadata, sid, heading) is None:
+                        continue
+                    if _exact_heading(source=source,index=index,sid=sid,heading=heading) is not None:
+                        eligible.append((sid, heading))
+    except (OSError, sqlite3.Error, ValueError, RuntimeError, KeyError):
+        reason = "auto_enrollment_source_unavailable"
+    with closing(_connect(queue, writable=True)) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            current = dict(db.execute("SELECT * FROM procedure_auto_config WHERE id=1").fetchone())
+            if current != config:
+                db.execute("COMMIT")
+                return 0
+            inserted = 0
+            if not reason:
+                for sid, heading in eligible:
+                    key = _sha(sid + "|" + heading.lower())
+                    if db.execute("SELECT 1 FROM procedure_discovery_seeds WHERE id=?", (key,)).fetchone():
+                        continue  # manual and explicitly paused seeds remain untouched
+                    if count + inserted >= MAX_AUTO_SEEDS:
+                        reason = "auto_seed_capacity_reached"
+                        break
+                    db.execute("""INSERT INTO procedure_discovery_seeds
+                        (id,source_id,heading,created,updated) VALUES(?,?,?,?,?)""",
+                        (key,sid,heading,stamp,stamp))
+                    db.execute("INSERT INTO procedure_auto_seeds(seed_id) VALUES(?)", (key,))
+                    inserted += 1
+            cursor = (config["cursor_token"],config["cursor_sha"]) if reason else (
+                (rows[-1]["token"],rows[-1]["sha"]) if len(rows)==AUTO_BATCH else ("",""))
+            delay = BLOCK_INTERVAL if reason else SCAN_INTERVAL if len(rows)==AUTO_BATCH else SWEEP_INTERVAL
+            db.execute("""UPDATE procedure_auto_config SET cursor_token=?,cursor_sha=?,
+                next_due=?,last_reason=?,updated=? WHERE id=1""",
+                (*cursor,stamp+delay,reason,stamp))
+            db.execute("COMMIT")
+            return inserted
+        except Exception:
+            db.execute("ROLLBACK")
+            raise
 
 
 def register_seed(*, queue, source, index, research_db, source_id, heading, now=None):
@@ -187,6 +305,8 @@ def _claim(db, now):
         row = db.execute("""SELECT id,source_id,heading,cursor_sha,scanned
             FROM procedure_discovery_seeds
             WHERE state='pending' AND next_due<=?
+            AND (id NOT IN (SELECT seed_id FROM procedure_auto_seeds)
+                 OR (SELECT enabled FROM procedure_auto_config WHERE id=1)=1)
             ORDER BY next_due,updated,id LIMIT 1""", (now,)).fetchone()
         if row is None:
             db.execute("COMMIT")
@@ -247,9 +367,12 @@ def scan_once(*, queue, source, index, research_db, now=None):
     stamp = time.time() if now is None else now
     with closing(_connect(queue, writable=True)) as db:
         _schema(db)
+    enrolled = _auto_enroll(queue=queue,source=source,index=index,
+                            research_db=research_db,stamp=stamp)
+    with closing(_connect(queue, writable=True)) as db:
         claimed = _claim(db, stamp)
     if claimed is None:
-        return {"skipped": True, "reason": "no_due_seeds"}
+        return {"skipped": True, "reason": "no_due_seeds", "auto_enrolled": enrolled}
     seed, token = claimed
     suggested = []
     reason = ""
@@ -333,7 +456,7 @@ def scan_once(*, queue, source, index, research_db, now=None):
         except Exception:
             db.execute("ROLLBACK")
             raise
-    return {"seed_id":seed["id"],"peers_scanned":len(batch),
+    return {"seed_id":seed["id"],"peers_scanned":len(batch),"auto_enrolled":enrolled,
             "suggestions_observed": accepted, "reason":reason,
             "complete_sweep": not has_more and not reason,
             "review_targets_registered":0, "source_only":True}

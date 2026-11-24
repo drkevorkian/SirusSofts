@@ -49,7 +49,13 @@ $packet=cms_ai_procedures_payload(['operation'=>'vote_procedure','id'=>$id,
     'left_scope'=>$seed,'right_scope'=>$hash,'expected_hash'=>$hash,'decision'=>'reject',
     'reason'=>'Originals disagree','confirmation'=>'REJECT PRINTED EVIDENCE'],$actor);
 procedure_check($packet['left_scope']===$seed&&$packet['actor']===$actor,'Procedure packet vote');
+$auto=cms_ai_procedures_payload(['operation'=>'auto_enable',
+    'confirmation'=>'ENABLE AUTO DISCOVERY','actor'=>'model:1'],$actor);
+procedure_check($auto['actor']===$actor&&$auto['action']==='auto_enable',
+    'Automatic discovery binds session identity and exact confirmation');
 $wrong=[
+    [['operation'=>'auto_enable','confirmation'=>'YES'],$actor],
+    [['operation'=>'auto_pause','confirmation'=>'ENABLE AUTO DISCOVERY'],$actor],
     [['operation'=>'vote_procedure','id'=>$id,'decision'=>'support',
       'reason'=>'Reviewed evidence','confirmation'=>'SUPPORT PRINTED EVIDENCE'],$actor],
     [['operation'=>'review_scope','id'=>$id,'decision'=>'support',

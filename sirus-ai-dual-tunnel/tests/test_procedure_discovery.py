@@ -131,6 +131,48 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(result["current_candidate_count"],1)
         self.assertFalse(result["verified_conflict"])
 
+    def test_opt_in_auto_enrollment_and_pause_preserves_manual_seed(self):
+        from procedure_discovery import configure_auto,auto_status
+        self.assertFalse(auto_status(self.queue)["enabled"])
+        self.assertFalse(self.queue.exists())
+        manual=self.seed()["seed_id"]
+        self.assertEqual(auto_status(self.queue)["enrolled"],0)
+        with self.assertRaises(ValueError):
+            configure_auto(queue=self.queue,enabled=True,actor="model:1",
+                           confirmation="ENABLE AUTO DISCOVERY")
+        configure_auto(queue=self.queue,enabled=True,actor="cms-admin:1",
+                       confirmation="ENABLE AUTO DISCOVERY")
+        result=scan_once(**self.args(),now=10)
+        self.assertGreaterEqual(result["auto_enrolled"],1)
+        with sqlite3.connect(self.queue) as db:
+            ids=[r[0] for r in db.execute("SELECT seed_id FROM procedure_auto_seeds")]
+            self.assertNotIn(manual,ids)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM procedure_review_targets").fetchone()[0],0)
+            db.execute("UPDATE procedure_discovery_seeds SET state='leased',token='old',lease_until=10000 "
+                       "WHERE id=?", (ids[0],))
+        configure_auto(queue=self.queue,enabled=False,actor="cms-admin:1",
+                       confirmation="PAUSE AUTO DISCOVERY")
+        with sqlite3.connect(self.queue) as db:
+            self.assertEqual(db.execute("SELECT state,token FROM procedure_discovery_seeds WHERE id=?",
+                                        (ids[0],)).fetchone(),("pending",""))
+            db.execute("UPDATE procedure_discovery_seeds SET next_due=0 WHERE id=?", (manual,))
+        result=scan_once(**self.args(),now=20)
+        self.assertEqual(result["seed_id"],manual)
+        self.assertEqual(result["auto_enrolled"],0)
+        self.assertFalse(auto_status(self.queue)["enabled"])
+
+    def test_auto_seed_capacity_is_visible_and_never_evicts(self):
+        from unittest.mock import patch
+        from procedure_discovery import configure_auto,auto_status
+        configure_auto(queue=self.queue,enabled=True,actor="cms-admin:1",
+                       confirmation="ENABLE AUTO DISCOVERY")
+        with patch("procedure_discovery.MAX_AUTO_SEEDS",1):
+            scan_once(**self.args(),now=10)
+            self.assertEqual(auto_status(self.queue)["enrolled"],1)
+            self.assertEqual(auto_status(self.queue)["last_reason"],"auto_seed_capacity_reached")
+            scan_once(**self.args(),now=10000)
+            self.assertEqual(auto_status(self.queue)["enrolled"],1)
+
     def test_revocation_blocks_stale_suggestion_and_manual_acceptance(self):
         self.seed()
         scan_once(**self.args(),now=10)

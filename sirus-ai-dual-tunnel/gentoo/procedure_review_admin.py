@@ -15,7 +15,8 @@ import time
 
 from procedure_discovery import (_configured, _connect, _validate_suggestion,
                                  _schema as discovery_schema, _report,
-                                 register_seed, configure_seed, review_candidates)
+                                 register_seed, configure_seed, review_candidates,
+                                 auto_status, configure_auto)
 from procedure_review_queue import _json, _sha, _source_signature
 import equipment_attestation as attestation
 from manual_procedure_dependencies import inspect
@@ -108,7 +109,8 @@ def overview(*, queue, source, index, research_db):
     """Metadata-only, HMAC-authorized view; no text or write on initial GET."""
     if not _configured(queue):
         return {"configured":False,"attestations":attestation.recent(queue),"suggestions":[],"decisions":[],
-                "warning":"No operator-seeded private procedure discovery configured"}
+                "automatic_discovery":auto_status(queue),
+                "warning":"No private procedure discovery configured"}
     rows = _rows(queue,limit=MAX_VISIBLE)
     visible=[]
     for row in rows:
@@ -141,6 +143,7 @@ def overview(*, queue, source, index, research_db):
             ORDER BY created,id LIMIT 10""").fetchall()
     return {"configured":True,"attestations":attestation.recent(queue),"suggestions":visible,"seeds":[dict(x) for x in seeds],
             "decisions":[dict(x) for x in decision_rows],
+            "automatic_discovery":auto_status(queue),
             "votes":[dict(x) for x in votes],"blocked":[dict(x) for x in blocked],
             "note":"Candidate metadata only; no proof of fitment, validated conflict or repair"}
 
@@ -251,6 +254,11 @@ def control(data, *, queue, source, index, research_db):
     if action=="detail" and set(data)=={"local_only","action","id"}:
         return detail(queue=queue,suggestion_id=data["id"],source=source,
                       index=index,research_db=research_db)
+    if action in ("auto_enable","auto_pause") and set(data)=={
+            "local_only","action","actor","confirmation"}:
+        _validate_actor(data["actor"])
+        return configure_auto(queue=queue,enabled=action=="auto_enable",
+                              actor=data["actor"],confirmation=data["confirmation"])
     if action=="seed" and set(data)=={"local_only","action","source_id",
                                       "heading","actor"}:
         _validate_actor(data["actor"])
