@@ -49,7 +49,21 @@ AMD = 'http://127.0.0.1:18487'
 LOCAL_WORKERS = {'nvidia': NVIDIA, 'amd': AMD, 'cpu': CPU}
 MAC_RESEARCH = 'http://127.0.0.1:18588'
 MAC_ENABLE = Path('/etc/sirus-ai-dual/mac-research.enabled')
+AMD2_RESEARCH = 'http://127.0.0.1:18488'
+AMD2_ENABLE = Path('/etc/sirus-ai-dual/amd2-research.enabled')
+
+def amd2_research_enabled():
+    try:
+        metadata = AMD2_ENABLE.lstat()
+        return (stat.S_ISREG(metadata.st_mode) and metadata.st_uid == 0
+                and not metadata.st_mode & 0o022)
+    except OSError:
+        return False
+
 RESEARCH_WORKERS = dict(LOCAL_WORKERS, mac=MAC_RESEARCH)
+# Opt-in independent second AMD endpoint; no extra slot on existing Gentoo.
+if amd2_research_enabled():
+    RESEARCH_WORKERS['amd2'] = AMD2_RESEARCH
 
 def mac_research_enabled():
     # Explicit local operator opt-in, not a public API setting or URL.
@@ -638,6 +652,8 @@ class Engine:
     def _continuous_step(self, worker):
         if worker=='mac' and not mac_research_enabled():
             return False
+        if worker=='amd2' and not amd2_research_enabled():
+            return False
         endpoint=RESEARCH_WORKERS[worker]
         # An occupied interactive/explicit research endpoint is not eligible
         # for another background lease. Never queue multiple passes on it.
@@ -659,7 +675,11 @@ class Engine:
             lock.release()
 
     def _continuous_infer(self, messages, target, model_id, job_id):
-        if target=='mac':
+        if target=='amd2':
+            if not amd2_research_enabled() or 'amd2' not in RESEARCH_WORKERS:
+                raise RuntimeError('Second AMD research opt-in was revoked')
+            worker,endpoint='amd2',AMD2_RESEARCH
+        elif target=='mac':
             if not mac_research_enabled():
                 raise RuntimeError('Mac research opt-in was revoked')
             worker,endpoint='mac',MAC_RESEARCH
