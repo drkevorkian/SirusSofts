@@ -4,7 +4,7 @@ set -Eeuo pipefail
 umask 077
 fail(){ echo "FAIL: $*" >&2; exit 1; }
 repo="$(cd "$(dirname "$0")/.." && pwd)"
-mode="$1"; shift
+mode="${1:---plan}"; if [[ $# -gt 0 ]]; then shift; fi
 private=/root/sirus-compute-private
 bundle=/root/sirus-compute-enrollment
 node=/etc/sirus-gentoo-node
@@ -12,7 +12,7 @@ dual=/etc/sirus-ai-dual
 store=/srv/sirussofts/storage
 units=/etc/systemd/system
 host=74.208.40.187
-usage(){ echo 'Usage: install.sh --check|--plan|--prepare|--install LLAMA_SERVER MODEL RX590_INDEX R9390_INDEX|--activate|--pdf|--status'; }
+usage(){ echo 'Usage: install.sh --check|--plan|--prepare|--install LLAMA_SERVER MODEL RX590_INDEX R9390_INDEX|--activate|--enable-amd2|--pdf|--status'; }
 if [[ "$mode" == --check || "$mode" == --plan ]]; then
   bash -n "$0"
   python3 - "$repo" <<'PY'
@@ -166,7 +166,7 @@ PY
   service sirus-ai-output-tunnel root '/usr/bin/python3 /opt/sirus-ai-dual/gentoo/tunnel.py --channel output' ''
   systemctl daemon-reload
   echo 'Staged only. Verify device names above (RX590 first, R9390 second); run --activate after restoring private databases if available.'
-  echo 'R9 390 endpoint staged but not automatically started; the current router has one AMD slot.'
+  echo 'R9 390 endpoint staged but not started; use --enable-amd2 after thermal validation (continuous research auto target).'
   exit 0
 fi
 if [[ "$mode" == --activate ]]; then
@@ -195,6 +195,35 @@ if [[ "$mode" == --activate ]]; then
   done
   fail 'VPS output health unavailable; inspect tunnels; not enabled automatically'
 fi
+if [[ "$mode" == --enable-amd2 ]]; then
+  [[ $# == 0 && -f "$units/sirus-ai-amd2.service" ]] || fail 'Stage core first'
+  [[ -t 0 ]] || fail 'Interactive terminal required'
+  read -rp 'After successful sustained thermal testing, type ENABLE R9 390 RESEARCH: ' answer
+  [[ "$answer" == 'ENABLE R9 390 RESEARCH' ]] || fail 'Declined'
+  systemctl start sirus-ai-amd2
+  healthy=0
+  for _ in $(seq 1 120); do
+    if curl -fsS --max-time 2 http://127.0.0.1:18488/v1/models | python3 -c 'import json,sys; assert any(x.get("id")=="sirussofts-coder" for x in json.load(sys.stdin)["data"])' 2>/dev/null; then
+      healthy=1; break
+    fi
+    sleep 2
+  done
+  if [[ "$healthy" != 1 ]]; then
+    systemctl stop sirus-ai-amd2
+    fail 'Second AMD model did not become ready'
+  fi
+  install -m 0644 -o root -g root /dev/null "$dual/amd2-research.enabled"
+  # Stop/restart only the local input queue, retaining durable SQLite.
+  if ! systemctl restart sirus-ai-input; then
+    rm -f "$dual/amd2-research.enabled"
+    systemctl stop sirus-ai-amd2
+    systemctl restart sirus-ai-input || true
+    fail 'Router restart failed; second AMD opt-in removed'
+  fi
+  systemctl enable sirus-ai-amd2
+  echo 'R9 390 enabled as amd2, research-only. Select Auto with concurrency 3 in CMS; explicit AMD chat stays on RX 590.'
+  exit 0
+fi
 if [[ "$mode" == --pdf ]]; then
   [[ $# == 0 && -f "$units/sirus-ai-input.service" ]] || fail 'Stage core first'
   mountpoint -q "$store" && [[ "$(findmnt -M "$store" -n -o FSTYPE)" == ext4 ]] || fail 'Mount reviewed dedicated ext4 PDF SSD at /srv/sirussofts/storage; no disk writes to root fallback'
@@ -210,6 +239,8 @@ if [[ "$mode" == --pdf ]]; then
   setfacl -m u:siruspdf:--x,u:sirusnode:--x,u:sirusai:--x "$store" "$store/manuals"
   setfacl -R -m u:siruspdf:rwX "$store/manuals/inbox" "$store/manuals/objects" "$store/databases"
   setfacl -R -m u:sirusnode:rX "$store/manuals/objects"
+  find "$store/manuals/objects" -type d -exec setfacl -d -m u:sirusnode:rX,u:siruspdf:rwx {} +
+  find "$store/manuals/inbox" -type d -exec setfacl -d -m u:siruspdf:rwx {} +
   setfacl -m u:sirusnode:rx,u:sirusai:rx "$store/databases"
   setfacl -d -m u:sirusai:r--,u:sirusnode:r--,u:siruspdf:rwx "$store/databases"
   for f in "$store/databases/pdf_ingest.sqlite3"{,-wal,-shm}; do
