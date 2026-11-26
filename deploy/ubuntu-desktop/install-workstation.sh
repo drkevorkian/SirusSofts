@@ -6,7 +6,7 @@ case "${1:-}" in
 --test)
   [[ $EUID != 0 ]] || { echo "Run tests as your desktop user, not root"; exit 1; }
   lspci -nnk | grep -A3 -E 'VGA compatible controller|3D controller|Display controller'
-  nvidia-smi || echo "NVIDIA management check failed"
+  echo "Checking AMD GPU kernel drivers"
   if [[ -n ${DISPLAY:-} ]]; then glxinfo -B || true; fi
   vulkaninfo --summary
   # Small real compute test, with a checked result on each physical GPU.
@@ -36,7 +36,7 @@ int main(int argc,char **argv){
  unsigned seen=0;
  for(uint32_t i=0;i<n;i++){
  VkPhysicalDeviceProperties prop; vkGetPhysicalDeviceProperties(p[i],&prop);
- if(prop.deviceType==VK_PHYSICAL_DEVICE_TYPE_CPU || (prop.vendorID!=0x1002 && prop.vendorID!=0x10de))continue;
+ if(prop.deviceType==VK_PHYSICAL_DEVICE_TYPE_CPU || prop.vendorID!=0x1002)continue;
  printf("Testing %s\n",prop.deviceName); fflush(stdout);
  uint32_t qn=0; vkGetPhysicalDeviceQueueFamilyProperties(p[i],&qn,0);
  VkQueueFamilyProperties *qs=calloc(qn,sizeof(*qs)); vkGetPhysicalDeviceQueueFamilyProperties(p[i],&qn,qs);
@@ -69,10 +69,10 @@ int main(int argc,char **argv){
  CK(vkEndCommandBuffer(cb)); CK(vkQueueSubmit(queue,1,&(VkSubmitInfo){.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.commandBufferCount=1,.pCommandBuffers=&cb},0)); CK(vkQueueWaitIdle(queue));
  if(*(uint32_t*)ptr!=56088u){fprintf(stderr,"Incorrect compute result\n");return 1;}
  printf("PASS: %s (56088)\n",prop.deviceName);
- seen|=prop.vendorID==0x1002?1:2;
+ seen++;
  vkUnmapMemory(d,mem); vkDestroyCommandPool(d,cp,0); vkDestroyDescriptorPool(d,pool,0); vkDestroyPipeline(d,pipe,0); vkDestroyShaderModule(d,sm,0); vkDestroyPipelineLayout(d,pl,0); vkDestroyDescriptorSetLayout(d,sl,0); vkDestroyBuffer(d,b,0); vkFreeMemory(d,mem,0); vkDestroyDevice(d,0);
  }
- free(p); vkDestroyInstance(inst,0); if(seen!=3){fprintf(stderr,"Both AMD and NVIDIA must pass\n");return 1;} puts("PASS: both GPU vendors executed Vulkan compute"); return 0;
+ free(p); vkDestroyInstance(inst,0); if(seen<2){fprintf(stderr,"Two physical AMD GPUs must pass\n");return 1;} puts("PASS: both AMD GPUs executed Vulkan compute"); return 0;
 }
 EOF
   cc -std=c99 -O2 "$scratch/test.c" -lvulkan -o "$scratch/test"
@@ -82,15 +82,23 @@ EOF
   [[ $EUID == 0 ]] || { echo "Run with sudo bash"; exit 1; }
   [[ -d /run/systemd/system ]] || exit 1
   apt-get -o APT::Update::Error-Mode=any update
-  apt-get install -y --no-remove ca-certificates wget pciutils linux-firmware libgl1-mesa-dri mesa-vulkan-drivers mesa-utils vulkan-tools libvulkan-dev glslang-tools build-essential ubuntu-drivers-common lm-sensors
+  apt-get install -y --no-remove ca-certificates wget pciutils linux-firmware libgl1-mesa-dri mesa-vulkan-drivers mesa-utils vulkan-tools libvulkan-dev glslang-tools build-essential lm-sensors
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
   chmod 755 "$tmp"
   wget -O "$tmp/chrome.deb" https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
   chmod 644 "$tmp/chrome.deb"
   apt-get install -y --no-remove "$tmp/chrome.deb"
-  ubuntu-drivers list
-  ubuntu-drivers install
+  # Hawaii (CIK) needs amdgpu instead of the legacy radeon driver.
+  if lspci -nn | grep -Ei "VGA|3D controller|Display controller" | grep -Eiq "1002:67b[0-9a-f]"; then
+    if [[ -f /etc/default/grub ]]; then
+      install -d /etc/default/grub.d
+      printf '%s\n' 'GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT radeon.cik_support=0 amdgpu.cik_support=1"' > /etc/default/grub.d/99-sirus-amd-cik.cfg
+      update-grub
+    else
+      echo "Non-GRUB bootloader: manually add radeon.cik_support=0 amdgpu.cik_support=1"
+    fi
+  fi
   echo "Installation complete. Reboot manually, then run bash install-workstation.sh --test as your regular user."
   ;;
 *) echo "Usage: sudo bash install-workstation.sh OR bash install-workstation.sh --test"; exit 2;;
