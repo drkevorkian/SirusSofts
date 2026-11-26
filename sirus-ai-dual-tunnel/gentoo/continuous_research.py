@@ -777,7 +777,7 @@ class ContinuousResearch:
     def claim(self, *, now=None, worker=None, model_id=None):
         # Production dispatchers claim for one real, independently available
         # endpoint. The optional unbound path supports offline ledger callers.
-        if worker is not None and worker not in ("cpu","nvidia","amd","mac"):
+        if worker is not None and worker not in ("cpu","nvidia","amd","mac","amd2"):
             raise ValueError("Unknown local research worker")
         now = time.time() if now is None else now
         # GPU telemetry can execute a bounded local subprocess. Probe BEFORE
@@ -1238,7 +1238,7 @@ class ContinuousResearch:
             worker_counts=[dict(r) for r in db.execute("""SELECT worker,
                 sum(CASE WHEN state='leased' THEN 1 ELSE 0 END) active,
                 sum(CASE WHEN state='completed' AND updated>=? THEN 1 ELSE 0 END) completed_hour
-                FROM cr_jobs WHERE worker IN ('cpu','amd','nvidia','mac')
+                FROM cr_jobs WHERE worker IN ('cpu','amd','nvidia','mac','amd2')
                 AND (state='leased' OR (state='completed' AND updated>=?))
                 GROUP BY worker""",(time.time()-3600,time.time()-3600))]
             recent_jobs=db.execute("""SELECT j.id,j.cycle,j.state,
